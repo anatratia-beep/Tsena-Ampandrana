@@ -50,6 +50,45 @@ async function rels(zip: JSZip, path: string): Promise<Record<string, string>> {
   return out;
 }
 
+/**
+ * Fichier .xlsx coupé (téléchargement interrompu, export Google Sheets trop lourd à cause des photos) :
+ * la table des matières de fin manque. On relit les morceaux complets un par un et on reconstruit la table,
+ * pour récupérer tout ce qui est lisible (les lignes, et les photos arrivées avant la coupure).
+ */
+export function repairZip(buf: ArrayBuffer): { data: Uint8Array; entries: number } | null {
+  const d = new Uint8Array(buf); const dv = new DataView(buf);
+  const sig = (i: number, a: number, b: number) => d[i] === 0x50 && d[i + 1] === 0x4b && d[i + 2] === a && d[i + 3] === b;
+  const find = (from: number, a: number, b: number) => { for (let i = from; i < d.length - 3; i++) if (sig(i, a, b)) return i; return -1; };
+  const cd: number[] = []; let end = 0; let count = 0;
+  const push32 = (n: number) => cd.push(n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255);
+  const push16 = (n: number) => cd.push(n & 255, (n >>> 8) & 255);
+  let pos = 0;
+  while (pos < d.length - 30 && sig(pos, 3, 4)) {
+    const flags = dv.getUint16(pos + 6, true), method = dv.getUint16(pos + 8, true), time = dv.getUint16(pos + 10, true), date = dv.getUint16(pos + 12, true);
+    let crc = dv.getUint32(pos + 14, true), csz = dv.getUint32(pos + 18, true), usz = dv.getUint32(pos + 22, true);
+    const nl = dv.getUint16(pos + 26, true), el = dv.getUint16(pos + 28, true);
+    const start = pos + 30 + nl + el;
+    let next = -1;
+    if (flags & 8) {
+      // Taille connue seulement après les données (descripteur PK 07 08) : on cherche le descripteur qui correspond.
+      let j = find(start, 7, 8);
+      while (j >= 0 && j + 16 <= d.length && dv.getUint32(j + 8, true) !== j - start) j = find(j + 1, 7, 8);
+      if (j < 0 || j + 16 > d.length) break;
+      crc = dv.getUint32(j + 4, true); csz = dv.getUint32(j + 8, true); usz = dv.getUint32(j + 12, true); next = j + 16;
+    } else { next = start + csz; if (next > d.length) break; }
+    push32(0x02014b50); push16(20); push16(dv.getUint16(pos + 4, true)); push16(flags); push16(method); push16(time); push16(date);
+    push32(crc); push32(csz); push32(usz); push16(nl); push16(0); push16(0); push16(0); push16(0); push32(0); push32(pos);
+    for (let k = 0; k < nl; k++) cd.push(d[pos + 30 + k]);
+    count++; end = next; pos = next;
+  }
+  if (!count) return null;
+  const out = new Uint8Array(end + cd.length + 22);
+  out.set(d.subarray(0, end), 0); out.set(cd, end);
+  const e = new DataView(out.buffer, end + cd.length);
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, count, true); e.setUint16(10, count, true); e.setUint32(12, cd.length, true); e.setUint32(16, end, true);
+  return { data: out, entries: count };
+}
+
 const mimeOf = (path: string) => { const ext = path.split('.').pop()!.toLowerCase(); return ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg'; };
 
 /**
@@ -111,8 +150,13 @@ export async function readXlsx(data: ArrayBuffer | Blob, opts: { images?: boolea
   if (txt.startsWith('<') || txt.includes('<html')) throw new Error('Ce fichier n’est pas un vrai fichier Excel (c’est une page web enregistrée). Dans Google Sheets : Fichier → Télécharger → Microsoft Excel (.xlsx), puis importez le fichier téléchargé.');
   if (!(b[0] === 0x50 && b[1] === 0x4b)) throw new Error(`Ce fichier n’est pas un classeur Excel (.xlsx)${/[;,\t]/.test(txt) ? ' (on dirait un fichier CSV / texte)' : ''}. Ouvrez-le dans Excel ou Google Sheets puis enregistrez-le / téléchargez-le au format Microsoft Excel (.xlsx).`);
   let zip: JSZip;
+  let repaired = false;
   try { zip = await JSZip.loadAsync(buf); }
-  catch { throw new Error('Le fichier Excel est incomplet ou abîmé (téléchargement interrompu ?). Téléchargez-le de nouveau (Google Sheets : Fichier → Télécharger → Microsoft Excel .xlsx) et réessayez. Si cela recommence, envoyez-moi le fichier.'); }
+  catch {
+    const fixed = repairZip(buf);
+    try { if (!fixed) throw new Error(); zip = await JSZip.loadAsync(fixed.data); repaired = true; }
+    catch { throw new Error('Le fichier Excel est incomplet ou abîmé (téléchargement interrompu ?). Téléchargez-le de nouveau (Google Sheets : Fichier → Télécharger → Microsoft Excel .xlsx) et réessayez. Si cela recommence, envoyez-moi le fichier.'); }
+  }
   const wbPath = 'xl/workbook.xml';
   const wbFile = zip.file(wbPath);
   if (!wbFile) throw new Error("Ce fichier n'est pas un classeur Excel (.xlsx). Enregistrez-le au format « Classeur Excel ».");
@@ -127,6 +171,7 @@ export async function readXlsx(data: ArrayBuffer | Blob, opts: { images?: boolea
   }
 
   const cellImgs = opts.images ? await cellImageIndex(zip) : { byVm: new Map<number, string>(), byId: new Map<string, string>() };
+  let missingImages = 0;
   const sheets: Sheet[] = [];
   for (const s of byTag(wb, 'sheet')) {
     const rid = s.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id') || s.getAttribute('r:id')!;
@@ -165,7 +210,7 @@ export async function readXlsx(data: ArrayBuffer | Blob, opts: { images?: boolea
     });
 
     const images: SheetImage[] = [];
-    for (const ic of inCell) { const f = zip.file(ic.path); if (f) images.push({ row: ic.row, col: ic.col, blob: new Blob([await f.async('arraybuffer')], { type: mimeOf(ic.path) }) }); }
+    for (const ic of inCell) { const f = zip.file(ic.path); if (!f) { missingImages++; continue; } images.push({ row: ic.row, col: ic.col, blob: new Blob([await f.async('arraybuffer')], { type: mimeOf(ic.path) }) }); }
     if (opts.images) {
       const sRels = await rels(zip, path);
       for (const dEl of byTag(doc, 'drawing')) {
@@ -181,7 +226,7 @@ export async function readXlsx(data: ArrayBuffer | Blob, opts: { images?: boolea
           if (!from || !blip) continue;
           const embed = blip.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'embed') || blip.getAttribute('r:embed');
           const media = embed && dRels[embed] && zip.file(dRels[embed]);
-          if (!media) continue;
+          if (!media) { missingImages++; continue; }
           const row = parseInt(byTag(from, 'row')[0].textContent || '0', 10);
           const col = parseInt(byTag(from, 'col')[0].textContent || '0', 10);
           const ext = dRels[embed!].split('.').pop()!.toLowerCase();
@@ -192,6 +237,8 @@ export async function readXlsx(data: ArrayBuffer | Blob, opts: { images?: boolea
     }
     sheets.push({ name: s.getAttribute('name') || 'Feuille', rows, merges, images });
   }
+  if (repaired) (sheets as Sheet[] & { repaired?: { missingImages: number } }).repaired = { missingImages };
+  if (!sheets.length && repaired) throw new Error('Le fichier Excel est coupé avant les lignes : téléchargez-le de nouveau.');
   return sheets;
 }
 

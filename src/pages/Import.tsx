@@ -134,11 +134,14 @@ export function ImportPage() {
   const cats = useTable<Category>('categories');
   const [tplCat, setTplCat] = useState('');
   const [simpleOk, setSimpleOk] = useState(false);
+  const [repairNote, setRepairNote] = useState<string | null>(null);
 
   async function open(f: File) {
-    setError(null); setBusy(true); setSheets(null); setKind(null); setFile(f);
+    setError(null); setBusy(true); setSheets(null); setKind(null); setFile(f); setRepairNote(null);
     try {
       const sh = await readXlsx(f, { images: true });
+      const rep = (sh as Sheet[] & { repaired?: { missingImages: number } }).repaired;
+      if (rep) setRepairNote(`Ce fichier est coupé (téléchargement ou export interrompu, souvent à cause de photos trop lourdes). Tout ce qui était lisible a été récupéré : toutes les lignes${rep.missingImages ? `, mais ${rep.missingImages} photo(s) manquent (elles étaient après la coupure)` : ' et les photos'}. Vous pouvez importer ; les photos manquantes s’ajoutent ensuite dans la fiche article, ou en important de nouveau un fichier complet.`);
       sh.forEach(fillMerged);
       const pageCat = templateCategory(sh);
       if (pageCat) { setSheets(sh); setKind('page'); setPageId(pageCat.id); return; }
@@ -165,6 +168,7 @@ export function ImportPage() {
         </label>
         {busy && <p className="small muted">Lecture du fichier…</p>}
         {error && <div className="notice notice-danger"><Icon name="alert" /><span>{error}</span></div>}
+        {repairNote && <div className="notice notice-warn"><Icon name="alert" /><span>{repairNote}</span></div>}
       </div>
       {sheets && kind === 'page' && get<Category>('categories', pageId) && <PageImport cat={get<Category>('categories', pageId)!} sheets={sheets} onDone={() => { setSheets(null); navigate(`/articles?cat=${pageId}`); }} />}
       {sheets && kind === 'mapped' && <MappedImport sheets={sheets} onSimple={simpleOk ? () => setKind('articles') : undefined} onDone={(pid) => { setSheets(null); navigate(pid ? `/articles?cat=${pid}` : '/articles'); }} />}
