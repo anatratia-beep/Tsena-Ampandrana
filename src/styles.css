@@ -1158,3 +1158,8 @@ tr.row-error td { background: var(--danger-soft); }
 .settle-list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--radius-s); background: var(--surface-2); }
 .settle-list li > div { min-width: 0; }
 .settle-list strong.num { white-space: nowrap; }
+/* Import avec les variantes de la page */
+.map-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 14px; }
+.map-group { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 280px); gap: 10px; align-items: end; padding: 8px 0; border-bottom: 1px solid var(--line); }
+@media (max-width: 600px) { .map-group { grid-template-columns: 1fr; } }
+.steps-list { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 6px; }

@@ -153,8 +153,8 @@ export async function saveArticles(cat: Category, rows: ArticleInput[], reason =
 
 // ---------- Modèle Excel par page ----------
 const MARK = 'tsena-categorie:';
-const FIXED = ['Nom de l’article (facultatif)', 'Prix de revient (Ar)', 'PV détail (Ar)', 'PV gros (Ar)', 'Stock', 'Alerte stock bas'];
-const PHOTO_COL = 'Photo (image collée dans la ligne, facultatif)';
+export const FIXED = ['Nom de l’article (facultatif)', 'Prix de revient (Ar)', 'PV détail (Ar)', 'PV gros (Ar)', 'Stock', 'Alerte stock bas'];
+export const PHOTO_COL = 'Photo (image collée dans la ligne, facultatif)';
 
 /** Fichier Excel propre à une page : une colonne par variante (liste déroulante), puis prix et stock. Les articles existants sont déjà remplis. */
 export async function categoryTemplate(cat: Category) {

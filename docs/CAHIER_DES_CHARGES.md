@@ -642,3 +642,16 @@ Une liste de choix ne doit pas prendre toute la place : peu d'options → bouton
 | Terminées | Commandes livrées / refusées **et réglées** (ou sans livreur). |
 | Filtres de chaque onglet | Recherche (dans l'onglet seulement), **Livreur**, **Page** (+ période pour Terminées / Annulées). La recherche ne mélange plus les onglets ; une ligne « Aussi trouvé dans : … (n) » permet d'aller à l'onglet concerné. Livraisons : filtre **Page** ajouté (À livrer, En cours). |
 | Livraisons → Retour livreur | Reste disponible pour tout faire en une fois par livreur. |
+
+## 12 bis. Import du stock de départ avec les variantes de la page *(11/10/2026)*
+
+| Point | Règle |
+|---|---|
+| Deux façons | **a.** Fichier de la page (Importer → « Télécharger le fichier de la page » : une colonne par variante, liste déroulante). **b.** **Votre propre fichier Excel**, tel qu'il est (ex. CATEGORIE, MODELE, COULEUR, PT, STK THEO FINALE, PRIX DE REVIENT, PV détail, PV gros, PHOTOS). |
+| Lecture de votre fichier | Reconnu automatiquement quand une colonne « Catégorie / Page » nomme une page qui a des variantes (ou quand les titres correspondent aux variantes). Écran « Lire votre fichier avec les variantes de la page » : 1. colonnes communes (catégorie, nom, prix de revient, PV détail, PV gros, stock, alerte) ; 2. page de chaque groupe de lignes (d'après la colonne Catégorie ; « Ne pas importer ces lignes » possible) ; 3. colonne de chaque variante de la page. Tout est deviné d'après les titres (PT → Pointure, STK… → Stock, etc.) et modifiable. |
+| Valeurs nouvelles | Case cochée par défaut : les valeurs absentes de la page (nouveau modèle S6, couleur Noir, pointure 36-37…) sont ajoutées à la page à l'import ; elles sont listées avant. |
+| Stock négatif | Case cochée par défaut : un stock négatif du fichier est importé à 0 (à vérifier à l'inventaire). |
+| Contrôle | Chaque ligne est vérifiée avant d'enregistrer (variante manquante, doublon, prix non numérique, PV détail manquant pour un nouvel article) ; « Importer seulement les lignes correctes » possible. Photos collées dans la ligne reprises. Article déjà existant : prix mis à jour et stock remis à la quantité du fichier. |
+| Plusieurs pages | Un même fichier peut contenir plusieurs pages (colonne Catégorie) : chaque page utilise ses propres variantes. |
+| Correction | Un fichier dont la 1re colonne s'appelle « Catégorie » n'est plus pris pour une liste de catégories (seulement si le fichier n'a que Catégorie / Catégorie parente). |
+| Modèle « Articles simples » | Gardé pour les articles sans variantes de page (ancien mode couleur / taille). |

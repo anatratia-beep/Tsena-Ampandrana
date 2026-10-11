@@ -13,6 +13,7 @@ import { Icon } from '../ui/icons';
 import { categoryOptions, Thumb } from './Products';
 import { activeAttrs, categoryTemplate, parseCategoryFile, saveArticles, templateCategory, type ImportRow } from '../lib/attrs';
 import type { Category } from '../lib/catalog';
+import { MappedImport, looksLikePageFile, headerRowOf } from './ImportMapped';
 
 /** Import du fichier d'une page : contrôle de chaque ligne, puis création / mise à jour des articles. */
 function PageImport({ cat, sheets, onDone }: { cat: Category; sheets: Sheet[]; onDone: () => void }) {
@@ -65,7 +66,7 @@ function PageImport({ cat, sheets, onDone }: { cat: Category; sheets: Sheet[]; o
 // ---------- Modèles ----------
 const TEMPLATES = [
   {
-    key: 'articles', title: 'Articles et stock initial', text: 'Une ligne par variante (couleur + taille) : catégorie, code, nom, stock, prix de revient, prix de vente.',
+    key: 'articles', title: 'Articles simples (sans variantes de page)', text: 'Ancien mode : une ligne par couleur + taille. Pour une page qui a ses variantes (Modèle, Pointure…), utilisez plutôt le fichier de la page ci-dessus.',
     build: () => writeXlsx([
       { name: 'Articles', columns: [
         { header: 'Catégorie', width: 20, input: true }, { header: 'Code article', width: 13, input: true }, { header: "Nom de l'article", width: 34, input: true },
@@ -120,7 +121,7 @@ const TEMPLATES = [
   },
 ];
 
-type Kind = 'articles' | 'commande' | 'fournisseurs' | 'categories' | 'page';
+type Kind = 'articles' | 'commande' | 'fournisseurs' | 'categories' | 'page' | 'mapped';
 
 export function ImportPage() {
   const can = useCan();
@@ -132,6 +133,7 @@ export function ImportPage() {
   const [pageId, setPageId] = useState('');
   const cats = useTable<Category>('categories');
   const [tplCat, setTplCat] = useState('');
+  const [simpleOk, setSimpleOk] = useState(false);
 
   async function open(f: File) {
     setError(null); setBusy(true); setSheets(null); setKind(null); setFile(f);
@@ -142,6 +144,9 @@ export function ImportPage() {
       if (pageCat) { setSheets(sh); setKind('page'); setPageId(pageCat.id); return; }
       if (sh.some((x) => x.name === 'tsena')) throw new Error('Ce fichier a été fait pour une page qui n’existe plus dans Trésor en ligne (supprimée ?). Téléchargez de nouveau le fichier de la page.');
       const k = detectKind(sh);
+      const pages = all<Category>('categories').filter((c) => activeAttrs(c).length);
+      // Fichier à vous (vos colonnes) : lu avec les variantes de la page quand il nomme une page ou a les colonnes de ses variantes.
+      if (k !== 'commande' && k !== 'fournisseurs' && k !== 'categories' && pages.length && (looksLikePageFile(sh, pages) || (!k && sh.some((x) => headerRowOf(x) >= 0)))) { setSheets(sh); setKind('mapped'); setSimpleOk(k === 'articles'); return; }
       if (!k) throw new Error("Je ne reconnais pas les colonnes de ce fichier. Utilisez un des modèles ci-dessous, ou vérifiez la ligne des titres.");
       setSheets(sh); setKind(k);
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
@@ -162,13 +167,20 @@ export function ImportPage() {
         {error && <div className="notice notice-danger"><Icon name="alert" /><span>{error}</span></div>}
       </div>
       {sheets && kind === 'page' && get<Category>('categories', pageId) && <PageImport cat={get<Category>('categories', pageId)!} sheets={sheets} onDone={() => { setSheets(null); navigate(`/articles?cat=${pageId}`); }} />}
+      {sheets && kind === 'mapped' && <MappedImport sheets={sheets} onSimple={simpleOk ? () => setKind('articles') : undefined} onDone={(pid) => { setSheets(null); navigate(pid ? `/articles?cat=${pid}` : '/articles'); }} />}
       {sheets && kind === 'articles' && file && <ArticlesImport sheets={sheets} fileName={file.name} onDone={() => { setSheets(null); navigate('/articles'); }} />}
       {sheets && kind === 'commande' && file && <OrderImport sheets={sheets} fileName={file.name} onDone={(id) => { setSheets(null); navigate('/achats/' + id); }} />}
       {sheets && kind === 'fournisseurs' && <SimpleImport kind="fournisseurs" sheets={sheets} onDone={() => setSheets(null)} />}
       {sheets && kind === 'categories' && <SimpleImport kind="categories" sheets={sheets} onDone={() => setSheets(null)} />}
 
       <div className="card stack">
-        <div><h2>Articles d’une page (recommandé)</h2><p className="small muted">1. Créez la page et ses variantes dans <a href="#/pages">Pages et variantes</a>. 2. Téléchargez le fichier de la page : une colonne par variante avec liste déroulante, puis prix et stock (les articles existants sont déjà remplis). 3. Remplissez-le et importez-le ci-dessus : chaque ligne est contrôlée avant d’enregistrer.</p></div>
+        <div><h2>Stock de départ d’une page (avec ses variantes)</h2>
+          <ol className="small steps-list">
+            <li><strong>Créez la page et ses variantes</strong> dans <a href="#/pages">Pages et variantes</a> (ex. page « Sandale » : Modèle, Couleur, Pointure). Les valeurs (S5, Rose, 37…) peuvent rester incomplètes.</li>
+            <li><strong>Deux façons de remplir :</strong> <em>a.</em> téléchargez le fichier de la page ci-dessous (une colonne par variante, avec liste déroulante) ; ou <em>b.</em> gardez <strong>votre propre fichier Excel</strong> tel qu’il est (une ligne par article : modèle, couleur, pointure, stock, prix…).</li>
+            <li><strong>Importez-le</strong> en haut de cette page : vous indiquez quelle colonne correspond à chaque variante (déjà deviné d’après les titres), les valeurs nouvelles sont ajoutées à la page, et chaque ligne est contrôlée avant d’enregistrer.</li>
+            <li>Pour une <strong>autre page</strong> (autres variantes), même chose : un fichier peut même contenir plusieurs pages si une colonne « Catégorie » indique la page de chaque ligne.</li>
+          </ol></div>
         <div className="row" style={{ alignItems: 'flex-end' }}>
           <div style={{ flex: '1 1 240px' }}><SelectField label="Page" required value={tplCat} onChange={setTplCat} options={[{ value: '', label: 'Choisir la page…' }, ...cats.filter((c) => activeAttrs(c).length).map((c) => ({ value: c.id, label: c.name }))]} /></div>
           <Button icon="download" disabled={!tplCat} onClick={async () => { const c = get<Category>('categories', tplCat)!; downloadBlob(await categoryTemplate(c), `Tresor-en-ligne-${(c.code || 'page').toLowerCase()}-articles.xlsx`); }}>Télécharger le fichier de la page</Button>
@@ -236,7 +248,7 @@ function detectKind(sheets: Sheet[]): Kind | null {
     if (a && (a.map.code != null || a.map.model != null)) return 'articles';
     const h = (s.rows[0] || []).map(normHeader);
     if (h.includes('nom') && (h.includes('contact') || h.includes('boutique lien'))) return 'fournisseurs';
-    if (h[0] === 'categorie') return 'categories';
+    if (h[0] === 'categorie' && h.filter(Boolean).length <= 2) return 'categories';
   }
   return null;
 }
