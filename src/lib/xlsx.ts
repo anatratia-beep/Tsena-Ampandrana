@@ -50,6 +50,57 @@ async function rels(zip: JSZip, path: string): Promise<Record<string, string>> {
   return out;
 }
 
+const mimeOf = (path: string) => { const ext = path.split('.').pop()!.toLowerCase(); return ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg'; };
+
+/**
+ * Images « dans la cellule » : Excel 365 / Google Sheets (« Insérer une image dans la cellule », données riches)
+ * et WPS (formule DISPIMG). Renvoie une fonction : n° de métadonnée (vm) ou identifiant DISPIMG → chemin de l'image.
+ */
+async function cellImageIndex(zip: JSZip) {
+  const byVm = new Map<number, string>();
+  const byId = new Map<string, string>();
+  try {
+    const rvRelFile = zip.file('xl/richData/richValueRel.xml');
+    const rvFile = zip.file('xl/richData/rdrichvalue.xml');
+    if (rvRelFile && rvFile) {
+      const relIds = byTag(parseXml(await rvRelFile.async('text')), 'rel').map((r) => r.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id') || r.getAttribute('r:id') || '');
+      const relMap = await rels(zip, 'xl/richData/richValueRel.xml');
+      const stFile = zip.file('xl/richData/rdrichvaluestructure.xml');
+      const structs = stFile ? byTag(parseXml(await stFile.async('text')), 's').map((st) => byTag(st, 'k').map((k) => k.getAttribute('n') || '')) : [];
+      const rvs = byTag(parseXml(await rvFile.async('text')), 'rv').map((rv) => {
+        const vals = byTag(rv, 'v').map((v) => v.textContent ?? '');
+        const keys = structs[Number(rv.getAttribute('s') || 0)] ?? [];
+        const k = keys.indexOf('_rvRel:LocalImageIdentifier');
+        const rel = Number(vals[k >= 0 ? k : 0]);
+        return relMap[relIds[rel]];
+      });
+      // vm (1, 2…) → valueMetadata → futureMetadata (rvb i) → valeur riche ; sinon correspondance directe.
+      const mdFile = zip.file('xl/metadata.xml');
+      let vmToRv: number[] = [];
+      if (mdFile) {
+        const md = parseXml(await mdFile.async('text'));
+        const future = byTag(md, 'futureMetadata').find((f) => f.getAttribute('name') === 'XLRICHVALUE');
+        const rvb = future ? byTag(future, 'bk').map((bk) => Number(byTag(bk, 'rvb')[0]?.getAttribute('i') ?? -1)) : [];
+        const vmBlock = byTag(md, 'valueMetadata')[0];
+        vmToRv = vmBlock ? byTag(vmBlock, 'bk').map((bk) => { const v = Number(byTag(bk, 'rc')[0]?.getAttribute('v') ?? -1); return rvb[v] ?? v; }) : [];
+      }
+      rvs.forEach((_, i) => { const idx = vmToRv.length ? vmToRv[i] : i; if (idx != null && rvs[idx]) byVm.set(i + 1, rvs[idx]); });
+    }
+    const ci = zip.file('xl/cellimages.xml');
+    if (ci) {
+      const doc = parseXml(await ci.async('text'));
+      const relMap = await rels(zip, 'xl/cellimages.xml');
+      for (const pic of byTag(doc, 'pic')) {
+        const name = byTag(pic, 'cNvPr')[0]?.getAttribute('name');
+        const blip = byTag(pic, 'blip')[0];
+        const embed = blip && (blip.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'embed') || blip.getAttribute('r:embed'));
+        if (name && embed && relMap[embed]) byId.set(name, relMap[embed]);
+      }
+    }
+  } catch { /* images dans les cellules illisibles : on continue sans */ }
+  return { byVm, byId };
+}
+
 /** Lit toutes les feuilles d'un classeur : valeurs (résultats des formules), cellules fusionnées, photos. */
 export async function readXlsx(data: ArrayBuffer | Blob, opts: { images?: boolean } = {}): Promise<Sheet[]> {
   const zip = await JSZip.loadAsync(data);
@@ -66,6 +117,7 @@ export async function readXlsx(data: ArrayBuffer | Blob, opts: { images?: boolea
     for (const si of byTag(doc, 'si')) shared.push(byTag(si, 't').map((t) => t.textContent ?? '').join(''));
   }
 
+  const cellImgs = opts.images ? await cellImageIndex(zip) : { byVm: new Map<number, string>(), byId: new Map<string, string>() };
   const sheets: Sheet[] = [];
   for (const s of byTag(wb, 'sheet')) {
     const rid = s.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id') || s.getAttribute('r:id')!;
@@ -74,9 +126,17 @@ export async function readXlsx(data: ArrayBuffer | Blob, opts: { images?: boolea
     if (!file) continue;
     const doc = parseXml(await file.async('text'));
     const rows: Cell[][] = [];
+    const inCell: { row: number; col: number; path: string }[] = [];
     for (const c of byTag(doc, 'c')) {
       const { r, c: col } = parseRef(c.getAttribute('r')!);
       const t = c.getAttribute('t');
+      if (opts.images) {
+        const vm = Number(c.getAttribute('vm') || 0);
+        const pVm = vm ? cellImgs.byVm.get(vm) : undefined;
+        const disp = /DISPIMG\(\s*"([^"]+)"/.exec(byTag(c, 'f')[0]?.textContent ?? '');
+        const pId = disp ? cellImgs.byId.get(disp[1]) : undefined;
+        if (pVm || pId) { inCell.push({ row: r, col, path: (pVm || pId)! }); continue; }
+      }
       const v = byTag(c, 'v')[0]?.textContent ?? null;
       let val: Cell = null;
       if (t === 's') val = v == null ? null : shared[parseInt(v, 10)] ?? null;
@@ -96,6 +156,7 @@ export async function readXlsx(data: ArrayBuffer | Blob, opts: { images?: boolea
     });
 
     const images: SheetImage[] = [];
+    for (const ic of inCell) { const f = zip.file(ic.path); if (f) images.push({ row: ic.row, col: ic.col, blob: new Blob([await f.async('arraybuffer')], { type: mimeOf(ic.path) }) }); }
     if (opts.images) {
       const sRels = await rels(zip, path);
       for (const dEl of byTag(doc, 'drawing')) {

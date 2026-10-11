@@ -2,7 +2,7 @@
 // on indique quelle colonne correspond à chaque variante (Modèle, Couleur, Pointure…) et aux prix / stock,
 // les valeurs nouvelles (ex. S6, 36-37) peuvent être ajoutées automatiquement à la page, puis chaque ligne est
 // contrôlée avant d'enregistrer. Un fichier peut contenir plusieurs pages (colonne Catégorie / Page).
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { save } from '../lib/db';
 import { audit } from '../lib/auth';
 import { fmtAr, normText, useCatalog, type CatAttr, type Category } from '../lib/catalog';
@@ -53,6 +53,12 @@ export function looksLikePageFile(sheets: Sheet[], pages: Category[]) {
     if (pages.some((p) => activeAttrs(p).length >= 2 && activeAttrs(p).every((a) => guessAttr(a, heads) >= 0))) return true;
   }
   return false;
+}
+
+function MiniPhoto({ blob }: { blob: Blob }) {
+  const [url, setUrl] = useState('');
+  useEffect(() => { const u = URL.createObjectURL(blob); setUrl(u); return () => URL.revokeObjectURL(u); }, [blob]);
+  return url ? <img className="imp-photo" src={url} alt="" /> : null;
 }
 
 export function MappedImport({ sheets, onDone, onSimple }: { sheets: Sheet[]; onDone: (pageId?: string) => void; onSimple?: () => void }) {
@@ -118,7 +124,7 @@ export function MappedImport({ sheets, onDone, onSimple }: { sheets: Sheet[]; on
     }
     const images = rows.flatMap((r, i) => (photoOf.has(r) ? [{ row: i + 1, col: head.length - 1, blob: photoOf.get(r)! }] : []));
     const parsed: ImportRow[] = parseCategoryFile(cat, [{ name: 'Articles', rows: vrows, merges: [], images }]).map((x) => ({ ...x, line: rows[x.line - 2] + 1 }));
-    const missingCols = attrs.filter((a) => colOfAttr(p, a) < 0).map((a) => a.name);
+    const missingCols = attrs.filter((a) => a.required !== false && colOfAttr(p, a) < 0).map((a) => a.name);
     return { p, cat, rows: parsed, added, negatives, missingCols, count: rows.length };
   }), [usedPages.map((p) => p.id).join(), dataRows, fixed, attrCols, groupPage, addNew, negZero, categories]);
 
@@ -171,7 +177,7 @@ export function MappedImport({ sheets, onDone, onSimple }: { sheets: Sheet[]; on
         {usedPages.map((p) => (
           <div key={p.id} className="stack-s">
             <strong className="small">{p.name}</strong>
-            <div className="map-grid">{activeAttrs(p).map((a) => <SelectField key={a.id} label={a.name} required={a.required !== false} value={String(colOfAttr(p, a))} onChange={(v) => setAttrCols({ ...attrCols, [`${p.id}:${a.id}`]: Number(v) })} options={colOpts} />)}</div>
+            <div className="map-grid">{activeAttrs(p).map((a) => <SelectField key={a.id} label={a.required === false ? `${a.name} (facultatif)` : a.name} required={a.required !== false} value={String(colOfAttr(p, a))} onChange={(v) => setAttrCols({ ...attrCols, [`${p.id}:${a.id}`]: Number(v) })} options={colOpts} />)}</div>
           </div>
         ))}
         <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={addNew} onChange={(e) => setAddNew(e.target.checked)} /> Ajouter à la page les valeurs qui n’existent pas encore (ex. un nouveau modèle ou une nouvelle pointure)</label>
@@ -179,6 +185,9 @@ export function MappedImport({ sheets, onDone, onSimple }: { sheets: Sheet[]; on
         {plan.map((x) => x.added.length > 0 && (
           <div key={x.p.id} className="notice"><Icon name="plus" /><span><strong>{x.p.name}</strong> : {x.added.length} valeur(s) nouvelle(s) seront ajoutées — {Object.entries(x.added.reduce((m, a) => ({ ...m, [a.attr]: [...(m[a.attr] ?? []), a.label] }), {} as Record<string, string[]>)).map(([k, v]) => `${k} : ${v.join(', ')}`).join(' · ')}</span></div>
         ))}
+        {(() => { const n = allRows.filter((r) => r.photo).length; const photoCol = heads.some((h) => h.startsWith('photo') || h.startsWith('image') || h === 'sary'); return n > 0
+          ? <div className="notice notice-ok"><Icon name="check" /><span><strong>{n} photo(s)</strong> trouvée(s) dans le fichier (images posées sur la ligne ou insérées dans la cellule). Elles seront réduites automatiquement (480 px, environ 40 Ko chacune) pour rester légères.</span></div>
+          : photoCol ? <div className="notice"><Icon name="alert" /><span>Aucune photo trouvée dans le fichier. Dans Google Sheets, utilisez « Insertion → Image → Image dans la cellule » (ou sur la cellule), puis « Fichier → Télécharger → Microsoft Excel (.xlsx) ». Les liens d’images (formule IMAGE avec une adresse web) ne contiennent pas la photo.</span></div> : null; })()}
         {plan.map((x) => x.negatives > 0 && <p key={x.p.id + 'n'} className="small muted">{x.p.name} : {x.negatives} stock(s) négatif(s) importé(s) à 0.</p>)}
         {plan.map((x) => x.missingCols.length > 0 && <div key={x.p.id + 'm'} className="notice notice-danger"><Icon name="alert" /><span>{x.p.name} : choisissez la colonne de {x.missingCols.join(', ')}.</span></div>)}
       </div>
@@ -198,7 +207,7 @@ export function MappedImport({ sheets, onDone, onSimple }: { sheets: Sheet[]; on
             <tbody>{[...bad, ...ok].slice(0, 400).map((r) => (
               <tr key={r.line} className={r.errors.length ? 'row-error' : ''}>
                 <td className="num">{r.line}</td>
-                <td><strong>{r.name || '—'}</strong><div className="small muted">{r.label}{r.photo ? ' · photo' : ''}</div></td>
+                <td><div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>{r.photo ? <MiniPhoto blob={r.photo} /> : <span className="imp-photo imp-nophoto" />}<div><strong>{r.name || '—'}</strong><div className="small muted">{r.label}</div></div></div></td>
                 <td className="small">{r.errors.length ? <span className="neg">{r.errors.join(' · ')}</span> : r.exists ? <>Mise à jour{r.input?.stock != null && r.current !== r.input.stock ? ` (stock ${r.current} → ${r.input.stock})` : ''}</> : 'Nouvel article'}</td>
                 <td className="t-num">{fmtAr(r.input?.cost)}</td><td className="t-num">{fmtAr(r.input?.retail)}</td><td className="t-num">{fmtAr(r.input?.wholesale ?? r.input?.retail)}</td><td className="t-num">{r.input?.stock ?? '—'}</td>
               </tr>
