@@ -159,6 +159,7 @@ export async function readXlsx(data: ArrayBuffer | Blob, opts: { images?: boolea
   }
   const wbPath = 'xl/workbook.xml';
   const wbFile = zip.file(wbPath);
+  if (!wbFile && repaired) throw new Error('Le fichier Excel est incomplet ou abîmé (coupé avant les lignes). Téléchargez-le de nouveau (Google Sheets : Fichier → Télécharger → Microsoft Excel .xlsx) et réessayez.');
   if (!wbFile) throw new Error("Ce fichier n'est pas un classeur Excel (.xlsx). Enregistrez-le au format « Classeur Excel ».");
   const wb = parseXml(await wbFile.async('text'));
   const wbRels = await rels(zip, wbPath);
