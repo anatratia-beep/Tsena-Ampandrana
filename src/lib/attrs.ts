@@ -209,7 +209,7 @@ const num = (v: Cell): number | undefined | null => {
 };
 
 /** Lit et contrôle le fichier ligne par ligne, sans rien enregistrer. */
-export function parseCategoryFile(cat: Category, sheets: Sheet[]): ImportRow[] {
+export function parseCategoryFile(cat: Category, sheets: Sheet[], opts: { allowNoPrice?: boolean } = {}): ImportRow[] {
   const sh = sheets.find((x) => x.name === 'Articles') ?? sheets[0];
   const head = (sh.rows[0] ?? []).map((h) => normHeader(h).replace(/ facultatif$/, ''));
   const attrs = activeAttrs(cat);
@@ -250,7 +250,7 @@ export function parseCategoryFile(cat: Category, sheets: Sheet[]): ImportRow[] {
     const key = articleId(cat.id, sel);
     if (!errors.length) { if (seen.has(key)) errors.push(`Même article que la ligne ${seen.get(key)}`); else seen.set(key, r + 1); }
     const existing = errors.length ? undefined : findArticle(cat.id, sel);
-    if (!errors.length && !existing && retail == null) errors.push('PV détail manquant pour un nouvel article');
+    if (!errors.length && !existing && retail == null && !opts.allowNoPrice) errors.push('PV détail manquant pour un nouvel article');
     const v = existing ? productVariants(existing.id)[0] : undefined;
     out.push({
       line: r + 1, errors, name: name || existing?.name || parts.name, label: parts.label, exists: !!existing, current: v ? stockOf(v.id) : undefined, photo: photoOf.get(r),

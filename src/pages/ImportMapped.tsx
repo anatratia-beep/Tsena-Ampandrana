@@ -79,6 +79,7 @@ export function MappedImport({ sheets, onDone, onSimple }: { sheets: Sheet[]; on
   const colOfAttr = (p: Category, a: CatAttr) => attrCols[`${p.id}:${a.id}`] ?? guessAttr(a, heads);
   const [addNew, setAddNew] = useState(true);
   const [negZero, setNegZero] = useState(true);
+  const [noPrice, setNoPrice] = useState(true);
   const [skip, setSkip] = useState(false);
   const [busy, setBusy] = useState(false);
   const newIds = useRef(new Map<string, string>()); // identifiants stables des valeurs à ajouter
@@ -123,10 +124,10 @@ export function MappedImport({ sheets, onDone, onSimple }: { sheets: Sheet[]; on
       for (let r = m ? m.r1 : im.row; r <= (m ? m.r2 : im.row); r++) if (!photoOf.has(r)) photoOf.set(r, im.blob);
     }
     const images = rows.flatMap((r, i) => (photoOf.has(r) ? [{ row: i + 1, col: head.length - 1, blob: photoOf.get(r)! }] : []));
-    const parsed: ImportRow[] = parseCategoryFile(cat, [{ name: 'Articles', rows: vrows, merges: [], images }]).map((x) => ({ ...x, line: rows[x.line - 2] + 1 }));
+    const parsed: ImportRow[] = parseCategoryFile(cat, [{ name: 'Articles', rows: vrows, merges: [], images }], { allowNoPrice: noPrice }).map((x) => ({ ...x, line: rows[x.line - 2] + 1 }));
     const missingCols = attrs.filter((a) => a.required !== false && colOfAttr(p, a) < 0).map((a) => a.name);
     return { p, cat, rows: parsed, added, negatives, missingCols, count: rows.length };
-  }), [usedPages.map((p) => p.id).join(), dataRows, fixed, attrCols, groupPage, addNew, negZero, categories]);
+  }), [usedPages.map((p) => p.id).join(), dataRows, fixed, attrCols, groupPage, addNew, negZero, noPrice, categories]);
 
   const allRows = plan.flatMap((x) => x.rows);
   const bad = allRows.filter((r) => r.errors.length);
@@ -181,6 +182,7 @@ export function MappedImport({ sheets, onDone, onSimple }: { sheets: Sheet[]; on
           </div>
         ))}
         <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={addNew} onChange={(e) => setAddNew(e.target.checked)} /> Ajouter à la page les valeurs qui n’existent pas encore (ex. un nouveau modèle ou une nouvelle pointure)</label>
+        <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={noPrice} onChange={(e) => setNoPrice(e.target.checked)} /> PV détail vide → importer quand même (prix à compléter plus tard dans la fiche article)</label>
         <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={negZero} onChange={(e) => setNegZero(e.target.checked)} /> Stock négatif dans le fichier → importer 0 (à vérifier à l’inventaire)</label>
         {plan.map((x) => x.added.length > 0 && (
           <div key={x.p.id} className="notice"><Icon name="plus" /><span><strong>{x.p.name}</strong> : {x.added.length} valeur(s) nouvelle(s) seront ajoutées — {Object.entries(x.added.reduce((m, a) => ({ ...m, [a.attr]: [...(m[a.attr] ?? []), a.label] }), {} as Record<string, string[]>)).map(([k, v]) => `${k} : ${v.join(', ')}`).join(' · ')}</span></div>
@@ -209,7 +211,7 @@ export function MappedImport({ sheets, onDone, onSimple }: { sheets: Sheet[]; on
                 <td className="num">{r.line}</td>
                 <td><div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>{r.photo ? <MiniPhoto blob={r.photo} /> : <span className="imp-photo imp-nophoto" />}<div><strong>{r.name || '—'}</strong><div className="small muted">{r.label}</div></div></div></td>
                 <td className="small">{r.errors.length ? <span className="neg">{r.errors.join(' · ')}</span> : r.exists ? <>Mise à jour{r.input?.stock != null && r.current !== r.input.stock ? ` (stock ${r.current} → ${r.input.stock})` : ''}</> : 'Nouvel article'}</td>
-                <td className="t-num">{fmtAr(r.input?.cost)}</td><td className="t-num">{fmtAr(r.input?.retail)}</td><td className="t-num">{fmtAr(r.input?.wholesale ?? r.input?.retail)}</td><td className="t-num">{r.input?.stock ?? '—'}</td>
+                <td className="t-num">{fmtAr(r.input?.cost)}</td><td className="t-num">{r.input && r.input.retail == null && !r.exists ? <span className="warn-text">à compléter</span> : fmtAr(r.input?.retail)}</td><td className="t-num">{fmtAr(r.input?.wholesale ?? r.input?.retail)}</td><td className="t-num">{r.input?.stock ?? '—'}</td>
               </tr>
             ))}</tbody>
           </table></div>

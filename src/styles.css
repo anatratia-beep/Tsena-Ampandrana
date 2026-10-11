@@ -1164,3 +1164,4 @@ tr.row-error td { background: var(--danger-soft); }
 @media (max-width: 600px) { .map-group { grid-template-columns: 1fr; } }
 .steps-list { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 6px; }
 .imp-photo { width: 40px; height: 40px; object-fit: cover; border-radius: 8px; flex: 0 0 auto; background: var(--surface-2); display: inline-block; }
+.warn-text { color: var(--gold, #B87A0E); font-weight: 700; }

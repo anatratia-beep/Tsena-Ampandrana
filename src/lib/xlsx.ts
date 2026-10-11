@@ -103,7 +103,16 @@ async function cellImageIndex(zip: JSZip) {
 
 /** Lit toutes les feuilles d'un classeur : valeurs (résultats des formules), cellules fusionnées, photos. */
 export async function readXlsx(data: ArrayBuffer | Blob, opts: { images?: boolean } = {}): Promise<Sheet[]> {
-  const zip = await JSZip.loadAsync(data);
+  const buf = data instanceof Blob ? await data.arrayBuffer() : data;
+  const b = new Uint8Array(buf.slice(0, 8));
+  const txt = new TextDecoder().decode(new Uint8Array(buf.slice(0, 200))).trim().toLowerCase();
+  if (!buf.byteLength) throw new Error('Le fichier est vide (0 octet). S’il vient de Google Drive / iCloud, attendez la fin du téléchargement ou téléchargez-le de nouveau, puis réessayez.');
+  if (b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0) throw new Error('Ce fichier est au format Excel ancien (.xls) ou protégé par un mot de passe. Ouvrez-le dans Excel ou Google Sheets, retirez le mot de passe si besoin, puis « Enregistrer sous / Télécharger » au format Classeur Excel (.xlsx), et importez ce nouveau fichier.');
+  if (txt.startsWith('<') || txt.includes('<html')) throw new Error('Ce fichier n’est pas un vrai fichier Excel (c’est une page web enregistrée). Dans Google Sheets : Fichier → Télécharger → Microsoft Excel (.xlsx), puis importez le fichier téléchargé.');
+  if (!(b[0] === 0x50 && b[1] === 0x4b)) throw new Error(`Ce fichier n’est pas un classeur Excel (.xlsx)${/[;,\t]/.test(txt) ? ' (on dirait un fichier CSV / texte)' : ''}. Ouvrez-le dans Excel ou Google Sheets puis enregistrez-le / téléchargez-le au format Microsoft Excel (.xlsx).`);
+  let zip: JSZip;
+  try { zip = await JSZip.loadAsync(buf); }
+  catch { throw new Error('Le fichier Excel est incomplet ou abîmé (téléchargement interrompu ?). Téléchargez-le de nouveau (Google Sheets : Fichier → Télécharger → Microsoft Excel .xlsx) et réessayez. Si cela recommence, envoyez-moi le fichier.'); }
   const wbPath = 'xl/workbook.xml';
   const wbFile = zip.file(wbPath);
   if (!wbFile) throw new Error("Ce fichier n'est pas un classeur Excel (.xlsx). Enregistrez-le au format « Classeur Excel ».");
