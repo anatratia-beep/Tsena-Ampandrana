@@ -77,10 +77,11 @@ export function ToolsTab() {
 export function ClearDataCard() {
   const [sel, setSel] = useState<string[]>(DATA_GROUPS.filter((g) => g.default).map((g) => g.key));
   const [open, setOpen] = useState(false);
+  // « Efface aussi » en chaîne : ex. Pages → Articles → Ventes, Stock, Achats.
+  const needsAll = (k: string, seen = new Set<string>()): string[] => { for (const n of DATA_GROUPS.find((x) => x.key === k)?.needs ?? []) if (!seen.has(n)) { seen.add(n); needsAll(n, seen); } return [...seen]; };
   const toggle = (k: string) => {
-    const g = DATA_GROUPS.find((x) => x.key === k)!;
-    if (sel.includes(k)) setSel(sel.filter((x) => x !== k && !DATA_GROUPS.find((d) => d.key === x)?.needs?.includes(k)));
-    else setSel([...new Set([...sel, k, ...(g.needs ?? [])])]);
+    if (sel.includes(k)) setSel(sel.filter((x) => x !== k && !needsAll(x).includes(k)));
+    else setSel([...new Set([...sel, k, ...needsAll(k)])]);
   };
   return (
     <div className="card stack" style={{ borderColor: 'var(--gold)' }}>

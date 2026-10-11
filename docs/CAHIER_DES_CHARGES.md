@@ -659,3 +659,11 @@ Une liste de choix ne doit pas prendre toute la place : peu d'options → bouton
 | Fichier illisible *(11/10/2026)* | Message clair selon la cause : fichier vide (téléchargement Drive / iCloud pas fini), ancien format .xls ou fichier protégé par mot de passe, page web enregistrée au lieu d'un .xlsx, CSV / texte, fichier incomplet ou abîmé (téléchargement interrompu) — avec la marche à suivre (Google Sheets : Fichier → Télécharger → Microsoft Excel .xlsx). |
 | PV détail vide | Case cochée par défaut : un nouvel article sans PV détail est importé quand même (« à compléter » dans le contrôle), le prix se complète ensuite dans la fiche article. |
 | Variantes facultatives | Une variante non cochée « obligatoire » dans Pages et variantes peut rester vide dans le fichier (et n'a pas besoin de colonne) : l'article est enregistré sans cette variante. Les variantes obligatoires vides donnent une erreur sur la ligne. |
+
+## 14 ter. Effacer les données de test : articles et pages séparés *(11/10/2026)*
+
+| Case | Efface aussi (cochées automatiquement) |
+|---|---|
+| **Articles (et lots)** | Ventes / commandes, mouvements de stock, achats et réceptions. Les **pages et leurs variantes restent**. |
+| **Pages (catégories) et leurs variantes** | Articles (donc aussi ventes, stock, achats) et boosts. |
+| Règle des cases | Cocher une case coche ce qu'elle efface aussi (en chaîne) ; décocher une case décoche celles qui en dépendent. Confirmation en tapant EFFACER, sauvegarde téléchargée avant. |
