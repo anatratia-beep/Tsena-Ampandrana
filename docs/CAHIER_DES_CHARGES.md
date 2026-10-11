@@ -631,3 +631,14 @@ Une liste de choix ne doit pas prendre toute la place : peu d'options → bouton
 | Ordre | Glisser-déposer la poignée ⋮⋮ (souris) ou flèches ↑↓ (téléphone) : les numéros deviennent 1, 2, 3… dans l'ordre choisi (même ordre que l'Espace Pubs). Un nouveau boost s'ajoute à la fin. |
 | Toutes les pages | Par page : boosts actifs, conversations, CA, CA par conversation, commandes, dépense, coût par conversation (tri par colonne) + conversations par jour. |
 | Tableau de bord | Sous le chiffre d'affaires : « N messages (boosts) · X Ar par message » ; dans « CA par page », sous le CA de chaque page : messages et CA par message. |
+
+## 10 quater. Retour livreur en deux étapes, règlement groupé, filtres par onglet *(11/10/2026)*
+
+| Point | Règle |
+|---|---|
+| Étape 1 — « Confirmer le retour du livreur » | Depuis une commande « En livraison » : seulement ce qui s'est passé (tout livré, refusé, en partie, choix du client, frais facturés, ce que le client a payé et comment). Plus de règlement dans cette fenêtre. La commande passe dans l'onglet **« À régler (livreur) »**. |
+| Étape 2 — « À régler (livreur) » | Nouvel onglet des Commandes (entre « En livraison » et « Terminées »), compteur en couleur. Cases à cocher + « Tout sélectionner » ; barre en haut : nombre sélectionné et ce que le livreur doit verser. **« Régler la sélection »** ouvre le règlement de **plusieurs commandes à la fois** (un seul livreur ; si plusieurs livreurs sont cochés, le bouton est bloqué et invite à filtrer par livreur). Aussi depuis une commande : « Régler avec … ». |
+| Fenêtre de règlement | Liste des commandes (articles, frais, déjà payé, à verser), totaux a → e, reste des fois précédentes, g. frais du livreur (gardés / payés à part / différés), montant remis, remarque obligatoire en cas d'écart. Une fois réglées, les commandes passent dans « Terminées ». |
+| Terminées | Commandes livrées / refusées **et réglées** (ou sans livreur). |
+| Filtres de chaque onglet | Recherche (dans l'onglet seulement), **Livreur**, **Page** (+ période pour Terminées / Annulées). La recherche ne mélange plus les onglets ; une ligne « Aussi trouvé dans : … (n) » permet d'aller à l'onglet concerné. Livraisons : filtre **Page** ajouté (À livrer, En cours). |
+| Livraisons → Retour livreur | Reste disponible pour tout faire en une fois par livreur. |

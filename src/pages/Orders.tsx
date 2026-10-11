@@ -1,5 +1,5 @@
 // Commandes clients : saisie (comme le cahier), préparation, remise au livreur, retour, échanges.
-import { useMyScope } from '../lib/scope';
+import { useMyScope, variantPage } from '../lib/scope';
 import { ScopeBar } from '../ui/scope';
 import { useMemo, useState } from 'react';
 import { audit, currentUser, useCan } from '../lib/auth';
@@ -7,13 +7,13 @@ import { bizNow, get, newId, save, useTable } from '../lib/db';
 import { fmtAr, fmtNum, nextNumber, parseNum, productVariants, useCatalog, variantLabel, type Product, type Variant , photoOf, matchQuery, productText} from '../lib/catalog';
 import {
   addPayment, availableOf, backToPrepare, cancelOrder, cancelDeliveryToShop, CHANNELS, completeAtShop, confirmOrder, dispatchOrder, exchangeBalance, findCustomer, fmtPhone,
-  canReassign, customerIdFor, choiceQty, hasPendingChoice, reassignCourier, isOutsideHours, isPickupZone, isWalkIn, orderLabel, handOverAtShop, itemsTotal, keptTotal, linePrice, markReady, normPhone, ORDER_STATUS, orderTotal, paidTotal, PAY_METHODS, recordReturn, remaining,
+  canReassign, customerIdFor, choiceQty, hasPendingChoice, needsSettlement, reassignCourier, isOutsideHours, isPickupZone, isWalkIn, orderLabel, handOverAtShop, itemsTotal, keptTotal, linePrice, markReady, normPhone, ORDER_STATUS, orderTotal, paidTotal, PAY_METHODS, recordReturn, remaining,
   priceOrder, removeLine, reservedIndex, totalQty, useWholesale, editPayment, courierSplit, withLineWholesale, discountAr, stockShortages,
   type Courier, type Customer, type Order, type OrderLine, type OrderStatus, type PayMethod, type Payment, type Zone, orderText, customerText, findCustomerBy,
 } from '../lib/orders';
 import { useCompany } from '../lib/settings';
 import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, feeState, payDeferredFees, settleCourier, type AccountId } from '../lib/money';
-import { Help, DiscountField, Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
+import { Help, DiscountField, Badge, Button, Confirm, Empty, FilterSelect, IconButton, Modal, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period';
 import { Thumb } from './Products';
@@ -24,15 +24,21 @@ import { ProspectForm, ProspectList } from './Prospects';
 import { Zones } from './Deliveries';
 import { bucketOf, type Prospect } from '../lib/prospects';
 import { AdjustList, LotPicker, LotTag, lotPhoto } from './Lots';
+import { SettleModal, settleRow } from './Settle';
+import { allPages } from '../lib/boosts';
 import { isLot, lotAvailable, lotOpen } from '../lib/lots';
 
-const TABS: { key: string; label: string; statuses: OrderStatus[] }[] = [
+const CLOSED: OrderStatus[] = ['delivered', 'partial', 'refused'];
+const TABS: { key: string; label: string; statuses: OrderStatus[]; match?: (o: Order) => boolean }[] = [
   { key: 'enregistrees', label: 'Enregistrées', statuses: ['new', 'confirmed'] },
   { key: 'attente', label: 'En attente de livraison', statuses: ['ready'] },
   { key: 'livraison', label: 'En livraison', statuses: ['out'] },
-  { key: 'terminees', label: 'Terminées', statuses: ['delivered', 'partial', 'refused'] },
+  { key: 'regler', label: 'À régler (livreur)', statuses: CLOSED, match: (o) => needsSettlement(o) },
+  { key: 'terminees', label: 'Terminées', statuses: CLOSED, match: (o) => !needsSettlement(o) },
   { key: 'annulees', label: 'Annulées', statuses: ['cancelled'] },
 ];
+const inTab = (t: (typeof TABS)[number], o: Order) => t.statuses.includes(o.status) && (!t.match || t.match(o));
+const hasPage = (o: Order, pageId: string) => o.lines.some((l) => variantPage(l.variantId) === pageId) || (o.lines.length === 0 && pageId === '');
 
 export function OrdersPage() {
   const route = useRoute();
@@ -54,48 +60,78 @@ function OrderList({ tabKey }: { tabKey?: string }) {
   const can = useCan();
   const orders = useTable<Order>('orders');
   useTable<Zone>('zones');
-  useTable<Courier>('couriers');
+  const couriers = useTable<Courier>('couriers');
   const [q, setQ] = useState('');
+  const [courierF, setCourierF] = useState('');
+  const [pageF, setPageF] = useState('');
   const [creating, setCreating] = useState(false);
   const [following, setFollowing] = useState(false);
+  const [sel, setSel] = useState<string[]>([]);
+  const [settling, setSettling] = useState(false);
   const prospects = useTable<Prospect>('prospects');
   const [period, setPeriod] = useState<Period>(defaultPeriod('today'));
   const scope = useMyScope();
-  const tab = TABS.find((t) => t.key === tabKey) ?? TABS.find((t) => orders.some((o) => !isWalkIn(o) && t.statuses.includes(o.status) && !['delivered', 'partial', 'refused', 'cancelled'].includes(o.status))) ?? TABS[0];
+  const tab = TABS.find((t) => t.key === tabKey) ?? TABS.find((t) => !['terminees', 'annulees'].includes(t.key) && orders.some((o) => !isWalkIn(o) && inTab(t, o))) ?? TABS[0];
   const done = ['terminees', 'annulees'].includes(tab.key);
-  const list = useMemo(() => {
-    const n = q.trim().toLowerCase(); const np = normPhone(q);
-    return orders
-      .filter((o) => !isWalkIn(o) && scope.mine(o))
-      .filter((o) => (n ? true : tab.statuses.includes(o.status)))
-      .filter((o) => !done || n || inPeriod(o.createdAt, period))
-      .filter((o) => !n || matchQuery(orderText(o), q))
-      .sort((a, b) => (done ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt)));
-  }, [orders, tab.key, q, period, scope.on]);
+  const regler = tab.key === 'regler';
+  const pages = allPages().filter((p) => !scope.on || scope.pages.includes(p.id));
+  // Filtres de l'onglet : livreur, page, recherche (et période pour les commandes terminées / annulées).
+  const base = (o: Order) => !isWalkIn(o) && scope.mine(o) && (!courierF || o.courierId === courierF) && (!pageF || hasPage(o, pageF)) && (!q.trim() || matchQuery(orderText(o), q));
+  const list = useMemo(() => orders
+    .filter((o) => base(o) && inTab(tab, o))
+    .filter((o) => !done || q.trim() || inPeriod(o.createdAt, period))
+    .sort((a, b) => (done ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt))),
+  [orders, tab.key, q, period, scope.on, courierF, pageF]);
+  // La recherche reste dans l'onglet ; on indique seulement où d'autres commandes correspondent.
+  const elsewhere = q.trim() ? TABS.filter((t) => t.key !== tab.key).map((t) => ({ t, n: orders.filter((o) => base(o) && inTab(t, o)).length })).filter((x) => x.n) : [];
+  const selected = list.filter((o) => sel.includes(o.id));
+  const selCouriers = [...new Set(selected.map((o) => o.courierId))];
+  const selCourier = selCouriers.length === 1 ? couriers.find((c) => c.id === selCouriers[0]) : undefined;
+  const selDue = selected.reduce((t, o) => t + settleRow(o).e, 0);
+  const switchTab = (k: string) => { setSel([]); navigate('/commandes/' + k); };
 
   return (
     <>
-      <PageHead title="Commandes" subtitle="Commandes Facebook, téléphone et autres, jusqu’à la livraison."
+      <PageHead title="Commandes" subtitle="Commandes Facebook, téléphone et autres, jusqu’à la livraison et au règlement du livreur."
         actions={can('orders.create') && <><Button variant="ghost" icon="users" onClick={() => setFollowing(true)}>Client à suivre</Button><Button icon="plus" onClick={() => setCreating(true)}>Nouvelle commande</Button></>} />
       <ScopeBar scope={scope} mineLabel="Mes commandes" text="Vous voyez les commandes que vous avez enregistrées. Les livraisons du jour restent visibles par tous dans Livraisons." />
       <div className="tabs" role="tablist">
-        {(() => { const n = prospects.filter((x) => x.status === 'open' && scope.mine({ createdBy: x.ownerId, createdByName: x.ownerName }) && bucketOf(x) !== 'later').length; return <button role="tab" aria-selected={tabKey === 'suivre'} onClick={() => navigate('/commandes/suivre')}>À suivre{n ? <span className="tab-count tab-count-hot">{n}</span> : null}</button>; })()}
+        {(() => { const n = prospects.filter((x) => x.status === 'open' && scope.mine({ createdBy: x.ownerId, createdByName: x.ownerName }) && bucketOf(x) !== 'later').length; return <button role="tab" aria-selected={tabKey === 'suivre'} onClick={() => switchTab('suivre')}>À suivre{n ? <span className="tab-count tab-count-hot">{n}</span> : null}</button>; })()}
         {TABS.map((t) => {
-          const n = orders.filter((o) => !isWalkIn(o) && scope.mine(o) && t.statuses.includes(o.status)).length;
-          return <button key={t.key} role="tab" aria-selected={tabKey !== 'suivre' && tab.key === t.key} onClick={() => navigate('/commandes/' + t.key)}>{t.label}{!['terminees', 'annulees'].includes(t.key) && n ? <span className="tab-count">{n}</span> : null}</button>;
+          const n = orders.filter((o) => !isWalkIn(o) && scope.mine(o) && inTab(t, o)).length;
+          return <button key={t.key} role="tab" aria-selected={tabKey !== 'suivre' && tab.key === t.key} onClick={() => switchTab(t.key)}>{t.label}{!['terminees', 'annulees'].includes(t.key) && n ? <span className={`tab-count ${t.key === 'regler' ? 'tab-count-hot' : ''}`}>{n}</span> : null}</button>;
         })}
       </div>
       {tabKey === 'suivre' ? <ProspectList /> : <>
-      <div className="card stack">
-        <div className="field"><input aria-label="Rechercher" placeholder="Rechercher : téléphone, nom, Facebook, n°, lieu, article, montant…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      <div className="card stack-s order-filters">
+        <div className="row">
+          <div className="field" style={{ flex: '2 1 240px' }}><input aria-label="Rechercher" placeholder={`Rechercher dans « ${tab.label} » : téléphone, nom, n°, lieu, article…`} value={q} onChange={(e) => setQ(e.target.value)} /></div>
+          <div className="field" style={{ flex: '1 1 160px' }}><FilterSelect label="Livreur" value={courierF} onChange={(v) => { setCourierF(v); setSel([]); }} options={[{ value: '', label: 'Tous les livreurs' }, ...couriers.filter((c) => c.active !== false).sort((a, b) => a.name.localeCompare(b.name, 'fr')).map((c) => ({ value: c.id, label: c.name }))]} /></div>
+          {pages.length > 1 && <div className="field" style={{ flex: '1 1 160px' }}><FilterSelect label="Page" value={pageF} onChange={setPageF} options={[{ value: '', label: 'Toutes les pages' }, ...pages.map((p) => ({ value: p.id, label: p.name }))]} /></div>}
+        </div>
         {done && !q && <PeriodPicker value={period} onChange={setPeriod} />}
+        {elsewhere.length > 0 && <p className="small muted" style={{ margin: 0 }}>Aussi trouvé dans : {elsewhere.map(({ t, n }, i) => <span key={t.key}>{i ? ', ' : ''}<button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => switchTab(t.key)}>{t.label} ({n})</button></span>)}</p>}
       </div>
+      {regler && list.length > 0 && (
+        <div className="card settle-bar">
+          <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={selected.length === list.length} onChange={(e) => setSel(e.target.checked ? list.map((o) => o.id) : [])} /> Tout sélectionner</label>
+          <span className="small">{selected.length ? <>{selected.length} sélectionnée(s){selCourier ? <> · {selCourier.name} doit verser <strong>{fmtAr(selDue)}</strong></> : null}</> : 'Cochez les commandes que le livreur règle maintenant.'}</span>
+          {selCouriers.length > 1 && <span className="small neg">Plusieurs livreurs : choisissez un livreur dans le filtre.</span>}
+          {can('couriers.settle') && <Button icon="check" disabled={!selCourier} onClick={() => setSettling(true)}>Régler la sélection</Button>}
+        </div>
+      )}
       <div className="card card-flush">
-        {list.length === 0 ? <Empty icon="list" title={q ? 'Aucune commande trouvée' : 'Aucune commande ici'}>{tab.key === 'enregistrees' && can('orders.create') && !q && <Button icon="plus" onClick={() => setCreating(true)}>Saisir une commande</Button>}</Empty> : (
-          <ul className="list">{list.map((o) => <OrderRow key={o.id} o={o} />)}</ul>
+        {list.length === 0 ? <Empty icon="list" title={q || courierF || pageF ? 'Aucune commande trouvée dans cet onglet' : regler ? 'Aucune commande à régler' : 'Aucune commande ici'}>{tab.key === 'enregistrees' && can('orders.create') && !q && <Button icon="plus" onClick={() => setCreating(true)}>Saisir une commande</Button>}</Empty> : (
+          <ul className="list">{list.map((o) => regler ? (
+            <li key={o.id} className="row-check">
+              <input type="checkbox" aria-label={`Sélectionner ${o.number}`} checked={sel.includes(o.id)} onChange={(e) => setSel(e.target.checked ? [...sel, o.id] : sel.filter((x) => x !== o.id))} />
+              <ul className="list" style={{ flex: 1, minWidth: 0 }}><OrderRow o={o} /></ul>
+            </li>
+          ) : <OrderRow key={o.id} o={o} />)}</ul>
         )}
       </div>
       </>}
+      {settling && selCourier && <SettleModal courier={selCourier} orders={selected} onClose={() => setSettling(false)} onDone={() => setSel([])} />}
       {creating && <OrderForm onClose={() => setCreating(false)} onSaved={(o) => navigate('/commandes/' + o.id)} />}
       {following && <ProspectForm onClose={() => setFollowing(false)} onSaved={() => navigate('/commandes/suivre')} />}
     </>
@@ -121,6 +157,7 @@ export function OrderRow({ o }: { o: Order }) {
           </div>
           <p className="small muted">{o.number}{o.phone ? ` · ${fmtPhone(o.phone)}` : ''} · {zone?.name || 'Zone ?'}{o.place ? ` — ${o.place}` : ''}</p>
           <p className="small muted">{fmtNum(totalQty(o))} article(s){o.lines.some((l) => l.isChoice) ? ` + ${o.lines.filter((l) => l.isChoice).reduce((s, l) => s + l.qty, 0)} en choix` : ''}{courier ? ` · ${courier.name}` : ''} · {fmtDateTime(o.createdAt)}</p>
+          {needsSettlement(o) && <p className="small"><Badge tone="warn">À régler avec {courier?.name ?? 'le livreur'}</Badge> le livreur doit verser {fmtAr(settleRow(o).e)}</p>}
           {['delivered', 'partial', 'refused'].includes(o.status) && (() => { const fs = feeState(o); return fs !== 'none' ? <p className="small fee-line">Frais livreur {fmtAr(courierSplit(o).fee)} · <Badge tone={FEE_STATE[fs].tone}>{FEE_STATE[fs].label}</Badge></p> : null; })()}
         </div>
         <div className="list-item-side">
@@ -472,7 +509,7 @@ function OrderDetail({ id }: { id: string }) {
   useTable<Zone>('zones');
   const o = orders.find((x) => x.id === id);
   const [editPay, setEditPay] = useState<Payment | null>(null);
-  const [modal, setModal] = useState<'' | 'edit' | 'dispatch' | 'return' | 'pay' | 'cancel' | 'exchange' | 'shop' | 'pickup' | 'reassign'>('');
+  const [modal, setModal] = useState<'' | 'edit' | 'dispatch' | 'return' | 'pay' | 'cancel' | 'exchange' | 'shop' | 'pickup' | 'reassign' | 'settle'>('');
   const [payFee, setPayFee] = useState(false);
   if (!o) return <Empty icon="list" title="Commande introuvable"><Button variant="ghost" onClick={() => navigate('/commandes')}>Retour</Button></Empty>;
   const zone = get<Zone>('zones', o.zoneId || '');
@@ -515,7 +552,8 @@ function OrderDetail({ id }: { id: string }) {
           {o.status === 'ready' && !isPickupZone(o.zoneId) && can('orders.dispatch') && <Button icon="truck" onClick={() => setModal('dispatch')}>Remettre au livreur (en livraison)</Button>}
           {['new', 'confirmed', 'ready'].includes(o.status) && can('orders.create') && <Button variant={isPickupZone(o.zoneId) ? 'primary' : 'ghost'} icon="store" onClick={() => setModal('pickup')}>{isPickupZone(o.zoneId) ? 'Remise au client en boutique' : 'Retrait en boutique (le client vient la chercher)'}</Button>}
           {o.status === 'ready' && can('orders.prepare') && <Button variant="ghost" onClick={act(async () => { await backToPrepare(o); }, 'Commande revenue à « enregistrée »')}>Revenir à « enregistrée »</Button>}
-          {o.status === 'out' && can('deliveries.manage') && <Button icon="inbox" onClick={() => setModal('return')}>{hasPendingChoice(o) ? 'Préciser le choix du client' : 'Enregistrer le retour du livreur'}</Button>}
+          {o.status === 'out' && can('deliveries.manage') && <Button icon="inbox" onClick={() => setModal('return')}>{hasPendingChoice(o) ? 'Préciser le choix du client' : 'Confirmer le retour du livreur'}</Button>}
+          {needsSettlement(o) && courier && can('couriers.settle') && <Button icon="wallet" onClick={() => setModal('settle')}>Régler avec {courier.name}</Button>}
           {o.kind === 'exchange' && ['new', 'confirmed', 'ready'].includes(o.status) && can('returns.manage') && <Button variant="ghost" onClick={() => setModal('shop')}>Échange fait en boutique</Button>}
           {((!closed && o.status !== 'cancelled') || rest !== 0) && o.status !== 'cancelled' && can('orders.create') && <Button variant="ghost" icon="plus" onClick={() => setModal('pay')}>{rest < 0 ? 'Rendre l’argent au client' : 'Paiement reçu'}</Button>}
           {closed && o.status !== 'refused' && can('returns.manage') && <Button variant="ghost" icon="refresh" onClick={() => setModal('exchange')}>Retour / échange</Button>}
@@ -602,6 +640,7 @@ function OrderDetail({ id }: { id: string }) {
       {modal === 'edit' && <OrderForm order={o} onClose={() => setModal('')} />}
       {modal === 'dispatch' && <DispatchModal orders={[o]} onClose={() => setModal('')} />}
       {modal === 'return' && <ReturnModal order={o} onClose={() => setModal('')} />}
+      {modal === 'settle' && courier && <SettleModal courier={courier} orders={[o]} onClose={() => setModal('')} />}
       {modal === 'pay' && <PayModal order={o} onClose={() => setModal('')} />}
       {modal === 'exchange' && <ExchangeStart order={o} onClose={() => setModal('')} />}
       {modal === 'shop' && <ShopExchangeModal order={o} onClose={() => setModal('')} />}
@@ -657,43 +696,23 @@ export function ReturnModal({ order: o, onClose }: { order: Order; onClose: () =
   const [busy, setBusy] = useState(false);
   const [toShop, setToShop] = useState(false);
   const amountVal = amount == null ? toCollect : parseNum(amount) ?? 0;
-  // Règlement avec le livreur, directement ici (en livraison → terminée) : lignes a → g.
-  const can = useCan();
-  const courier = o.courierId ? get<Courier>('couriers', o.courierId) : undefined;
-  const canSettleHere = !!courier && o.status === 'out' && !isPickupZone(o.zoneId) && can('couriers.settle');
-  const [settleNow, setSettleNow] = useState(true);
-  const [feeChoice, setFeeChoice] = useState('retenue');
-  const [given, setGiven] = useState<string | null>(null);
-  const [account, setAccount] = useState<AccountId>('cash');
-  const simPaid = { ...sim, payments: [...(o.payments || []), ...(amountVal ? [{ id: 'sim', at: '', amount: amountVal, method, receivedBy: 'courier' as const, courierId: o.courierId }] : [])] } as Order;
-  const x = courierSplit(simPaid);
   const c = o.kind === 'exchange' ? exchangeBalance(sim) : orderTotal(sim);
   const prepaid = (o.payments || []).filter((p) => p.receivedBy === 'shop').reduce((t, p) => t + p.amount, 0);
   const paidHow = [...new Set((o.payments || []).filter((p) => p.receivedBy === 'shop').map((p) => `${PAY_METHODS[p.method]}${p.ref ? ' réf. ' + p.ref : ''}`))].join(', ');
-  const eDue = x.toCollect + x.feeKept;                          // ce que le livreur a encaissé (frais compris)
-  const mode = feeChoice === 'retenue' ? 'retenue' : feeChoice === 'plustard' ? 'plustard' : 'apart';
-  const feeAccount = (mode === 'apart' ? feeChoice.slice(6) : 'cash') as AccountId;
-  const expected = Math.max(0, mode === 'retenue' ? x.toCollect - x.feeOwed : eDue);
-  const givenVal = given == null ? expected : parseNum(given) ?? 0;
-  const gap = givenVal - expected;
-  const doSettle = canSettleHere && settleNow && choiceMissing.length === 0;
+  const simPaid = { ...sim, payments: [...(o.payments || []), ...(amountVal ? [{ id: 'sim', at: '', amount: amountVal, method, receivedBy: 'courier' as const, courierId: o.courierId }] : [])] } as Order;
+  const x = courierSplit(simPaid);
+  const eDue = x.toCollect + x.feeKept;
+  const toSettle = !!o.courierId && !isPickupZone(o.zoneId);
   return (
     <Modal title={hasChoice ? `Préciser le choix du client — ${o.number}` : `Retour du livreur — ${o.number}`} onClose={onClose} wide
-      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} disabled={choiceMissing.length > 0 || (doSettle && gap !== 0 && !note.trim())} onClick={async () => {
+      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} disabled={choiceMissing.length > 0} onClick={async () => {
         setBusy(true);
-        try {
-          await recordReturn(o, { kept: keptNum, feeCharged: feeVal, collected: [{ amount: amountVal, method, ref: ref.trim() || undefined }], note: note.trim() || undefined });
-          if (doSettle && courier) {
-            const label = mode === 'retenue' ? 'frais retenus par le livreur' : mode === 'apart' ? `frais payés à part (${ACCOUNTS[feeAccount]})` : 'frais différés (compte du livreur)';
-            await settleCourier(courier, [o.id], givenVal, account, [`Retour ${o.number}`, label, note.trim()].filter(Boolean).join(' · '));
-            if (mode === 'apart' && x.fee > 0) await settleCourier(courier, [], -x.fee, feeAccount, `Frais de livraison ${o.number} payés au livreur`);
-            if (x.fee > 0) await save('orders', { id: o.id, feeStatus: mode === 'retenue' || (mode === 'plustard' && gap <= -x.fee + 1) ? 'kept' : mode === 'apart' ? 'paid' : 'deferred', ...(mode === 'apart' ? { feePaidAt: bizNow(), feePaidHow: ACCOUNTS[feeAccount] } : {}) });
-          }
-        } catch (e: any) { toast(e.message, 'error'); setBusy(false); return; }
-        toast(hasChoice ? 'Choix du client enregistré' : doSettle ? `Commande terminée et réglée avec ${courier?.name}` : 'Retour enregistré'); setBusy(false); onClose();
-      }}>{choiceMissing.length ? `Indiquez le choix (${choiceMissing.length} ligne(s))` : doSettle ? 'Terminer et régler avec le livreur' : hasChoice ? 'Valider le choix et le retour' : 'Valider le retour'}</Button></>}>
+        try { await recordReturn(o, { kept: keptNum, feeCharged: feeVal, collected: [{ amount: amountVal, method, ref: ref.trim() || undefined }], note: note.trim() || undefined }); }
+        catch (e: any) { toast(e.message, 'error'); setBusy(false); return; }
+        toast(toSettle ? 'Retour confirmé : la commande passe dans « À régler (livreur) »' : 'Retour enregistré'); setBusy(false); onClose();
+      }}>{choiceMissing.length ? `Indiquez le choix (${choiceMissing.length} ligne(s))` : 'Confirmer le retour'}</Button></>}>
       <div className="stack">
-        {hasChoice && <div className="notice"><Icon name="alert" /><span>Cette livraison contient des articles <strong>en choix</strong>. Pour chaque ligne « choix », indiquez combien de pièces le client a <strong>gardées</strong> (0 s’il les a toutes rendues). Le règlement avec le livreur se fait juste après.</span></div>}
+        {hasChoice && <div className="notice"><Icon name="alert" /><span>Cette livraison contient des articles <strong>en choix</strong>. Pour chaque ligne « choix », indiquez combien de pièces le client a <strong>gardées</strong> (0 s’il les a toutes rendues).</span></div>}
         <div className="row">
           <Button variant="ghost" onClick={() => setKept(Object.fromEntries(o.lines.map((l) => [l.id, String(l.isChoice ? 0 : l.qty)])))}>{hasChoice ? 'Tout livré, choix tous rendus' : 'Tout livré'}</Button>
           <Button variant="ghost" onClick={() => setKept(Object.fromEntries(o.lines.map((l) => [l.id, '0'])))}>Tout refusé</Button>
@@ -725,7 +744,7 @@ export function ReturnModal({ order: o, onClose }: { order: Order; onClose: () =
           <p className="small muted">Lot ou prix par quantité : le prix réduit ne compte que pour les lots complets gardés ; le reste est payé au prix normal.</p>
         </>}
         <div className="card stack-s settle-box">
-          <h3>Ce que la boutique doit recevoir</h3>
+          <h3>Ce que le client a payé</h3>
           <div className="money-lines">
             <div><span>a. Articles (après le choix du client)</span><strong className="num">{fmtAr(c - feeVal)}</strong></div>
             <div><span>b. Frais de livraison</span><input className="cell-input num-input" inputMode="numeric" aria-label="Frais de livraison facturés (Ar)" value={fee ?? String(feeVal)} onChange={(e) => setFee(e.target.value)} /></div>
@@ -739,26 +758,9 @@ export function ReturnModal({ order: o, onClose }: { order: Order; onClose: () =
             <SelectField label="Le client a payé le livreur en" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />
             {method !== 'cash' && <TextField label="Référence de la transaction" value={ref} onChange={setRef} />}
           </div>
-          {canSettleHere && <>
-            <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={settleNow} onChange={(e) => setSettleNow(e.target.checked)} /> <strong>Régler maintenant avec {courier!.name}</strong></label>
-            {settleNow && <>
-              <SelectField label={`g. Frais du livreur (${fmtAr(x.fee)}) payés…`} required value={feeChoice} onChange={(v) => { setFeeChoice(v); setGiven(null); }} options={[
-                { value: 'retenue', label: 'Gardés par le livreur sur l’argent versé' },
-                ...ACCOUNT_IDS.filter((a) => a !== 'bank').map((a) => ({ value: 'apart:' + a, label: `Payés à part — ${ACCOUNTS[a]}` })),
-                { value: 'plustard', label: 'Différés (à payer au plus vite)' },
-              ]} />
-              <div className="ml-expected"><span>Le livreur doit vous remettre</span><strong className="num">{fmtAr(expected)}</strong></div>
-              <div className="grid-2">
-                <TextField label="f. Montant versé par le livreur (Ar)" required value={given ?? String(expected)} onChange={setGiven} inputMode="numeric" />
-                <SelectField label="Reçu sur" value={account} onChange={(v) => setAccount(v as AccountId)} options={ACCOUNT_IDS.map((a) => ({ value: a, label: ACCOUNTS[a] }))} />
-              </div>
-              {gap !== 0 && <div className="notice notice-danger"><Icon name="alert" /><span>Écart de {gap > 0 ? '+' : '−'} {fmtAr(Math.abs(gap))} : expliquez-le dans la remarque. {gap < 0 ? 'Le reste sera à verser par le livreur au prochain retour.' : ''}</span></div>}
-              {mode === 'plustard' && x.fee > 0 && <p className="small muted">La boutique devra {fmtAr(x.fee)} de frais à {courier!.name} : rappel jusqu’au paiement.</p>}
-            </>}
-            {!settleNow && <p className="small muted">Le règlement se fera plus tard dans Livraisons → Retour livreur.</p>}
-          </>}
         </div>
-        <TextField label={doSettle && gap !== 0 ? 'Remarque (écart, motif de refus…)' : 'Remarque (motif de refus, etc.)'} required={doSettle && gap !== 0} value={note} onChange={setNote} placeholder="Ex. taille trop petite, client absent…" />
+        <TextField label="Remarque (motif de refus, etc.)" value={note} onChange={setNote} placeholder="Ex. taille trop petite, client absent…" />
+        {toSettle && <p className="small muted">Étape suivante : le règlement avec le livreur (onglet « À régler »), pour une ou plusieurs commandes à la fois.</p>}
       </div>
     </Modal>
   );

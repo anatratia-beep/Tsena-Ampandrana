@@ -1,4 +1,6 @@
 // Livraisons : commandes prêtes par axe, en cours par livreur, comptes des livreurs, zones et frais.
+import { allPages } from '../lib/boosts';
+import { variantPage } from '../lib/scope';
 import { useMemo, useState } from 'react';
 import { audit, useCan } from '../lib/auth';
 import { get, remove, save, useTable } from '../lib/db';
@@ -28,15 +30,18 @@ function useDelivFilters(initial: Period['key'] = 'all') {
   const [courierId, setCourierId] = useState('');
   const [period, setPeriod] = useState<Period>(defaultPeriod(initial));
   const [q, setQ] = useState('');
-  return { courierId, setCourierId, period, setPeriod, q, setQ };
+  const [pageId, setPageId] = useState('');
+  return { courierId, setCourierId, period, setPeriod, q, setQ, pageId, setPageId };
 }
 type DF = ReturnType<typeof useDelivFilters>;
-function DelivFilters({ f, dateLabel, searchHint }: { f: DF; dateLabel: string; searchHint?: string }) {
+function DelivFilters({ f, dateLabel, searchHint, noPage }: { f: DF; dateLabel: string; searchHint?: string; noPage?: boolean }) {
+  const pages = allPages();
   const couriers = useTable<Courier>('couriers').filter((c) => c.active !== false).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   return (
     <div className="card stack-s deliv-filters">
       <div className="row">
         <div className="field" style={{ flex: '1 1 180px' }}><label htmlFor="df-c">Livreur</label><FilterSelect label="Livreur" value={f.courierId} onChange={f.setCourierId} options={[{ value: '', label: 'Tous les livreurs' }, ...couriers.map((c) => ({ value: c.id, label: c.name }))]} /></div>
+        {!noPage && pages.length > 1 && <div className="field" style={{ flex: '1 1 160px' }}><label htmlFor="df-p">Page</label><FilterSelect label="Page" value={f.pageId} onChange={f.setPageId} options={[{ value: '', label: 'Toutes les pages' }, ...pages.map((p) => ({ value: p.id, label: p.name }))]} /></div>}
         <div style={{ flex: '2 1 260px' }}><PeriodPicker value={f.period} onChange={f.setPeriod} /></div>
       </div>
       <div className="field"><input aria-label="Rechercher" placeholder={searchHint ?? 'Rechercher : n°, client, téléphone, lieu, article, montant…'} value={f.q} onChange={(e) => f.setQ(e.target.value)} /></div>
@@ -44,7 +49,7 @@ function DelivFilters({ f, dateLabel, searchHint }: { f: DF; dateLabel: string; 
     </div>
   );
 }
-const passes = (o: Order, f: DF, date?: string) => (!f.courierId || o.courierId === f.courierId) && (f.period.key === 'all' || inPeriod(date, f.period)) && (!f.q.trim() || matchQuery(orderText(o), f.q));
+const passes = (o: Order, f: DF, date?: string) => (!f.courierId || o.courierId === f.courierId) && (!f.pageId || o.lines.some((l) => variantPage(l.variantId) === f.pageId)) && (f.period.key === 'all' || inPeriod(date, f.period)) && (!f.q.trim() || matchQuery(orderText(o), f.q));
 
 export function DeliveriesPage() {
   const can = useCan();
@@ -184,7 +189,7 @@ function Couriers() {
       <div className="card stack">
         <div className="row-between"><Help>Un livreur peut avoir son propre accès (Utilisateurs → rôle « Livreur ») pour voir seulement ses colis et son compte. Sans accès, ajoutez simplement sa fiche ici. Touchez un livreur pour voir ses livraisons et l’état de ses frais.</Help>{can('couriers.manage') && <Button icon="plus" onClick={() => setEdit('new')}>Ajouter un livreur</Button>}</div>
       </div>
-      <DelivFilters f={f} dateLabel="les livraisons (colonnes « Livrées », « Encaissé », « Frais », « Solde période »)" searchHint="Rechercher un livreur (nom, téléphone)…" />
+      <DelivFilters f={f} dateLabel="les livraisons (colonnes « Livrées », « Encaissé », « Frais », « Solde période »)" searchHint="Rechercher un livreur (nom, téléphone)…" noPage />
       <div className="card card-flush">
         {sorted.length === 0 ? <Empty icon="truck" title="Aucun livreur" /> : (
           <div className="table-wrap">

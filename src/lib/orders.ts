@@ -208,6 +208,8 @@ export function courierSplit(o: Order) {
   const feeOwed = fee - feeKept;
   return { clientPays, toCollect, fee, feeKept, feeOwed, net: toCollect - feeOwed, closed };
 }
+/** Commande revenue du livreur (retour confirmé) mais pas encore réglée avec lui. */
+export const needsSettlement = (o: Order) => ['delivered', 'partial', 'refused'].includes(o.status) && !!o.courierId && !!o.dispatchedAt && !o.courierSettledAt && !isPickupZone(o.zoneId) && !isWalkIn(o);
 export const totalQty = (o: Order) => sellingLines(o).reduce((s, l) => s + l.qty, 0);
 
 /** Prix de gros : automatique à partir du seuil (3 pièces), ou forcé par le vendeur. */

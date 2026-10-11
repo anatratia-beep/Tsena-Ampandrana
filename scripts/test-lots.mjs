@@ -64,13 +64,13 @@ let main = N(await p.locator('main').innerText());
 ok(main.includes('Prix du lot') && /Total\s*33 000/.test(main), 'commande : lot 30 000 + frais 3 000 = 33 000');
 await p.getByRole('button', { name: /Remettre au livreur/ }).click(); await p.getByRole('dialog').getByRole('button', { name: 'Remettre' }).click(); await p.waitForTimeout(400);
 ok(await stock('lmv') === 4 && await stock('pcv') === 4, 'remise au livreur : lampe et porte-clé sortis');
-await p.getByRole('button', { name: /Enregistrer le retour du livreur/ }).click(); await p.waitForTimeout(200);
+await p.getByRole('button', { name: /Confirmer le retour du livreur/ }).click(); await p.waitForTimeout(200);
 const rd = p.getByRole('dialog');
 await rd.getByLabel('Gardé').first().fill('0'); await p.waitForTimeout(200);
 const rtxt = N(await rd.innerText());
 ok(rtxt.includes('lot incomplet') && /À payer par le client \(a \+ b\)\s*6 000/.test(rtxt), 'retour : lampe rendue → porte-clé au prix normal 3 000 + frais 3 000');
-await rd.getByRole('checkbox').uncheck().catch(() => {});
-await rd.getByRole('button', { name: /Valider le retour|Terminer/ }).click(); await p.waitForTimeout(500);
+
+await rd.getByRole('button', { name: 'Confirmer le retour' }).click(); await p.waitForTimeout(500);
 main = N(await p.locator('main').innerText());
 ok(/Articles\s*3 000/.test(main), 'commande terminée : articles 3 000 (prix normal)');
 ok(await stock('lmv') === 5, 'lampe revenue en stock');
