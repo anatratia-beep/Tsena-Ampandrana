@@ -100,8 +100,9 @@ export function globalRecap(from: string, to: string, gran: Gran): Recap {
   let acc = 0, i = 0;
   for (const r of rows.values()) { while (i < moves.length && moves[i].d <= r.to) acc += moves[i++].v; r.stock = Math.max(0, acc); }
   for (const r of rows.values()) { r.rest = r.revenue - r.expenses; r.net = r.revenue - r.cost - r.expenses - r.boost; }
-  // Colonnes : pages qui ont vendu sur la période (ordre alphabétique, « Sans page » à la fin).
-  const pages = all<Category>('categories').filter((c) => !c.parentId && pageIds.has(c.id)).sort((a, b) => a.name.localeCompare(b.name, 'fr')).map((c) => ({ id: c.id, name: c.name }));
+  // Colonnes : pages (ordre des pages, sinon alphabétique) ; « Sans page » à la fin si des ventes n'en ont pas.
+  // Toutes les pages (catégories principales) en colonnes, même sans vente sur la période — comme le cahier Excel.
+  const pages = all<Category>('categories').filter((c) => !c.parentId).sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.name.localeCompare(b.name, 'fr')).map((c) => ({ id: c.id, name: c.name }));
   for (const id of pageIds) if (!pages.some((p) => p.id === id)) pages.push({ id, name: id === '_' ? 'Sans page' : get<Category>('categories', id)?.name ?? 'Page supprimée' });
   const list = [...rows.values()];
   const groups: Recap['groups'] = [];

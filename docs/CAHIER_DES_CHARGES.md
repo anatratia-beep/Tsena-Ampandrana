@@ -676,7 +676,7 @@ Rapports → **Récap global** (remplace « Récapitulatif mensuel » ; l'ancien
 | Point | Règle |
 |---|---|
 | Filtres | **Regrouper par** : Jour / Semaine / Mois / Année. **Période** : aujourd'hui, semaine, mois, année, 7 / 30 jours, **Tout** (depuis la première activité), dates libres, avec ‹ ›. Période proposée selon le regroupement (jour → cette semaine, semaine → ce mois, mois → cette année, année → tout). |
-| Colonnes | CA par page (case « CA par page »), **CA réalisé**, dépenses, **reste (CA − dépenses)**, **versé au patron**, boost (en Ar), coût des articles, **bénéfice net** (CA − coût des articles − dépenses − boost) et **valeur du stock en fin de période** (ces trois dernières pour ceux qui voient les coûts). |
+| Colonnes | **Toutes les pages** en colonnes, même sans vente sur la période, comme le cahier (case « CA par page » pour les masquer), **CA réalisé**, dépenses, **reste (CA − dépenses)**, **versé au patron**, boost (en Ar), coût des articles, **bénéfice net** (CA − coût des articles − dépenses − boost) et **valeur du stock en fin de période** (ces trois dernières pour ceux qui voient les coûts). |
 | Sous-totaux | Comme le cahier : total par semaine (vue jour), par mois (vue semaine ; une semaine à cheval va au mois qui a le plus de jours), par année (vue mois), puis total général. |
 | Détail | Toucher une ligne ouvre le détail plus fin (année → mois → semaines → jours), « ‹ Retour » pour remonter. |
 | Résumé | CA, dépenses, reste (et versé au patron), bénéfice net, meilleure page ; comparaison avec la période précédente. |
