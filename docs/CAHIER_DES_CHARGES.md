@@ -668,3 +668,18 @@ Une liste de choix ne doit pas prendre toute la place : peu d'options → bouton
 | **Articles (et lots)** | Ventes / commandes, mouvements de stock, achats et réceptions. Les **pages et leurs variantes restent**. |
 | **Pages (catégories) et leurs variantes** | Articles (donc aussi ventes, stock, achats) et boosts. |
 | Règle des cases | Cocher une case coche ce qu'elle efface aussi (en chaîne) ; décocher une case décoche celles qui en dépendent. Confirmation en tapant EFFACER, sauvegarde téléchargée avant. |
+
+## 11 bis. Récap global (jour, semaine, mois, année) *(12/10/2026, inspiré du cahier « Recette et Dépense »)*
+
+Rapports → **Récap global** (remplace « Récapitulatif mensuel » ; l'ancien lien y mène).
+
+| Point | Règle |
+|---|---|
+| Filtres | **Regrouper par** : Jour / Semaine / Mois / Année. **Période** : aujourd'hui, semaine, mois, année, 7 / 30 jours, **Tout** (depuis la première activité), dates libres, avec ‹ ›. Période proposée selon le regroupement (jour → cette semaine, semaine → ce mois, mois → cette année, année → tout). |
+| Colonnes | CA par page (case « CA par page »), **CA réalisé**, dépenses, **reste (CA − dépenses)**, **versé au patron**, boost (en Ar), coût des articles, **bénéfice net** (CA − coût des articles − dépenses − boost) et **valeur du stock en fin de période** (ces trois dernières pour ceux qui voient les coûts). |
+| Sous-totaux | Comme le cahier : total par semaine (vue jour), par mois (vue semaine ; une semaine à cheval va au mois qui a le plus de jours), par année (vue mois), puis total général. |
+| Détail | Toucher une ligne ouvre le détail plus fin (année → mois → semaines → jours), « ‹ Retour » pour remonter. |
+| Résumé | CA, dépenses, reste (et versé au patron), bénéfice net, meilleure page ; comparaison avec la période précédente. |
+| Lecture | « Masquer les périodes vides » (coché par défaut), petite barre de CA sur chaque ligne, première colonne fixe à l'écran large. |
+| Export | Excel (avec sous-totaux et total général) et PDF A4 (résumé, tableau, CA par page). |
+| Non repris | L'onglet « Details » du cahier : le détail est déjà dans les ventes et les dépenses enregistrées. |
