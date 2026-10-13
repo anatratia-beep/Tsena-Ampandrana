@@ -144,6 +144,7 @@ export const DATA_GROUPS: { key: string; label: string; tables: TableName[]; nee
   { key: 'stock', label: 'Mouvements de stock (le stock de chaque article revient à 0)', tables: ['stockMoves'], default: true },
   { key: 'purchases', label: 'Achats Chine et réceptions', tables: ['purchases', 'receptions'], default: true },
   { key: 'print', label: 'Historique des impressions', tables: ['printJobs'], default: true },
+  { key: 'inventories', label: 'Inventaires : fiches de comptage et historique', tables: ['inventories'], default: true },
   { key: 'boosts', label: 'Boosts publicitaires : boosts, résultats saisis et messages réels', tables: ['boosts', 'boostReadings', 'pageMessages'], default: true },
   { key: 'catalog', label: 'Articles (et lots)', tables: ['products', 'variants'], needs: ['sales', 'stock', 'purchases'] },
   { key: 'categories', label: 'Pages (catégories) et leurs variantes', tables: ['categories'], needs: ['catalog', 'boosts'] },
@@ -220,7 +221,7 @@ export function tableCounts() {
 const SHEET_NAMES: Partial<Record<TableName, string>> = {
   products: 'Articles', variants: 'Variantes', categories: 'Catégories', stockMoves: 'Mouvements stock', orders: 'Commandes', customers: 'Clients', couriers: 'Livreurs',
   zones: 'Zones', purchases: 'Achats', receptions: 'Réceptions', suppliers: 'Fournisseurs', cashMoves: 'Trésorerie', courierSettlements: 'Versements livreurs',
-  financeCategories: 'Catégories dépenses', recurring: 'Récurrentes', boosts: 'Boosts', boostReadings: 'Résultats boosts', pageMessages: 'Messages réels', payouts: 'Versements patron', handovers: 'Versements vendeurs', users: 'Utilisateurs', roles: 'Rôles', audit: 'Journal', settings: 'Paramètres',
+  financeCategories: 'Catégories dépenses', recurring: 'Récurrentes', boosts: 'Boosts', boostReadings: 'Résultats boosts', pageMessages: 'Messages réels', payouts: 'Versements patron', handovers: 'Versements vendeurs', inventories: 'Inventaires', users: 'Utilisateurs', roles: 'Rôles', audit: 'Journal', settings: 'Paramètres',
 };
 const HIDDEN = new Set(['passwordHash', 'secretAnswerHash', 'photo', 'logo', 'deleted']);
 export async function exportAllExcel() {

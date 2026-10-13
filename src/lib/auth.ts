@@ -197,10 +197,28 @@ export async function checkSecretAnswer(user: User, answer: string) {
 }
 
 // ---- Journal d'activité ----
-export async function audit(action: string, details: string, entity?: string, entityId?: string) {
+/**
+ * Importance d'une action : « high » (à vérifier par le super-admin ou le gérant, avec alerte), « medium », « low ».
+ * Donnée par l'appelant, sinon déduite du nom de l'action.
+ */
+export type AuditLevel = 'high' | 'medium' | 'low';
+export const AUDIT_LEVEL: Record<AuditLevel, string> = { high: 'Important', medium: 'Moyen', low: 'Simple' };
+export function levelOf(action: string): AuditLevel {
+  const a = action.toLowerCase();
+  if (/annul|supprim|corrig|restaur|réinitialis|remise à zéro|mot de passe|rôle|droits|effac|prix modifi|date de saisie|remise importante|prix baissé/.test(a)) return 'high';
+  if (/inventaire|ajust|modifi|annulée|changement|paiement|dépense|versement|réception|retour|clôture|utilisateur/.test(a)) return 'medium';
+  return 'low';
+}
+export async function audit(action: string, details: string, entity?: string, entityId?: string, level?: AuditLevel) {
   const u = currentUser();
+  const lv = level ?? levelOf(action);
   await save('audit', {
-    at: new Date().toISOString(), action, details, entity, entityId,
-    userId: u?.id ?? null, userName: u?.fullName ?? '—', device: getMeta('deviceName', ''),
+    at: new Date().toISOString(), action, details, entity, entityId, level: lv, review: lv === 'high' ? 'todo' : undefined,
+    userId: u?.id ?? null, userName: u?.fullName ?? '—', role: roleOf(u)?.name, device: getMeta('deviceName', ''),
   });
+}
+/** Le super-admin ou le gérant marque une action importante comme vérifiée (ou suspecte), avec une note. */
+export async function reviewAudit(id: string, status: 'ok' | 'suspect', note?: string) {
+  const u = currentUser();
+  await save('audit', { id, review: status, reviewBy: u?.fullName, reviewAt: new Date().toISOString(), reviewNote: note || undefined });
 }

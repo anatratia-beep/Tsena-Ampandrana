@@ -12,6 +12,7 @@ import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period
 import { categoryOptions, Thumb } from './Products';
 import { downloadBlob, writeXlsx } from '../lib/xlsx';
 import { cancelMove } from '../lib/corrections';
+import { InventoryTab, VariantDetail } from './Inventory';
 
 const TABS = [
   { key: 'etat', label: 'État du stock', perm: '' },
@@ -56,6 +57,7 @@ function StockState() {
   const scope = useMyScope();
   const [allMatches, setAllMatches] = useState(false);
   const [others, setOthers] = useState(0);
+  const [detail, setDetail] = useState<string | null>(null);
 
   const rows = useMemo(() => {
     const n = q.trim().toLowerCase();
@@ -122,7 +124,7 @@ function StockState() {
         {rows.length === 0 ? <Empty icon="store" title="Aucune variante ne correspond" /> : (
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>Article</th><th>Variante</th><th className="t-num">Stock</th><th className="t-num">En arrivage</th>{showCost && <th className="t-num">Coût moyen</th>}{showCost && <th className="t-num">Valeur</th>}</tr></thead>
+              <thead><tr><th>Article</th><th>Variante</th><th className="t-num">Stock</th><th className="t-num">En arrivage</th>{showCost && <th className="t-num">Coût moyen</th>}{showCost && <th className="t-num">Valeur</th>}<th></th></tr></thead>
               <tbody>
                 {rows.slice(0, limit).map((r) => (
                   <tr key={r.v.id} className="row-link" onClick={() => navigate('/articles/' + r.p!.id)}>
@@ -132,6 +134,7 @@ function StockState() {
                     <td className="t-num">{r.incoming || '—'}</td>
                     {showCost && <td className="t-num">{fmtAr(r.v.costAvg)}</td>}
                     {showCost && <td className="t-num">{fmtAr(r.value)}</td>}
+                    <td><Button variant="quiet" className="btn-sm" onClick={(e) => { e.stopPropagation(); setDetail(r.v.id); }}>Détail</Button></td>
                   </tr>
                 ))}
               </tbody>
@@ -140,6 +143,7 @@ function StockState() {
         )}
       </div>
       {rows.length > limit && <Button variant="ghost" onClick={() => setLimit(limit + 300)}>Afficher plus ({rows.length - limit})</Button>}
+      {detail && <VariantDetail variantId={detail} onClose={() => setDetail(null)} />}
     </>
   );
 }
@@ -221,74 +225,6 @@ function MovesTab() {
       {undo && <Confirm title="Annuler ce mouvement de stock" danger confirmLabel="Annuler le mouvement" onClose={() => { setUndo(null); setUndoWhy(''); }}
         message={<div className="stack-s"><p>Un mouvement inverse ({undo.qty > 0 ? '−' : '+'}{Math.abs(undo.qty)}) remet le stock comme avant. Les deux restent dans l’historique.</p><TextField label="Raison" value={undoWhy} onChange={setUndoWhy} required /></div>}
         onConfirm={async () => { if (!undoWhy.trim()) throw new Error('Indiquez la raison.'); await cancelMove(undo, undoWhy.trim()); toast('Mouvement annulé'); }} />}
-    </>
-  );
-}
-
-function InventoryTab() {
-  const can = useCan();
-  const { variants, categories } = useCatalog();
-  const [cat, setCat] = useState('');
-  const [q, setQ] = useState('');
-  const [counts, setCounts] = useState<Record<string, string>>({});
-  const [confirm, setConfirm] = useState(false);
-  const rows = useMemo(() => {
-    const n = q.trim().toLowerCase();
-    return variants
-      .map((v) => ({ v, p: get<Product>('products', v.productId) }))
-      .filter((r) => r.p && r.p.active !== false && r.v.active !== false && inCategory(r.p, cat))
-      .filter((r) => !n || `${r.v.sku} ${r.p!.name}`.toLowerCase().includes(n))
-      .sort((a, b) => a.v.sku.localeCompare(b.v.sku, 'fr', { numeric: true }));
-  }, [variants, cat, q]);
-  const diffs = Object.entries(counts).map(([id, val]) => {
-    const n = parseNum(val); if (n == null) return null;
-    const v = get<Variant>('variants', id); if (!v) return null;
-    return { v, theo: stockOf(id), counted: n, delta: n - stockOf(id) };
-  }).filter(Boolean) as { v: Variant; theo: number; counted: number; delta: number }[];
-  const changed = diffs.filter((d) => d.delta !== 0);
-  const valueDiff = changed.reduce((s, d) => s + d.delta * (d.v.costAvg ?? 0), 0);
-
-  return (
-    <>
-      <div className="card stack">
-        <p className="muted small">Comptez les articles en boutique et saisissez la quantité trouvée. Seules les lignes remplies sont prises en compte. À la validation, les écarts corrigent le stock et restent dans l’historique (type « Inventaire »).</p>
-        <div className="row">
-          <div className="field" style={{ flex: '0 1 240px' }}><FilterSelect label="Catégorie" value={cat} onChange={setCat} options={categoryOptions(categories, 'Toutes les catégories')} /></div>
-          <div className="field" style={{ flex: '1 1 200px' }}><input aria-label="Rechercher" placeholder="Rechercher" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-        </div>
-        <div className="row-between">
-          <p className="small"><strong>{diffs.length}</strong> ligne(s) comptée(s) · <strong>{changed.length}</strong> écart(s){can('costs.view') && changed.length ? ` · valeur de l’écart ${fmtAr(valueDiff)}` : ''}</p>
-          <Button disabled={!diffs.length} onClick={() => setConfirm(true)}>Valider l’inventaire</Button>
-        </div>
-      </div>
-      <div className="card card-flush">
-        <div className="table-wrap" style={{ maxHeight: '65vh' }}>
-          <table className="table">
-            <thead><tr><th>Article</th><th className="t-num">Théorique</th><th>Compté</th><th className="t-num">Écart</th></tr></thead>
-            <tbody>
-              {rows.map(({ v, p }) => {
-                const d = diffs.find((x) => x.v.id === v.id);
-                return (
-                  <tr key={v.id}>
-                    <td><strong>{p!.name}</strong> <span className="muted">— {variantLabel(v)}</span><div className="small muted">{v.sku}</div></td>
-                    <td className="t-num num">{stockOf(v.id)}</td>
-                    <td><input className="cell-input" inputMode="numeric" aria-label={`Compté ${v.sku}`} value={counts[v.id] ?? ''} onChange={(e) => setCounts({ ...counts, [v.id]: e.target.value })} /></td>
-                    <td className={`t-num num ${d && d.delta > 0 ? 'pos' : d && d.delta < 0 ? 'neg' : ''}`}>{d ? (d.delta > 0 ? '+' : '') + d.delta : ''}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      {confirm && <Confirm title="Valider l’inventaire" confirmLabel="Valider" onClose={() => setConfirm(false)}
-        message={<p>{changed.length} écart(s) vont corriger le stock{can('costs.view') ? ` (valeur ${fmtAr(valueDiff)})` : ''}. {diffs.length - changed.length} ligne(s) sont déjà justes.</p>}
-        onConfirm={async () => {
-          await addMoves(changed.map((d) => ({ variantId: d.v.id, qty: d.delta, type: 'inventory' as const, unitCost: d.v.costAvg, reason: `Inventaire : théorique ${d.theo}, compté ${d.counted}` })));
-          await audit('Inventaire', `${diffs.length} ligne(s) comptée(s), ${changed.length} écart(s)`);
-          setCounts({});
-          toast('Inventaire enregistré');
-        }} />}
     </>
   );
 }

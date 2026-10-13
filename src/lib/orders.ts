@@ -266,7 +266,7 @@ export function availableOf(variantId: string, reserved: Map<string, number>) {
 // ---------- Actions ----------
 async function setStatus(o: Order, status: OrderStatus, extra: Partial<Order> = {}) {
   await save('orders', { id: o.id, status, statusDates: { ...(o.statusDates || {}), [status]: bizNow() }, ...extra });
-  await audit('Commande', `${o.number} : ${ORDER_STATUS[status].label}`, 'orders', o.id);
+  await audit(status === 'cancelled' ? 'Commande annulée' : 'Commande', `${o.number} : ${ORDER_STATUS[status].label}${status === 'cancelled' && extra.notes ? ` — ${String(extra.notes).split('\n').pop()}` : ''}`, 'orders', o.id);
 }
 export const confirmOrder = (o: Order) => setStatus(o, 'confirmed');
 export const markReady = (o: Order) => setStatus(o, 'ready');
@@ -378,6 +378,13 @@ export async function createWalkInSale(d: { lines: OrderLine[]; adjusts?: Adjust
   });
   await addMoves(d.lines.map((l) => ({ variantId: l.variantId, qty: -l.qty, type: 'sale' as const, refType: 'order', refId: o.id, reason: `${number} — ${internal ? `vente interne (${d.employee!.name})` : 'vente sur place'}`, at })));
   await audit(internal ? 'Vente interne' : 'Vente sur place', `${number} — ${d.lines.reduce((s, l) => s + l.qty, 0)} article(s)${internal ? ` — employé : ${d.employee!.name}` : ''}`, 'orders', o.id);
+  // Contrôle : grosse remise ou prix baissé à la main → action importante, à vérifier par le gérant.
+  if (!internal) {
+    const items = d.lines.reduce((s, l) => s + l.qty * l.unitPrice, 0);
+    if (d.discount > 0 && d.discount >= items * 0.2) await audit('Remise importante', `${number} : remise ${d.discount.toLocaleString('fr-FR')} Ar sur ${items.toLocaleString('fr-FR')} Ar (${Math.round((d.discount / Math.max(1, items)) * 100)} %)`, 'orders', o.id, 'high');
+    const lowered = d.lines.filter((l) => l.priceManual && l.unitPrice < linePrice(l.variantId, !!l.wholesale));
+    if (lowered.length) await audit('Prix baissé à la vente', `${number} : ${lowered.map((l) => `${get<Variant>('variants', l.variantId)?.sku ?? '?'} ${l.unitPrice.toLocaleString('fr-FR')} Ar au lieu de ${linePrice(l.variantId, !!l.wholesale).toLocaleString('fr-FR')} Ar`).join(' ; ')}`, 'orders', o.id, 'high');
+  }
   return o as Order;
 }
 

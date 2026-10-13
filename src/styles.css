@@ -1189,3 +1189,13 @@ tr.row-error td { background: var(--danger-soft); }
 
 .removed-pages summary { cursor: pointer; padding: 4px 0; }
 .removed-pages .list { margin-top: 8px; }
+
+/* Inventaire : lignes avec écart, photos */
+.inv-table td { vertical-align: middle; }
+.inv-table tr.has-gap td { background: var(--warn-soft); }
+.inv-table .cell-input { max-width: 90px; }
+.more-matches { margin: 0; }
+
+/* Journal : actions à vérifier */
+.audit-table tr.is-todo td { background: var(--danger-soft); }
+.audit-table tr.is-suspect td { background: var(--warn-soft); }
