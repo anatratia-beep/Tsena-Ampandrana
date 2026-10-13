@@ -19,6 +19,7 @@ Logiciel de gestion commerciale : achats (Chine), stock, ventes en ligne et en b
 | 6 | Trésorerie, dépenses, comptes livreurs, clôture, récapitulatif | ✅ terminé |
 | 7 | Tableaux de bord, rapports, bénéfice / perte | ✅ terminé |
 | 8 | Sauvegardes avancées, réinitialisation par e-mail, outils | ✅ terminé |
+| 9 | Rôle Responsable (assigne les livreurs), versements des vendeurs au responsable, récap jours × pages avec boost et bénéfice par page | ✅ terminé |
 
 ## Première connexion
 

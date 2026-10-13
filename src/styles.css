@@ -1175,6 +1175,10 @@ tr.row-error td { background: var(--danger-soft); }
 .recap-table tr.row-link:hover td { background: var(--surface-2); }
 .recap-table .bar-track.mini { margin-top: 4px; max-width: 160px; }
 .recap-table tfoot .rc-grand td { font-weight: 800; border-top: 2px solid var(--brand); }
+.recap-table tr.rc-boost td { font-weight: 600; font-style: italic; }
+.recap-table tr.rc-profit td { font-weight: 700; border-bottom: 2px solid var(--line-strong); }
+.recap-table tfoot tr.rc-boost td, .recap-table tfoot tr.rc-profit td { border-top: 0; }
+.handover-table td { vertical-align: top; }
 @media (min-width: 700px) { .recap-table .rc-label { position: sticky; left: 0; background: var(--surface); z-index: 1; } }
 .cap-first { display: inline-block; } .cap-first::first-letter { text-transform: uppercase; }
 .recap-kpis .stat-value { font-size: clamp(1.2rem, 2vw, 1.6rem); overflow-wrap: anywhere; }

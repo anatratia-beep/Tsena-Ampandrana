@@ -12,7 +12,7 @@ import { rootOf } from './scope';
 import { addDays, dayOf, type AccountId, type CashMove, type FinanceCategory } from './money';
 import { variantLabel, type Category, type Product, type Variant } from './catalog';
 import { hasPendingChoice, orderLabel, type Order } from './orders';
-import { readingsOf } from './boosts';
+import { allDeltas } from './boosts';
 import { payoutId, type Payout } from './closed';
 import { DEFAULT_COMPANY, type Company } from './settings';
 
@@ -46,13 +46,8 @@ export function grid(from: string, to: string): Grid {
     cost[page] = (cost[page] ?? 0) + l.cost;
   }
   const boostUsd: Record<string, number> = {};
-  for (const b of all<BaseRecord & { pageId: string }>('boosts')) {
-    let prev = 0; // dépense cumulée : la dépense du jour = saisie du jour − saisie précédente
-    for (const r of readingsOf(b.id)) {
-      if (r.date >= from && r.date <= to) { boostUsd[b.pageId] = (boostUsd[b.pageId] ?? 0) + Math.max(0, r.spend - prev); seen.add(b.pageId); }
-      prev = Math.max(prev, r.spend);
-    }
-  }
+  // Dépense cumulée : la dépense du jour = saisie du jour − saisie précédente (voir readingDelta).
+  for (const x of allDeltas()) if (x.r.date >= from && x.r.date <= to) { boostUsd[x.r.pageId] = (boostUsd[x.r.pageId] ?? 0) + x.spend; seen.add(x.r.pageId); }
   const expenseMoves = all<CashMove>('cashMoves').filter((m) => m.type === 'expense' && m.account === 'cash' && dayOf(m.at) >= from && dayOf(m.at) <= to).sort((a, b) => a.at.localeCompare(b.at));
   const expensesByDay: Record<string, number> = Object.fromEntries(days.map((d) => [d, 0]));
   for (const m of expenseMoves) expensesByDay[dayOf(m.at)] = (expensesByDay[dayOf(m.at)] ?? 0) - m.amount;

@@ -14,14 +14,14 @@ import { exportTables, type Col } from '../ui/table';
 import { Delta } from './Reports';
 
 const fmtD = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-const DEFAULT_PERIOD: Record<Gran, Period['key']> = { day: 'week', week: 'month', month: 'year', year: 'all' };
+const DEFAULT_PERIOD: Record<Gran, Period['key']> = { day: 'month', week: 'month', month: 'year', year: 'all' };
 
 export function GlobalRecap() {
   const w1 = useTable('orders'), w2 = useTable('cashMoves'), w3 = useTable('payouts'), w4 = useTable('boostReadings'), w5 = useTable('stockMoves'); useTable('categories'); useTable('variants');
   const can = useCan();
   const withCost = can('costs.view');
-  const [gran, setGran] = useState<Gran>('month');
-  const [period, setPeriod] = useState<Period>(defaultPeriod('year'));
+  const [gran, setGran] = useState<Gran>('day');
+  const [period, setPeriod] = useState<Period>(defaultPeriod('month'));
   const [back, setBack] = useState<{ gran: Gran; period: Period }[]>([]);
   const [byPage, setByPage] = useState(true);
   const [hideEmpty, setHideEmpty] = useState(true);
@@ -56,14 +56,32 @@ export function GlobalRecap() {
   const periodText = `${fmtD(from)} au ${fmtD(to)}`;
 
   const flat = groups.flatMap((g) => [...g.rows, ...(showGroupTotals && rc.groups.length > 0 ? [{ ...g.total, label: `Total ${g.label}` }] : [])]);
-  const xlsCols: Col<RecapRow>[] = [{ key: 'l', label: GRAN_LABEL[gran], value: (r) => r.label, width: 30 }, { key: 'o', label: 'Commandes', value: (r) => r.orders, width: 11 }, ...cols.map((c) => ({ key: c.key, label: c.label, value: (r: RecapRow) => Math.round(c.v(r)), money: true, width: 15 }))];
-  const exportXls = () => exportTables(`recap-${gran}_${from}_${to}.xlsx`, [{ name: `Récap ${GRAN_LABEL[gran].toLowerCase()}`, cols: xlsCols, rows: [...flat, { ...t, label: 'TOTAL GÉNÉRAL' }], notes: [`Récap global par ${GRAN_LABEL[gran].toLowerCase()} — du ${periodText}`] }]);
+  type XRow = RecapRow & { kind?: 'boost' | 'profit' };
+  const withExtra = (r: RecapRow): XRow[] => (r.label.startsWith('Total') || r.key === 'total') && byPage ? [r, { ...r, kind: 'boost', label: 'Boost' }, ...(withCost ? [{ ...r, kind: 'profit' as const, label: 'Bénéfice (CA − articles − boost)' }] : [])] : [r];
+  const xv = (c: C, r: XRow) => r.kind === 'boost' ? (c.key.startsWith('p_') ? r.pageBoost[c.key.slice(2)] ?? 0 : c.key === 'boost' ? r.boost : '')
+    : r.kind === 'profit' ? (c.key.startsWith('p_') ? pageProfit(r, c.key.slice(2)) : c.key === 'rev' ? r.revenue - r.cost - r.boost : '') : c.v(r);
+  const xlsCols: Col<XRow>[] = [{ key: 'l', label: GRAN_LABEL[gran], value: (r) => r.label, width: 30 }, { key: 'o', label: 'Commandes', value: (r) => (r.kind ? '' : r.orders), width: 11 }, ...cols.map((c) => ({ key: c.key, label: c.label, value: (r: XRow) => { const v = xv(c, r); return typeof v === 'number' ? Math.round(v) : v; }, money: true, width: 15 }))];
+  const exportXls = () => exportTables(`recap-${gran}_${from}_${to}.xlsx`, [{ name: `Récap ${GRAN_LABEL[gran].toLowerCase()}`, cols: xlsCols, rows: [...flat.flatMap(withExtra), ...withExtra({ ...t, label: 'TOTAL GÉNÉRAL' })], notes: [`Récap global par ${GRAN_LABEL[gran].toLowerCase()} — du ${periodText}`] }]);
   const exportPdf = () => printA4(`Récap global par ${GRAN_LABEL[gran].toLowerCase()}`, `Du ${periodText}`, `
     <div class="kpis"><div class="kpi"><span>CA réalisé</span><b>${arA4(t.revenue)}</b></div><div class="kpi"><span>Dépenses</span><b>${arA4(t.expenses)}</b></div><div class="kpi"><span>Reste</span><b>${arA4(t.rest)}</b></div>${withCost ? `<div class="kpi strong"><span>Bénéfice net</span><b>${arA4(t.net)}</b></div>` : `<div class="kpi"><span>Versé au patron</span><b>${arA4(t.paid)}</b></div>`}</div>
     ${a4Table({ head: [GRAN_LABEL[gran], 'CA réalisé', 'Dépenses', 'Reste', 'Versé', 'Boost', ...(withCost ? ['Bénéfice net'] : [])], num: [1, 2, 3, 4, 5, 6], rows: flat.map((r) => [r.label.startsWith('Total') ? `<b>${h(r.label)}</b>` : h(r.label), arA4(r.revenue), arA4(r.expenses), arA4(r.rest), arA4(r.paid), arA4(r.boost), ...(withCost ? [arA4(r.net)] : [])]), foot: ['Total', arA4(t.revenue), arA4(t.expenses), arA4(t.rest), arA4(t.paid), arA4(t.boost), ...(withCost ? [arA4(t.net)] : [])] })}
-    ${rc.pages.length ? a4Table({ title: 'CA par page', head: ['Page', 'CA', 'Part'], num: [1, 2], rows: [...rc.pages].sort((a, b) => (t.pages[b.id] ?? 0) - (t.pages[a.id] ?? 0)).map((p) => [h(p.name), arA4(t.pages[p.id] ?? 0), t.revenue ? `${Math.round(((t.pages[p.id] ?? 0) / t.revenue) * 100)} %` : '—']) }) : ''}`);
+    ${rc.pages.length ? a4Table({ title: 'Par page : CA, boost et bénéfice', head: ['Page', 'CA', 'Part', 'Boost', ...(withCost ? ['Bénéfice'] : [])], num: withCost ? [1, 2, 3, 4] : [1, 2, 3], rows: [...rc.pages].filter((p) => t.pages[p.id] || t.pageBoost[p.id]).sort((a, b) => (t.pages[b.id] ?? 0) - (t.pages[a.id] ?? 0)).map((p) => [h(p.name), arA4(t.pages[p.id] ?? 0), t.revenue ? `${Math.round(((t.pages[p.id] ?? 0) / t.revenue) * 100)} %` : '—', arA4(t.pageBoost[p.id] ?? 0), ...(withCost ? [arA4(pageProfit(t, p.id))] : [])]) }) : ''}`);
 
   const cell = (c: C, r: RecapRow) => { const v = c.v(r); return <td key={c.key} className={`t-num ${c.cls?.(r) ?? ''}`}>{v ? fmtAr(v) : <span className="muted">—</span>}</td>; };
+  // Sous chaque total (comme le cahier) : BOOST par page, puis BÉNÉFICE par page = CA de la page − coût des articles − boost.
+  const pageProfit = (r: RecapRow, id: string) => (r.pages[id] ?? 0) - (r.pageCost[id] ?? 0) - (r.pageBoost[id] ?? 0);
+  const showPageRows = byPage && rc.pages.length > 0;
+  const extraRows = (r: RecapRow, key: string, grand = false) => !showPageRows ? [] : [
+    <tr key={'b' + key} className={`rc-boost ${grand ? 'rc-grand' : ''}`}><td className="rc-label">Boost</td>{cols.map((c) => {
+      if (c.key.startsWith('p_')) { const v = r.pageBoost[c.key.slice(2)] ?? 0; return <td key={c.key} className="t-num">{v ? fmtAr(v) : <span className="muted">—</span>}</td>; }
+      return <td key={c.key} className="t-num">{c.key === 'boost' && r.boost ? fmtAr(r.boost) : ''}</td>;
+    })}</tr>,
+    ...(withCost ? [<tr key={'n' + key} className={`rc-profit ${grand ? 'rc-grand' : ''}`}><td className="rc-label">Bénéfice<div className="small muted">CA − articles − boost</div></td>{cols.map((c) => {
+      if (c.key.startsWith('p_')) { const id = c.key.slice(2); const v = pageProfit(r, id); return <td key={c.key} className={`t-num ${v < 0 ? 'neg' : v > 0 ? 'pos' : ''}`}>{v ? fmtAr(v) : <span className="muted">—</span>}</td>; }
+      if (c.key === 'rev') { const v = r.revenue - r.cost - r.boost; return <td key={c.key} className={`t-num ${v < 0 ? 'neg' : 'pos'}`}>{fmtAr(v)}</td>; }
+      return <td key={c.key} className="t-num"></td>;
+    })}</tr>] : []),
+  ];
   return (
     <div className="stack">
       <div className="card stack-s recap-filters">
@@ -93,7 +111,7 @@ export function GlobalRecap() {
 
       <div className="card card-flush">
         <div className="card-pad"><h2>Récap par {GRAN_LABEL[gran].toLowerCase()}</h2>
-          <Help>Une ligne par {GRAN_LABEL[gran].toLowerCase()}{showGroupTotals ? `, avec un total par ${gran === 'day' ? 'semaine' : gran === 'week' ? 'mois' : 'année'}` : ''}. {finer(gran) ? `Touchez une ligne pour voir le détail par ${GRAN_LABEL[finer(gran)!].toLowerCase()}. ` : ''}Reste = CA − dépenses (ce qui doit rester en caisse) ; bénéfice net = CA − coût des articles vendus − dépenses − boost.</Help></div>
+          <Help>Une ligne par {GRAN_LABEL[gran].toLowerCase()}{showGroupTotals ? `, avec un total par ${gran === 'day' ? 'semaine' : gran === 'week' ? 'mois' : 'année'}` : ''}. {finer(gran) ? `Touchez une ligne pour voir le détail par ${GRAN_LABEL[finer(gran)!].toLowerCase()}. ` : ''}Sous chaque total : la ligne Boost (dépense pub de chaque page, en ariary) et la ligne Bénéfice de chaque page (CA de la page − coût des articles − boost). Reste = CA − dépenses (ce qui doit rester en caisse) ; bénéfice net = CA − coût des articles vendus − dépenses − boost.</Help></div>
         {groups.length === 0 ? <p className="card-pad small muted">Aucune activité sur cette période.</p> : (
           <div className="table-wrap"><table className="table table-grid recap-table">
             <thead><tr><th className="rc-label">{GRAN_LABEL[gran]}</th>{cols.map((c) => <th key={c.key} className={`t-num ${c.key.startsWith('p_') ? 'rc-page' : ''}`}>{c.label}</th>)}</tr></thead>
@@ -106,10 +124,10 @@ export function GlobalRecap() {
                     {cols.map((c) => cell(c, r))}
                   </tr>
                 )),
-                ...(showGroupTotals ? [<tr key={'t' + g.key} className="t-total"><td className="rc-label">Total {g.label}</td>{cols.map((c) => cell(c, g.total))}</tr>] : []),
+                ...(showGroupTotals ? [<tr key={'t' + g.key} className="t-total"><td className="rc-label">Total {g.label}</td>{cols.map((c) => cell(c, g.total))}</tr>, ...extraRows(g.total, g.key)] : []),
               ])}
             </tbody>
-            <tfoot><tr className="t-total rc-grand"><td className="rc-label">Total général</td>{cols.map((c) => cell(c, t))}</tr></tfoot>
+            <tfoot><tr className="t-total rc-grand"><td className="rc-label">Total général</td>{cols.map((c) => cell(c, t))}</tr>{(!showGroupTotals || groups.length > 1) && extraRows(t, 'all', true)}</tfoot>
           </table></div>
         )}
       </div>

@@ -211,7 +211,7 @@ function PageTable({ pageId, days }: { pageId: string; days: string[] }) {
             {(hiddenPaused > 0 || showPaused) && <label className="small row" style={{ gap: 6 }}><input type="checkbox" checked={showPaused} onChange={(e) => setShowPaused(e.target.checked)} /> Afficher les boosts en pause{hiddenPaused ? ` (${hiddenPaused})` : ''}</label>}
           </div>
           <Help>{metric === 'msg'
-            ? 'Recopiez chaque jour, dans la case du jour, les conversations cumulées affichées par Meta (depuis le lancement du boost). Les jours précédents sont déjà remplis ; le chiffre vert sous chaque case = nouvelles conversations de ce jour (jour − veille). L’enregistrement se fait en quittant la case. Glissez la poignée ⋮⋮ (ou les flèches sur téléphone) pour changer l’ordre des boosts.'
+            ? 'Recopiez chaque jour, dans la case du jour, les conversations cumulées affichées par Meta (depuis le lancement du boost). Les jours précédents sont déjà remplis ; le chiffre vert sous chaque case = nouvelles conversations de ce jour (jour − veille : hier 20, aujourd’hui 25 → +5). Seule cette différence est comptée dans les totaux, jamais le cumul. Pour un boost déjà en cours quand on commence à le suivre, la première case est le « départ » : elle ne compte pas. L’enregistrement se fait en quittant la case. Glissez la poignée ⋮⋮ (ou les flèches sur téléphone) pour changer l’ordre des boosts.'
             : 'Dépense cumulée ($) affichée par Meta pour chaque boost (facultatif). Sert à calculer le coût par conversation.'}</Help>
         </div>
         {boosts.length === 0 ? <Empty icon="megaphone" title="Aucun boost sur cette période">{edit && <Button icon="plus" onClick={() => setForm('new')}>Ajouter un boost</Button>}</Empty> : (
@@ -258,7 +258,9 @@ function PageTable({ pageId, days }: { pageId: string; days: string[] }) {
                             value={r ? (metric === 'msg' ? r.messages : r.spend) : undefined} placeholder={prev ? String(metric === 'msg' ? prev.messages : prev.spend) : isToday(d) ? 'à saisir' : ''}
                             onCommit={(v) => (metric === 'msg' ? saveReading(b.id, d, v, undefined) : saveReading(b.id, d, r?.messages ?? prev?.messages ?? (v == null ? undefined : 0), v))} />
                             : <span className="num">{r ? (metric === 'msg' ? fmtNum(r.messages) : usd(r.spend)) : <span className="muted small">à saisir</span>}</span>}
-                          {r && delta != null && <div className={`bw-delta ${delta > 0 ? 'pos' : 'muted'}`}>{metric === 'msg' ? signed(delta) : `+${usd(delta)}`}</div>}
+                          {r && delta != null && (stats[shownDays.indexOf(d)].starts.has(b.id)
+                            ? <div className="bw-delta muted" title="Première saisie d’un boost déjà en cours : point de départ, rien n’est compté ce jour-là">départ</div>
+                            : <div className={`bw-delta ${delta > 0 ? 'pos' : 'muted'}`}>{metric === 'msg' ? signed(delta) : `+${usd(delta)}`}</div>)}
                         </td>
                       );
                     })}

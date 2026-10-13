@@ -9,6 +9,7 @@ import { addDays, dayOf, mondayOf, type CashMove } from './money';
 import { variantCost, type Category, type StockMove, type Variant } from './catalog';
 import { usdRate } from './payouts';
 import type { Payout } from './closed';
+import { allDeltas } from './boosts';
 
 export type Gran = 'day' | 'week' | 'month' | 'year';
 export const GRAN_LABEL: Record<Gran, string> = { day: 'Jour', week: 'Semaine', month: 'Mois', year: 'Année' };
@@ -18,7 +19,7 @@ const pad = (n: number) => String(n).padStart(2, '0');
 
 export interface RecapRow {
   key: string; from: string; to: string; label: string; sub?: string; group: string; groupLabel: string;
-  pages: Record<string, number>; revenue: number; orders: number; expenses: number; rest: number; paid: number; boost: number; cost: number; net: number; stock: number;
+  pages: Record<string, number>; pageCost: Record<string, number>; pageBoost: Record<string, number>; revenue: number; orders: number; expenses: number; rest: number; paid: number; boost: number; cost: number; net: number; stock: number;
 }
 export interface Recap { gran: Gran; from: string; to: string; rows: RecapRow[]; pages: { id: string; name: string }[]; groups: { key: string; label: string; rows: RecapRow[]; total: RecapRow }[]; total: RecapRow }
 
@@ -57,9 +58,11 @@ export function firstActivity(): string {
   return min || dayOf(new Date().toISOString());
 }
 
-const emptyRow = (key: string, from: string, to: string, label: string, group = '', groupLabel = ''): RecapRow => ({ key, from, to, label, group, groupLabel, pages: {}, revenue: 0, orders: 0, expenses: 0, rest: 0, paid: 0, boost: 0, cost: 0, net: 0, stock: 0 });
+const emptyRow = (key: string, from: string, to: string, label: string, group = '', groupLabel = ''): RecapRow => ({ key, from, to, label, group, groupLabel, pages: {}, pageCost: {}, pageBoost: {}, revenue: 0, orders: 0, expenses: 0, rest: 0, paid: 0, boost: 0, cost: 0, net: 0, stock: 0 });
 function addInto(t: RecapRow, r: RecapRow) {
   for (const [k, v] of Object.entries(r.pages)) t.pages[k] = (t.pages[k] ?? 0) + v;
+  for (const [k, v] of Object.entries(r.pageCost)) t.pageCost[k] = (t.pageCost[k] ?? 0) + v;
+  for (const [k, v] of Object.entries(r.pageBoost)) t.pageBoost[k] = (t.pageBoost[k] ?? 0) + v;
   t.revenue += r.revenue; t.orders += r.orders; t.expenses += r.expenses; t.rest += r.rest; t.paid += r.paid; t.boost += r.boost; t.cost += r.cost; t.net += r.net;
 }
 
@@ -78,7 +81,7 @@ export function globalRecap(from: string, to: string, gran: Gran): Recap {
   for (const l of salesLedger(from, to)) {
     const r = row(l.day); if (!r) continue;
     const p = rootOf(l.categoryId) || '_'; pageIds.add(p);
-    r.pages[p] = (r.pages[p] ?? 0) + l.amount; r.revenue += l.amount; r.cost += l.cost;
+    r.pages[p] = (r.pages[p] ?? 0) + l.amount; r.pageCost[p] = (r.pageCost[p] ?? 0) + l.cost; r.revenue += l.amount; r.cost += l.cost;
     if (l.kind === 'sale') { const s = seenOrders.get(r.key) ?? new Set(); s.add(l.order.id); seenOrders.set(r.key, s); }
   }
   for (const [k, s] of seenOrders) rows.get(k)!.orders = s.size;
@@ -86,13 +89,12 @@ export function globalRecap(from: string, to: string, gran: Gran): Recap {
   for (const m of all<CashMove>('cashMoves')) { if (m.type !== 'expense') continue; const d = dayOf(m.at); if (d < from || d > to) continue; const r = row(d); if (r) r.expenses -= m.amount; }
   // Versements au patron : le jour du versement en vue « Jour », sinon la semaine versée.
   for (const p of all<Payout>('payouts')) { if (p.status !== 'paid') continue; const d = gran === 'day' ? dayOf(p.at) : p.weekStart; if (d < from || d > to) continue; const r = row(d); if (r) r.paid += p.amount; }
-  // Boost : dépense du jour = saisie cumulée − saisie précédente, convertie en ariary.
+  // Boost : dépense du jour = saisie cumulée − saisie précédente (voir readingDelta), convertie en ariary, par page.
   const rate = usdRate();
-  const byBoost = new Map<string, { date: string; spend: number }[]>();
-  for (const r of all<{ boostId: string; date: string; spend: number }>('boostReadings')) { if (!byBoost.has(r.boostId)) byBoost.set(r.boostId, []); byBoost.get(r.boostId)!.push(r); }
-  for (const rs of byBoost.values()) {
-    rs.sort((a, b) => a.date.localeCompare(b.date)); let prev = 0;
-    for (const x of rs) { if (x.date >= from && x.date <= to) { const r = row(x.date); if (r) r.boost += Math.max(0, x.spend - prev) * rate; } prev = Math.max(prev, x.spend); }
+  for (const x of allDeltas()) {
+    if (x.r.date < from || x.r.date > to) continue;
+    const r = row(x.r.date); if (!r) continue;
+    const v = x.spend * rate; r.boost += v; r.pageBoost[x.r.pageId] = (r.pageBoost[x.r.pageId] ?? 0) + v; pageIds.add(x.r.pageId);
   }
   // Valeur du stock (prix de revient actuel) en fin de période.
   const cost = new Map(all<Variant>('variants').map((v) => [v.id, variantCost(v)]));

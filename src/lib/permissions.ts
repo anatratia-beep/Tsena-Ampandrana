@@ -22,6 +22,8 @@ export const PERMISSIONS: PermissionDef[] = [
   { group: 'Argent', key: 'treasury.view', label: 'Voir la trésorerie et les soldes' },
   { group: 'Argent', key: 'cashday.use', label: 'Caisse du jour : saisir les dépenses de la caisse commune et envoyer le récapitulatif global par WhatsApp' },
   { group: 'Argent', key: 'expenses.manage', label: 'Saisir les dépenses et autres revenus' },
+  { group: 'Argent', key: 'handover.self', label: 'Vendeur : voir sa feuille de versement du jour (ventes, espèces, mobile money, total à remettre)' },
+  { group: 'Argent', key: 'handover.receive', label: 'Responsable : recevoir et valider les versements des vendeurs' },
   { group: 'Argent', key: 'couriers.settle', label: 'Faire les règlements des livreurs' },
   { group: 'Argent', key: 'payout.validate', label: 'Valider le versement de la semaine au patron (clôture la semaine)' },
   { group: 'Argent', key: 'closing.do', label: 'Faire la clôture de journée' },
@@ -46,10 +48,13 @@ export const DEFAULT_ROLES: RoleSeed[] = [
   { id: 'role-superadmin', name: 'Super-admin', description: 'Compte technique de secours : mots de passe, restauration, réinitialisation.', permissions: ALL, locked: true, system: true },
   { id: 'role-admin', name: 'Admin / Gérant', description: "Gère toute l'activité, les utilisateurs et leurs accès.", permissions: not('system.admin', 'courier.self'), system: true },
   { id: 'role-owner', name: 'Propriétaire', description: 'Consulte les tableaux de bord et les rapports, sans rien modifier.', permissions: ['dashboard.view', 'costs.view', 'catalog.view', 'treasury.view', 'reports.view', 'audit.view', 'boosts.view'], system: true },
-  { id: 'role-seller', name: 'Vendeur', description: 'Répond aux clients, crée les commandes, prépare, vend en boutique et gère les livraisons des livreurs.', permissions: ['dashboard.view', 'catalog.view', 'orders.create', 'orders.prepare', 'orders.dispatch', 'deliveries.manage', 'couriers.view', 'pos.sell', 'returns.manage', 'boosts.enter', 'boosts.view', 'cashday.use'], system: true },
+  { id: 'role-seller', name: 'Vendeur', description: 'Gère sa page : répond aux clients, crée les commandes, prépare, vend en boutique, reçoit l’argent de ses colis et le remet au responsable le soir.', permissions: ['dashboard.view', 'catalog.view', 'orders.create', 'orders.prepare', 'deliveries.manage', 'couriers.view', 'pos.sell', 'returns.manage', 'boosts.enter', 'boosts.view', 'cashday.use', 'handover.self'], system: true },
+  { id: 'role-manager', name: 'Responsable', description: 'Vend sur sa page comme un vendeur, assigne les livreurs (il sait qui apporte quoi) et reçoit chaque soir le versement de chaque vendeur.', permissions: ['dashboard.view', 'catalog.view', 'orders.create', 'orders.prepare', 'orders.dispatch', 'deliveries.manage', 'couriers.view', 'pos.sell', 'returns.manage', 'boosts.enter', 'boosts.view', 'cashday.use', 'handover.self', 'handover.receive'], system: true },
   { id: 'role-courier', name: 'Livreur', description: 'Voit seulement ses colis à livrer (adresse, téléphone, montant à encaisser) et son compte : argent à rendre, frais gagnés.', permissions: ['courier.self'], system: true },
   { id: 'role-stock', name: 'Magasinier', description: 'Réceptionne la marchandise et fait les inventaires.', permissions: ['dashboard.view', 'catalog.view', 'purchases.receive', 'stock.adjust'], system: true },
 ];
 
 export const SUPERADMIN_ROLE = 'role-superadmin';
 export const ADMIN_ROLE = 'role-admin';
+export const MANAGER_ROLE = 'role-manager';
+export const SELLER_ROLE = 'role-seller';

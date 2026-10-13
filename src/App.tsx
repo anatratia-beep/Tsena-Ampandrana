@@ -32,6 +32,7 @@ import { CustomersPage } from './pages/Customers';
 import { PosPage } from './pages/Pos';
 import { BoostsPage } from './pages/Boosts';
 import { DayCashPage } from './pages/DayCash';
+import { HandoversPage } from './pages/Handovers';
 import { CategoriesPage } from './pages/Categories';
 import { MyDeliveriesPage } from './pages/MyDeliveries';
 import { ExpensesPage } from './pages/Expenses';
@@ -49,6 +50,7 @@ const NAV: NavItem[] = [
   { path: '/clients', label: 'Clients', icon: 'users', perm: 'orders.create', group: 'Ventes', page: () => <CustomersPage /> },
   { path: '/depenses', label: 'Dépenses', icon: 'wallet', perm: 'expenses.manage', group: 'Argent', page: () => <ExpensesPage /> },
   { path: '/caisse-du-jour', label: 'Caisse du jour', icon: 'wallet', perm: 'cashday.use', group: 'Argent', page: () => <DayCashPage /> },
+  { path: '/versements', label: 'Versements vendeurs', icon: 'wallet', perm: 'handover.receive|handover.self', group: 'Argent', page: () => <HandoversPage /> },
   { path: '/recapitulatif', label: 'Récapitulatifs', icon: 'list', perm: 'treasury.view', group: 'Argent', page: () => <RecapPage /> },
   { path: '/tresorerie', label: 'Trésorerie', icon: 'wallet', perm: 'treasury.view', group: 'Argent', page: () => <TreasuryPage /> },
   { path: '/pages', label: 'Pages et variantes', icon: 'list', perm: 'catalog.view', group: 'Articles et stock', page: () => <CategoriesPage /> },

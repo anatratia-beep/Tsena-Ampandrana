@@ -183,27 +183,47 @@ export async function saveReal(pageId: string, date: string, count: number | und
 /** Nouveaux messages (conversations) par page sur une période, d'après les saisies des boosts. */
 export function messagesByPage(from: string, to: string) {
   const m = new Map<string, number>();
-  const byBoost = new Map<string, BoostReading[]>();
-  for (const r of all<BoostReading>('boostReadings')) { if (!byBoost.has(r.boostId)) byBoost.set(r.boostId, []); byBoost.get(r.boostId)!.push(r); }
-  for (const rs of byBoost.values()) {
-    rs.sort((a, b) => a.date.localeCompare(b.date));
-    for (let i = 0; i < rs.length; i++) {
-      const r = rs[i]; if (r.date < from || r.date > to) continue;
-      const d = Math.max(0, r.messages - (i ? rs[i - 1].messages : 0));
-      m.set(r.pageId, (m.get(r.pageId) ?? 0) + d);
-    }
-  }
+  for (const x of allDeltas()) if (x.r.date >= from && x.r.date <= to) m.set(x.r.pageId, (m.get(x.r.pageId) ?? 0) + x.messages);
   return m;
 }
 
 // ---------- Calculs ----------
+/**
+ * Ce qui est nouveau ce jour-là = chiffre du jour − chiffre de la saisie précédente (ex. hier 20, aujourd'hui 25 → 5).
+ * Première saisie d'un boost :
+ * - saisie le jour du lancement : tout compte (le boost part de 0) ;
+ * - saisie plus tard (boost déjà en cours, suivi commencé en route) : c'est le POINT DE DÉPART, rien n'est compté ce
+ *   jour-là, sinon tout le cumul de l'Espace Pubs depuis le lancement serait compté en un seul jour.
+ */
+export function readingDelta(r: Pick<BoostReading, 'date' | 'spend' | 'messages' | 'boostId'>, prev?: Pick<BoostReading, 'spend' | 'messages'>, boost?: Pick<Boost, 'startDate'>): { messages: number; spend: number; start: boolean } {
+  if (prev) return { messages: Math.max(0, r.messages - prev.messages), spend: Math.max(0, r.spend - prev.spend), start: false };
+  const b = boost ?? get<Boost>('boosts', r.boostId);
+  if (b && r.date > b.startDate) return { messages: 0, spend: 0, start: true };
+  return { messages: Math.max(0, r.messages), spend: Math.max(0, r.spend), start: false };
+}
 /** Nouveaux messages et dépense d'un boost pour un jour saisi (écart avec la saisie précédente). */
-export function boostDelta(boostId: string, date: string): { messages: number; spend: number; reading?: BoostReading; first?: boolean } {
+export function boostDelta(boostId: string, date: string): { messages: number; spend: number; reading?: BoostReading; first?: boolean; start?: boolean } {
   const r = readingOn(boostId, date);
   if (!r) return { messages: 0, spend: 0 };
   const p = prevReading(boostId, date);
-  // Première saisie : tout ce qui est arrivé depuis le lancement compte ce jour-là.
-  return { messages: Math.max(0, r.messages - (p?.messages ?? 0)), spend: Math.max(0, r.spend - (p?.spend ?? 0)), reading: r, first: !p };
+  const d = readingDelta(r, p);
+  return { messages: d.messages, spend: d.spend, reading: r, first: !p, start: d.start };
+}
+/** Pour chaque saisie de toutes les pages : nouveaux messages et dépense ($) du jour. */
+export function allDeltas(): { r: BoostReading; messages: number; spend: number; start: boolean }[] {
+  const byBoost = new Map<string, BoostReading[]>();
+  for (const r of all<BoostReading>('boostReadings')) { if (!byBoost.has(r.boostId)) byBoost.set(r.boostId, []); byBoost.get(r.boostId)!.push(r); }
+  const out: { r: BoostReading; messages: number; spend: number; start: boolean }[] = [];
+  for (const [id, rs] of byBoost) {
+    const b = get<Boost>('boosts', id);
+    rs.sort((a, c) => a.date.localeCompare(c.date));
+    let prev: { spend: number; messages: number } | undefined;
+    for (const r of rs) {
+      out.push({ r, ...readingDelta(r, prev, b ?? { startDate: r.date }) });
+      prev = { spend: Math.max(prev?.spend ?? 0, r.spend), messages: Math.max(prev?.messages ?? 0, r.messages) };
+    }
+  }
+  return out;
 }
 
 /** Commandes en ligne créées ce jour-là contenant au moins un article de la page. */
@@ -211,17 +231,17 @@ export function ordersOn(pageId: string, date: string) {
   return all<Order>('orders').filter((o) => !isWalkIn(o) && o.status !== 'cancelled' && dayOf(o.createdAt) === date && o.lines.some((l) => variantPage(l.variantId) === pageId)).length;
 }
 
-export interface DayStats { date: string; theo: number; real?: number; gap?: number; spend: number; orders: number; perBoost: Map<string, number>; spendPerBoost: Map<string, number>; missing: number; entered: boolean }
+export interface DayStats { date: string; theo: number; real?: number; gap?: number; spend: number; orders: number; perBoost: Map<string, number>; spendPerBoost: Map<string, number>; starts: Set<string>; missing: number; entered: boolean }
 export function dayStats(pageId: string, date: string): DayStats {
-  const perBoost = new Map<string, number>(); const spendPerBoost = new Map<string, number>();
+  const perBoost = new Map<string, number>(); const spendPerBoost = new Map<string, number>(); const starts = new Set<string>();
   let theo = 0, spend = 0, missing = 0;
   for (const b of boostsOf(pageId)) {
     const d = boostDelta(b.id, date);
-    if (d.reading) { perBoost.set(b.id, d.messages); spendPerBoost.set(b.id, d.spend); theo += d.messages; spend += d.spend; }
+    if (d.reading) { perBoost.set(b.id, d.messages); spendPerBoost.set(b.id, d.spend); theo += d.messages; spend += d.spend; if (d.start) starts.add(b.id); }
     else if (activeOn(b, date)) missing++;
   }
   const real = realOn(pageId, date)?.count;
-  return { date, theo, real, gap: real == null ? undefined : real - theo, spend, orders: ordersOn(pageId, date), perBoost, spendPerBoost, missing, entered: real != null || perBoost.size > 0 };
+  return { date, theo, real, gap: real == null ? undefined : real - theo, spend, orders: ordersOn(pageId, date), perBoost, spendPerBoost, starts, missing, entered: real != null || perBoost.size > 0 };
 }
 
 export const weekDates = (monday: string) => Array.from({ length: 7 }, (_, i) => addDays(monday, i));

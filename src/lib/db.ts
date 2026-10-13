@@ -3,12 +3,12 @@
 import { useSyncExternalStore } from 'react';
 
 export const DB_NAME = 'tsena';
-export const DB_VERSION = 9;
+export const DB_VERSION = 10;
 
 /** Tables métier synchronisées. Ajouter un nom ici (et augmenter DB_VERSION) crée la table. */
 import { META, mergeRecords, observe, sameContent, stampWrite, tick, baseStamp, type Conflict } from './merge';
 
-export const TABLES = ['users', 'roles', 'settings', 'audit', 'categories', 'products', 'variants', 'stockMoves', 'suppliers', 'purchases', 'receptions', 'zones', 'couriers', 'customers', 'orders', 'printStations', 'printJobs', 'cashMoves', 'financeCategories', 'recurring', 'courierSettlements', 'closings', 'boosts', 'boostReadings', 'pageMessages', 'syncConflicts', 'devices', 'payouts', 'prospects'] as const;
+export const TABLES = ['users', 'roles', 'settings', 'audit', 'categories', 'products', 'variants', 'stockMoves', 'suppliers', 'purchases', 'receptions', 'zones', 'couriers', 'customers', 'orders', 'printStations', 'printJobs', 'cashMoves', 'financeCategories', 'recurring', 'courierSettlements', 'closings', 'boosts', 'boostReadings', 'pageMessages', 'syncConflicts', 'devices', 'payouts', 'prospects', 'handovers'] as const;
 export type TableName = (typeof TABLES)[number];
 
 export interface BaseRecord {

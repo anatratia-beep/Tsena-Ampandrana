@@ -26,6 +26,8 @@ export interface Role extends BaseRecord {
   permsCatalog?: string[];
   locked?: boolean;
   system?: boolean;
+  /** Mises à jour uniques déjà appliquées à ce rôle. */
+  migrations?: string[];
 }
 
 export const SUPERADMIN_ID = 'user-superadmin';
@@ -71,6 +73,12 @@ export async function seedAccounts() {
     updates.push({ id: role.id, permissions: [...new Set([...role.permissions, ...add])], permsCatalog: keys });
   }
   if (updates.length) await save('roles', updates);
+
+  // Mise à jour unique : c'est désormais le responsable qui assigne les livreurs, plus le vendeur.
+  const seller = get<Role>('roles', 'role-seller');
+  if (seller && seller.permissions.includes('orders.dispatch') && !(seller.migrations ?? []).includes('dispatch-to-manager')) {
+    await save('roles', { id: seller.id, permissions: seller.permissions.filter((k) => k !== 'orders.dispatch'), migrations: [...(seller.migrations ?? []), 'dispatch-to-manager'] });
+  }
 }
 
 // ---- Session ----
