@@ -29,6 +29,7 @@ const P: Record<string, string> = {
   search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
   chevronRight: 'M9 18l6-6-6-6',
   chevronLeft: 'M15 18l-6-6 6-6',
+  clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2',
   bell: 'M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0',
   chevronUp: 'M18 15l-6-6-6 6',
   pause: 'M9 5v14M15 5v14',

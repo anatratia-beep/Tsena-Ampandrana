@@ -112,7 +112,13 @@ export function resizeImage(file: File, max = 256, type: 'image/png' | 'image/jp
       c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
       const ctx = c.getContext('2d')!;
       if (type === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(img, 0, 0, c.width, c.height); }
-      resolve(c.toDataURL(type, 0.72));
+      let out = c.toDataURL(type, 0.72);
+      // Logo trop lourd en PNG (photo plutôt que dessin) : enregistré en JPEG léger, comme les photos.
+      if (type === 'image/png' && (out.length - out.indexOf(',')) * 0.75 > 40_000) {
+        const ctx2 = c.getContext('2d')!; ctx2.globalCompositeOperation = 'destination-over'; ctx2.fillStyle = '#fff'; ctx2.fillRect(0, 0, c.width, c.height);
+        for (const q of [0.82, 0.72, 0.62]) { out = c.toDataURL('image/jpeg', q); if ((out.length - out.indexOf(',')) * 0.75 <= 40_000) break; }
+      }
+      resolve(out);
       URL.revokeObjectURL(img.src);
     };
     img.onerror = () => reject(new Error("Image illisible. Choisissez un fichier PNG ou JPG."));

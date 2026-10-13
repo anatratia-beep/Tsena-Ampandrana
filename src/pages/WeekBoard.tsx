@@ -108,7 +108,7 @@ export function PayoutCard({ monday }: { monday: string }) {
       </tbody></table>
       {!finished && p?.status !== 'paid' && <p className="small muted">Le versement se fait une fois la semaine terminée (à partir du samedi).</p>}
       {!allowed && p?.status !== 'paid' && finished && <p className="small muted">Seul le gérant (droit « Valider le versement de la semaine ») peut valider ce versement.</p>}
-      {p?.status === 'paid' && allowed && <div><Button variant="quiet" onClick={() => setCancel(p)}>Annuler ce versement (erreur)…</Button></div>}
+      {p?.status === 'paid' && allowed && <div><Button variant="danger" icon="x" onClick={() => setCancel(p)}>Annuler ce versement (erreur)…</Button></div>}
       {open && <PayoutModal monday={monday} g={g} onClose={() => setOpen(false)} />}
       {cancel && <CancelModal p={cancel} onClose={() => setCancel(null)} />}
     </div>

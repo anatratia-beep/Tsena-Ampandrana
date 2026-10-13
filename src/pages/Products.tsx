@@ -10,6 +10,7 @@ import {
   type Category, type Product, type StockMove, type Variant, searchItems } from '../lib/catalog';
 import { blobToThumb } from '../lib/xlsx';
 import { photoBytes } from '../lib/images';
+import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period';
 import { Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDateTime, navigate, toast, useRoute, MoreMatches, DateSort, type DateOrder } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { rootOf } from '../lib/scope';
@@ -70,6 +71,7 @@ function ProductList() {
   const [others, setOthers] = useState(0);
   const [dups, setDups] = useState(false);
   const [order, setOrder] = useState<DateOrder>('');
+  const [added, setAdded] = useState<Period>(defaultPeriod('all'));
 
   const list = useMemo(() => {
     const n = q.trim().toLowerCase();
@@ -82,7 +84,8 @@ function ProductList() {
     const sr = searchItems(products
       .filter((p) => showArchived || p.active !== false)
       .filter((p) => scope.product(p.id))
-      .filter(inCat), productText, n, allMatches);
+      .filter(inCat)
+      .filter((p) => added.key === 'all' || inPeriod(p.createdAt, added)), productText, n, allMatches);
     queueMicrotask(() => setOthers(sr.others));
     return sr.list
       .map((p) => ({ p, stock: isLot(p) ? lotAvailable(p, stockOf) : productStock(p.id), incoming: isLot(p) ? 0 : productIncoming(p.id) }))
@@ -94,7 +97,7 @@ function ProductList() {
         return true;
       })
       .sort((a, b) => order === 'new' ? b.p.createdAt.localeCompare(a.p.createdAt) : order === 'old' ? a.p.createdAt.localeCompare(b.p.createdAt) : a.p.code.localeCompare(b.p.code, 'fr', { numeric: true }));
-  }, [products, q, cat, sf, showArchived, scope.on, allMatches, order]);
+  }, [products, q, cat, sf, showArchived, scope.on, allMatches, order, added]);
 
   const dupCount = useMemo(() => findDuplicates().length, [products]);
   return (
@@ -121,6 +124,7 @@ function ProductList() {
           </div>
           <DateSort value={order} onChange={setOrder} />
         </div>
+        <div className="row list-dates-row"><span className="small muted">Ajoutés :</span><PeriodPicker value={added} onChange={setAdded} /></div>
         <MoreMatches n={others} onShow={() => setAllMatches(true)} />
         <div className="row-between">
           <div className="segmented" role="group" aria-label="Filtrer par stock">
@@ -195,7 +199,7 @@ function ProductDetail({ id }: { id: string }) {
       <LotDetail p={p} onEdit={() => setEditing(true)} />
       {can('catalog.edit') && <div className="row">
         <Button variant="quiet" icon={p.active === false ? 'refresh' : 'list'} onClick={() => setArchive(true)}>{p.active === false ? 'Réactiver le lot' : 'Archiver le lot'}</Button>
-        {!articleUsage(p.id).used && <Button variant="quiet" icon="trash" onClick={() => setDelArt(true)}>Supprimer le lot</Button>}
+        {!articleUsage(p.id).used && <Button variant="danger" icon="trash" onClick={() => setDelArt(true)}>Supprimer le lot</Button>}
       </div>}
       {editing && <LotForm lot={p} onClose={() => setEditing(false)} />}
       {delArt && <Confirm title="Supprimer le lot" danger confirmLabel="Supprimer" message={<p>Le lot <strong>{p.name}</strong> sera supprimé (il n’a jamais été vendu). Les articles qu’il contient ne changent pas.</p>}
@@ -308,7 +312,7 @@ function ProductDetail({ id }: { id: string }) {
       {can('catalog.edit') && (
         <div className="row">
           <Button variant="quiet" icon={p.active === false ? 'refresh' : 'list'} onClick={() => setArchive(true)}>{p.active === false ? 'Réactiver l’article' : 'Archiver l’article'}</Button>
-          {!articleUsage(p.id).used && <Button variant="quiet" icon="trash" onClick={() => setDelArt(true)}>Supprimer l’article</Button>}
+          {!articleUsage(p.id).used && <Button variant="danger" icon="trash" onClick={() => setDelArt(true)}>Supprimer l’article</Button>}
         </div>
       )}
       {delArt && <Confirm title="Supprimer l’article" danger confirmLabel="Supprimer définitivement" message={<div className="stack-s"><p>L’article <strong>{p.name}</strong> ({p.code}) sera supprimé{articleUsage(p.id).moves ? ', avec son stock de départ' : ''}.</p><p className="small muted">Possible seulement pour un article jamais vendu, commandé ni acheté (ex. article de test). Sinon, utilisez « Archiver ».</p></div>}
@@ -477,7 +481,7 @@ function VariantForm({ product, variant, onClose }: { product: Product; variant:
   return (
     <Modal title={attr ? `Code et coût — ${product.name}` : `Variante ${variantLabel(variant)}`} onClose={onClose}
       footer={<>
-        {!hasMoves && !attr && <Button variant="quiet" icon="trash" onClick={() => setDel(true)}>Supprimer</Button>}
+        {!hasMoves && !attr && <Button variant="danger" icon="trash" onClick={() => setDel(true)}>Supprimer</Button>}
         <Button variant="ghost" onClick={onClose}>Annuler</Button>
         <Button onClick={async () => {
           await save('variants', { id: variant.id, color: color.trim() || undefined, size: normSize(size) || undefined, sku: sku.trim() || makeSku(product.code, color, size), priceRetail: parseNum(price), priceWholesale: parseNum(wholesale), ...(can('costs.view') ? { costAvg: parseNum(cost) } : {}) });

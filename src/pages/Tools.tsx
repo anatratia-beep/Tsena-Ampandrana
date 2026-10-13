@@ -153,14 +153,14 @@ export function WorkDateBanner() {
 }
 
 function PhotosCard() {
-  useTable('products'); useTable('variants');
+  useTable('products'); useTable('variants'); useTable('cashMoves'); useTable('categories');
   const st = photoStats();
   const [prog, setProg] = useState('');
   const ko = (b: number) => Math.round(b / 1024).toLocaleString('fr-FR') + ' Ko';
   return (
     <div className="card stack">
-      <div><h3>Photos des articles</h3>
-        <Help>Chaque photo ajoutée (fiche article, import Excel, commande Chine) est automatiquement redimensionnée (480 px), convertie en JPEG et compressée à environ 40 Ko avant d’être enregistrée. Ce bouton applique le même traitement aux photos plus anciennes.</Help></div>
+      <div><h3>Photos et logos</h3>
+        <Help>Norme appliquée à chaque image avant d’être enregistrée : photo d’article 600 px / ~50 Ko (bien reconnaissable), photo de reçu 1000 px / ~110 Ko (texte lisible), logo 256 px / ~40 Ko. Les images plus anciennes ou trop lourdes sont réduites automatiquement une fois par jour par l’appareil d’un admin ; ce bouton le fait tout de suite.</Help></div>
       <p className="small">{st.count} photo(s) · {ko(st.bytes)} au total{st.count ? ` · moyenne ${ko(st.bytes / st.count)}` : ''}{st.heavy ? ` · ${st.heavy} à optimiser` : ' · toutes optimisées'}</p>
       <div className="row" style={{ alignItems: 'center' }}>
         <Button variant="ghost" icon="refresh" disabled={!st.heavy || !!prog} onClick={async () => {

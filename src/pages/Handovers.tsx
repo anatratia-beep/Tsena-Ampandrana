@@ -161,7 +161,7 @@ function Sheet({ d, self, onDone }: { d: SellerDay; self?: boolean; onDone?: () 
             {ho.gap ? <span className={ho.gap < 0 ? 'neg' : 'pos'}> · écart {ho.gap > 0 ? '+' : ''}{fmtAr(ho.gap)}</span> : null}</p>
           {ho.note && <p className="small muted">Note : {ho.note}</p>}
           {changedSince(d) && <div className="notice notice-danger"><Icon name="alert" /><span>Les chiffres ont changé depuis la validation (à payer : {fmtAr(ho.expected)} → {fmtAr(d.toPay)}). Vérifiez avec le vendeur ; au besoin, annulez puis validez à nouveau.</span></div>}
-          {boss && <div><Button variant="ghost" onClick={() => setCancel(true)}>Annuler ce versement</Button></div>}
+          {boss && <div><Button variant="danger" icon="x" onClick={() => setCancel(true)}>Annuler ce versement</Button></div>}
         </div>
       ) : boss ? (
         <div className="card stack-s">

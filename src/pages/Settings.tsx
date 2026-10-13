@@ -2,9 +2,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { audit, useCan } from '../lib/auth';
 import { getMeta, requeueAll, save, setMeta, useMeta, useTable, type BaseRecord } from '../lib/db';
+import { boostDeadlineTime } from '../lib/boosts';
 import { BRAND_SWATCHES, DEFAULT_COMPANY, resizeImage, useCompany, type ThemeMode } from '../lib/settings';
 import { disconnectCloud, connectCloud, getCloud, syncNow, useSyncStatus, type SyncLogLine } from '../lib/sync';
-import { backupFolderName, backupKey, canPickFolder, canShareFile, pickBackupFolder, saveBackupFile, setBackupPassword, unlockBackupPassword, type SavedBackup, cloudBackup, downloadBackup, factoryReset, fetchCloudBackup, listCloudBackups, readBackup, restoreBackup } from '../lib/backup';
+import { backupFolderName, backupKey, canPickFolder, canShareFile, pickBackupFolder, saveBackupFile, setBackupPassword, unlockBackupPassword, type SavedBackup, cloudBackup, cloudCopyBlocker, copyLooksIncomplete, dataStats, labelCount, statsText, downloadBackup, factoryReset, fetchCloudBackup, listCloudBackups, readBackup, restoreBackup } from '../lib/backup';
 import { Help, Badge, Button, Confirm, Empty, Modal, PageHead, PasswordField, Req, SelectField, TextField, fmtDateTime, timeAgo, toast, useRoute, navigate , IconButton } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { CloudFields } from './Auth';
@@ -112,19 +113,18 @@ function CompanyTab() {
         })}
       </div>
       <div className="card stack" style={{ background: 'var(--surface-2)' }}>
-        <div><h3>Compte boost : heure limite</h3><Help>Les boosts tournent tous les jours : le compte boost doit être fait chaque jour avant cette heure. Après, le responsable reçoit une alerte et le gérant et le super-admin sont prévenus. Vide = heure de fermeture.</Help></div>
-        {[1, 2, 3, 4, 5, 6, 0].filter((d) => (form.hours ?? DEFAULT_COMPANY.hours!)[String(d)]).map((d) => {
-          const close = (form.hours ?? DEFAULT_COMPANY.hours!)[String(d)]!.close;
+        <div><h3>Compte boost : heure limite</h3><Help>Les boosts tournent tous les jours : le compte boost doit être fait chaque jour, dimanche compris, avant cette heure (le jour même). Après, le responsable reçoit une alerte et le gérant et le super-admin sont prévenus. Vide = heure de fermeture.</Help></div>
+        {[1, 2, 3, 4, 5, 6, 0].map((d) => {
+          const def = boostDeadlineTime({ ...form, boostDeadlines: {} } as any, d);
           return (
             <div key={d} className="row hours-row">
               <span style={{ width: 90 }}><strong>{['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'][d]}</strong></span>
               <span className="small">avant</span>
-              <input className="cell-input" style={{ width: 110 }} type="time" aria-label={`Heure limite compte boost ${['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'][d]}`} value={form.boostDeadlines?.[String(d)] ?? close} onChange={(e) => setForm({ ...form, boostDeadlines: { ...(form.boostDeadlines ?? {}), [String(d)]: e.target.value } })} />
+              <input className="cell-input" style={{ width: 110 }} type="time" aria-label={`Heure limite compte boost ${['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'][d]}`} value={form.boostDeadlines?.[String(d)] || def} onChange={(e) => setForm({ ...form, boostDeadlines: { ...(form.boostDeadlines ?? {}), [String(d)]: e.target.value } })} />
+              {!(form.hours ?? DEFAULT_COMPANY.hours!)[String(d)] && <span className="small muted">jour fermé : compte fait le jour même</span>}
             </div>
           );
         })}
-        <div className="row hours-row"><span className="small">Jour fermé (dimanche) : compte à faire le jour ouvert suivant avant</span>
-          <input className="cell-input" style={{ width: 110 }} type="time" aria-label="Heure limite compte boost jour fermé" value={form.boostClosedNext ?? '12:00'} onChange={(e) => setForm({ ...form, boostClosedNext: e.target.value })} /></div>
       </div>
       <div className="grid-2">
         <TextField label="Objectif de chiffre d’affaires par jour (Ar)" value={form.targetDay ? String(form.targetDay) : ''} onChange={(v) => setForm({ ...form, targetDay: Number(v.replace(/\D/g, '')) || undefined })} inputMode="numeric" hint="Facultatif : une barre de progression s’affiche sur l’accueil et dans le rapport du jour." />
@@ -136,11 +136,22 @@ function CompanyTab() {
       <div className="row">
         <Button busy={busy} disabled={!form.name.trim()} onClick={async () => {
           setBusy(true);
-          const { createdAt, updatedAt, _f, _v, _by, _dev, ...data } = form as any;
-          await save('settings', { ...data, id: 'company', name: form.name.trim() }, { force: true });
-          await audit('Paramètres', 'Informations de la société modifiées', 'settings', 'company');
+          // Seuls les champs réellement modifiés sur cet écran sont envoyés : un appareil qui n'avait pas encore reçu
+          // le nouveau nom (ou la nouvelle adresse) ne peut plus l'écraser avec l'ancienne valeur en enregistrant autre chose.
+          const { createdAt, updatedAt, _f, _v, _by, _dev, ...data } = { ...form, name: form.name.trim() } as any;
+          const changed: Record<string, any> = {};
+          for (const k of new Set([...Object.keys(data), ...Object.keys(base)])) {
+            if (['createdAt', 'updatedAt', '_f', '_v', '_by', '_dev', 'id'].includes(k)) continue;
+            if (JSON.stringify((data as any)[k]) !== JSON.stringify((base as any)[k])) changed[k] = (data as any)[k];
+          }
+          if (!Object.keys(changed).length) { setBusy(false); toast('Aucune modification'); return; }
+          await save('settings', { ...changed, id: 'company' }, { force: true });
+          const names: Record<string, string> = { name: 'nom', address: 'adresse', phone: 'téléphone', logo: 'logo', slogan: 'slogan', hours: 'horaires', boostDeadlines: 'heures du compte boost', ticketFooter: 'message du ticket' };
+          await audit('Paramètres', `Informations de la société modifiées : ${Object.keys(changed).map((k) => names[k] ?? k).join(', ')}${changed.name ? ` (nouveau nom : ${changed.name})` : ''}`, 'settings', 'company');
+          setBase({ ...base, ...changed });
+          syncNow().catch(() => {});
           setBusy(false);
-          toast('Informations enregistrées');
+          toast('Informations enregistrées — envoyées aux autres appareils');
         }}>Enregistrer</Button>
       </div>
     </div>
@@ -347,6 +358,7 @@ function BackupTab() {
   const [busy, setBusy] = useState('');
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [cloudList, setCloudList] = useState<any[] | null>(null);
+  const skip = useMeta<{ at: string; why: string } | null>('autoBackupSkip', null);
   const [pick, setPick] = useState<{ label: string; data: Record<string, BaseRecord[]> } | null>(null);
   const hasCloud = !!getCloud();
 
@@ -363,7 +375,11 @@ function BackupTab() {
           <div className="row">
             <Button icon="cloud" busy={busy === 'cloud'} onClick={async () => {
               setBusy('cloud');
-              try { await cloudBackup('Manuelle'); toast('Copie enregistrée dans le cloud'); } catch (e: any) { toast(e.message, 'error'); }
+              try {
+                const why = await cloudCopyBlocker();
+                if (why && !confirm(`Attention : ${why}. La copie risque d’être incomplète. La faire quand même ?`)) { setBusy(''); return; }
+                const st = await cloudBackup('Manuelle'); toast(`Copie enregistrée et vérifiée (${st.total.toLocaleString('fr-FR')} fiches)`);
+              } catch (e: any) { toast(e.message, 'error'); }
               setBusy('');
             }}>Copier maintenant dans le cloud</Button>
             {can('system.admin') && <Button variant="ghost" busy={busy === 'list'} onClick={async () => {
@@ -373,6 +389,8 @@ function BackupTab() {
             }}>Voir les copies</Button>}
           </div>
         ) : <p className="small">Reliez l'appareil au cloud (onglet « Cloud et synchronisation ») pour activer les copies automatiques.</p>}
+        {hasCloud && <p className="small muted">Contrôle : une copie n’est faite qu’après une synchronisation complète (cet appareil doit avoir toutes les données du cloud), puis elle est relue pour vérifier qu’elle est bien enregistrée. Données actuelles : {statsText(dataStats())}.</p>}
+        {hasCloud && skip?.why && <p className="small" style={{ color: 'var(--warn-ink, #8a5a00)' }}>{fmtDateTime(skip.at)} — {skip.why}</p>}
       </div>
 
       {(can('system.admin') || can('records.correct')) && <RestorePointsCard />}
@@ -393,6 +411,8 @@ function BackupTab() {
                   <div className="list-item-main">
                     <p className="list-item-title">{fmtDateTime(b.created_at)}</p>
                     <p className="small muted">{b.label}{b.device ? ` · ${b.device}` : ''}</p>
+                    {copyLooksIncomplete(b.label) && <p className="small"><Badge tone="danger">Copie incomplète</Badge> {labelCount(b.label)?.toLocaleString('fr-FR')} fiches seulement, contre {dataStats().total.toLocaleString('fr-FR')} aujourd’hui : faite par un appareil pas encore synchronisé. Ne pas restaurer.</p>}
+                    {labelCount(b.label) === null && <p className="small muted">Ancienne copie (nombre de fiches non noté) : il s’affiche avant de restaurer.</p>}
                   </div>
                   <Button variant="ghost" onClick={async () => {
                     try { setPick({ label: `la copie cloud du ${fmtDateTime(b.created_at)}`, data: await fetchCloudBackup(b.id) }); setCloudList(null); }
@@ -505,6 +525,8 @@ function RestoreFileModal({ onClose, onReady }: { onClose: () => void; onReady: 
 function RestoreConfirm({ pick, onClose }: { pick: { label: string; data: Record<string, BaseRecord[]> }; onClose: () => void }) {
   const [mode, setMode] = useState<'replace' | 'merge'>('replace');
   const counts = Object.entries(pick.data).map(([t, rows]) => `${rows.filter((r) => !r.deleted).length} ${t}`).join(', ');
+  const there = dataStats(pick.data), here = dataStats();
+  const small = here.total > 50 && there.total < here.total * 0.8;
   return (
     <Confirm title="Confirmer la restauration" danger confirmLabel="Restaurer" typeToConfirm="RESTAURER" onClose={onClose}
       onConfirm={async () => { await restoreBackup(pick.data, mode, pick.label); toast('Restauration terminée'); }}
@@ -512,6 +534,8 @@ function RestoreConfirm({ pick, onClose }: { pick: { label: string; data: Record
         <div className="stack">
           <p>Vous allez restaurer {pick.label}.</p>
           <p className="small muted">Contenu : {counts}.</p>
+          <p className="small">Cette sauvegarde : {statsText(there)}.<br />Aujourd’hui : {statsText(here)}.</p>
+          {small && <p className="small" style={{ color: 'var(--danger)' }}><strong>Attention : cette sauvegarde contient beaucoup moins de données qu’aujourd’hui.</strong> Elle a sans doute été faite par un appareil pas encore synchronisé. Choisissez plutôt « Fusionner », ou une autre copie.</p>}
           <SelectField label="Méthode" value={mode} onChange={(v) => setMode(v as any)} options={[
             { value: 'replace', label: 'Remplacer : revenir exactement à la sauvegarde' },
             { value: 'merge', label: 'Fusionner : ajouter ce qui manque, garder le reste' },

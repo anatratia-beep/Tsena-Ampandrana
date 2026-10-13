@@ -13,7 +13,7 @@ import {
 import { closedBy } from '../lib/closed';
 import { Help, Badge, Button, FilterSelect, Confirm, Empty, IconButton, Modal, PageHead, Req, SelectField, TextField, Toggle, fmtDate, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
 import { Icon } from '../ui/icons';
-import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period';
+import { ListDates, PeriodPicker, defaultPeriod, inPeriod, type ListOrder, type Period } from '../ui/period';
 import { SortTable, exportTables, type Col } from '../ui/table';
 
 const TABS = [
@@ -256,6 +256,7 @@ function ExpenseList() {
   const moves = useTable<CashMove>('cashMoves');
   const cats = useTable<FinanceCategory>('financeCategories');
   const [period, setPeriod] = useState<Period>(defaultPeriod('today'));
+  const [order, setOrder] = useState<ListOrder>('new');
   const [cat, setCat] = useState('');
   const [type, setType] = useState('');
   const [q, setQ] = useState('');
@@ -283,7 +284,7 @@ function ExpenseList() {
   return (
     <>
       <div className="card stack">
-        <PeriodPicker value={period} onChange={setPeriod} />
+        <ListDates period={period} onPeriod={setPeriod} order={order} onOrder={setOrder} what="Date de la dépense" />
         <div className="row">
           <div className="field" style={{ flex: '2 1 220px' }}><input aria-label="Rechercher une dépense" placeholder="Rechercher (description, note, montant, personne)…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
           <div className="field" style={{ flex: '1 1 180px' }}><FilterSelect label="Catégorie" value={cat} onChange={setCat} options={[{ value: '', label: 'Toutes les catégories' }, ...cats.filter((c) => c.kind === 'expense').map((c) => ({ value: c.id, label: c.name }))]} /></div>
@@ -300,7 +301,7 @@ function ExpenseList() {
       <div className="card card-flush">
         <div className="card-pad row-between"><h2>Liste des dépenses</h2>
           <Button variant="ghost" icon="download" disabled={!list.length} onClick={() => exportTables(`depenses_${period.from ?? 'debut'}_${period.to ?? today()}.xlsx`, [{ name: 'Dépenses', cols: cols.slice(0, 7).map((c) => ({ ...c, value: c.key === 'd' ? (m: CashMove) => fmtDateTime(m.at) : c.value })), rows: list }, { name: 'Par catégorie', cols: [{ key: 'n', label: 'Catégorie', value: (r: [string, number]) => r[0], width: 26 }, { key: 'v', label: 'Total', value: (r: [string, number]) => r[1], money: true, total: true, width: 16 }], rows: byCat }])}>Excel</Button></div>
-        <SortTable rowKey={(m) => m.id} rows={list} cols={cols} initialSort={{ key: 'd', desc: true }} limit={100} empty="Aucune dépense sur la période." />
+        <SortTable key={order} rowKey={(m) => m.id} rows={list} cols={cols} initialSort={{ key: 'd', desc: order === 'new' }} limit={100} empty="Aucune dépense sur la période." />
       </div>
       {del && <Confirm title="Supprimer cette dépense ?" danger confirmLabel="Supprimer" onClose={() => setDel(null)} onConfirm={async () => { await deleteMove(del); toast('Dépense supprimée'); }}
         message={<p>{del.label || name(del.categoryId)} — {fmtAr(-del.amount)} ({ACCOUNTS[del.account]}, {fmtDate(dayOf(del.at))}). Le solde du compte remonte d’autant.</p>} />}

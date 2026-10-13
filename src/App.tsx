@@ -10,7 +10,7 @@ import { all, getMeta, setMeta, useMeta } from './lib/db';
 import { CHANGELOG } from './lib/changelog';
 import { useApplyAppearance, useCompany } from './lib/settings';
 import { syncNow, useSyncStatus } from './lib/sync';
-import { autoBackups } from './lib/maintenance';
+import { autoBackups, autoOptimizePhotos } from './lib/maintenance';
 import { dailyRestorePoint } from './lib/restorePoints';
 import { logMissedBoosts } from './lib/boosts';
 import { EmailResetScreen } from './pages/Auth';
@@ -39,13 +39,15 @@ import { HandoversPage } from './pages/Handovers';
 import { CategoriesPage } from './pages/Categories';
 import { MyDeliveriesPage } from './pages/MyDeliveries';
 import { ExpensesPage } from './pages/Expenses';
-import { NotifBar, NotifBell } from './ui/notifications';
+import { NotifBar, NotifBell, NotificationsPage, useNotifCount } from './ui/notifications';
+function NavNotifCount() { const n = useNotifCount(); return n ? <span className="nav-count">{n}</span> : null; }
 
 interface NavItem { path: string; label: string; short?: string; icon: IconName; perm?: string; group: string; page: () => ReactNode; mobile?: boolean }
 
 // Menu du plus important au moins important (proposition v4, point 9).
 const NAV: NavItem[] = [
   { path: '/', label: 'Accueil', icon: 'home', group: '', page: () => <DashboardPage />, mobile: true },
+  { path: '/notifications', label: 'Notifications', icon: 'bell', group: '', page: () => <NotificationsPage /> },
   { path: '/vente', label: 'Vente sur place', icon: 'store', perm: 'pos.sell', group: 'Ventes', page: () => <PosPage />, mobile: true },
   { path: '/commandes', label: 'Commandes clients', icon: 'list', perm: 'orders.create', group: 'Ventes', page: () => <OrdersPage />, mobile: true },
   { path: '/mes-livraisons', label: 'Mes livraisons', icon: 'truck', perm: 'courier.self', group: 'Ventes', page: () => <MyDeliveriesPage />, mobile: true },
@@ -112,7 +114,7 @@ export function App() {
   }, [user?.id, company.autoLockMinutes, locked]);
 
   // Copies automatiques dans le cloud (quotidienne / hebdomadaire / mensuelle), vérifiées toutes les heures.
-  useEffect(() => { if (!user) return; const run = () => { void autoBackups(); void dailyRestorePoint(); void logMissedBoosts(); }; run(); const t = setInterval(run, 3600_000); return () => clearInterval(t); }, [user?.id]);
+  useEffect(() => { if (!user) return; const run = () => { void autoBackups(); void dailyRestorePoint(); void logMissedBoosts(); setTimeout(() => void autoOptimizePhotos(), 60_000); }; run(); const t = setInterval(run, 3600_000); return () => clearInterval(t); }, [user?.id]);
   const resetGranted = useMeta<{ at: number } | null>('resetGranted', null);
 
   const [installPage, setInstallPage] = useState(wantsInstallPage);
@@ -173,7 +175,7 @@ function Shell() {
               {g && <div className="nav-group">{g}</div>}
               {items.filter((i) => i.group === g).map((i) => (
                 <a key={i.path} href={'#' + i.path} onClick={markMenuNav} aria-current={current.path === i.path || (i.path === '/achats' && current.path === '/receptions') || (i.path === '/import-export' && current.path === '/import') ? 'page' : undefined}>
-                  <Icon name={i.icon} />{i.label}
+                  <Icon name={i.icon} />{i.label}{i.path === '/notifications' && <NavNotifCount />}
                 </a>
               ))}
             </div>

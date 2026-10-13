@@ -16,7 +16,7 @@ import { correctWalkInSale, netMoves, refundSuggested, voidOrder } from '../lib/
 import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, feeState, payDeferredFees, settleCourier, type AccountId } from '../lib/money';
 import { Help, DiscountField, Badge, Button, Confirm, Empty, FilterSelect, IconButton, Modal, MoreMatches, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute, DateSort, type DateOrder } from '../ui/kit';
 import { Icon } from '../ui/icons';
-import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period';
+import { ListDates, defaultPeriod, inPeriod, type ListOrder, type Period } from '../ui/period';
 import { Thumb } from './Products';
 import { siblingsOf } from '../lib/attrs';
 import { deliveryNoteDoc, parcelLabelDoc, ticketDoc } from '../lib/print';
@@ -65,16 +65,21 @@ function OrderList({ tabKey }: { tabKey?: string }) {
   const [q, setQ] = useState('');
   const [courierF, setCourierF] = useState('');
   const [pageF, setPageF] = useState('');
-  const [order, setOrder] = useState<DateOrder>('');
   const [creating, setCreating] = useState(false);
   const [following, setFollowing] = useState(false);
   const [sel, setSel] = useState<string[]>([]);
   const [settling, setSettling] = useState(false);
   const prospects = useTable<Prospect>('prospects');
-  const [period, setPeriod] = useState<Period>(defaultPeriod('today'));
   const scope = useMyScope();
   const tab = TABS.find((t) => t.key === tabKey) ?? TABS.find((t) => !['terminees', 'annulees'].includes(t.key) && orders.some((o) => !isWalkIn(o) && inTab(t, o))) ?? TABS[0];
   const done = ['terminees', 'annulees'].includes(tab.key);
+  // Période et ordre : commandes en cours = toutes, plus anciennes d'abord (à traiter) ; terminées = aujourd'hui, récentes d'abord.
+  const [periodOpen, setPeriodOpen] = useState<Period>(defaultPeriod('all'));
+  const [periodDone, setPeriodDone] = useState<Period>(defaultPeriod('today'));
+  const [orderOpen, setOrderOpen] = useState<ListOrder>('old');
+  const [orderDone, setOrderDone] = useState<ListOrder>('new');
+  const period = done ? periodDone : periodOpen, setPeriod = done ? setPeriodDone : setPeriodOpen;
+  const order = done ? orderDone : orderOpen, setOrder = done ? setOrderDone : setOrderOpen;
   const regler = tab.key === 'regler';
   const pages = allPages().filter((p) => !scope.on || scope.pages.includes(p.id));
   // Filtres de l'onglet : livreur, page, recherche (et période pour les commandes terminées / annulées).
@@ -83,8 +88,8 @@ function OrderList({ tabKey }: { tabKey?: string }) {
   const base = (o: Order) => !isWalkIn(o) && scope.mine(o) && (!courierF || o.courierId === courierF) && (!pageF || hasPage(o, pageF)) && (!q.trim() || (exactOnly ? matchExact(orderText(o), q) : matchQuery(orderText(o), q)));
   const list = useMemo(() => orders
     .filter((o) => base(o) && inTab(tab, o))
-    .filter((o) => !done || q.trim() || inPeriod(o.createdAt, period))
-    .sort((a, b) => (order === 'new' || (!order && done) ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt))),
+    .filter((o) => (done && q.trim()) || inPeriod(o.createdAt, period))
+    .sort((a, b) => (order === 'new' ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt))),
   [orders, tab.key, q, period, scope.on, courierF, pageF, order]);
   // La recherche reste dans l'onglet ; on indique seulement où d'autres commandes correspondent.
   const elsewhere = q.trim() ? TABS.filter((t) => t.key !== tab.key).map((t) => ({ t, n: orders.filter((o) => base(o) && inTab(t, o)).length })).filter((x) => x.n) : [];
@@ -112,9 +117,8 @@ function OrderList({ tabKey }: { tabKey?: string }) {
           <div className="field" style={{ flex: '2 1 240px' }}><input aria-label="Rechercher" placeholder={`Rechercher dans « ${tab.label} » : téléphone, nom, n°, lieu, article…`} value={q} onChange={(e) => setQ(e.target.value)} /></div>
           <div className="field" style={{ flex: '1 1 160px' }}><FilterSelect label="Livreur" value={courierF} onChange={(v) => { setCourierF(v); setSel([]); }} options={[{ value: '', label: 'Tous les livreurs' }, ...couriers.filter((c) => c.active !== false).sort((a, b) => a.name.localeCompare(b.name, 'fr')).map((c) => ({ value: c.id, label: c.name }))]} /></div>
           {pages.length > 1 && <div className="field" style={{ flex: '1 1 160px' }}><FilterSelect label="Page" value={pageF} onChange={setPageF} options={[{ value: '', label: 'Toutes les pages' }, ...pages.map((p) => ({ value: p.id, label: p.name }))]} /></div>}
-          <DateSort value={order} onChange={setOrder} />
         </div>
-        {done && !q && <PeriodPicker value={period} onChange={setPeriod} />}
+        <ListDates period={period} onPeriod={setPeriod} order={order} onOrder={setOrder} what="Date de la commande" />
         {elsewhere.length > 0 && <p className="small muted" style={{ margin: 0 }}>Aussi trouvé dans : {elsewhere.map(({ t, n }, i) => <span key={t.key}>{i ? ', ' : ''}<button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => switchTab(t.key)}>{t.label} ({n})</button></span>)}</p>}
       </div>
       {regler && list.length > 0 && (
@@ -574,9 +578,9 @@ function OrderDetail({ id }: { id: string }) {
           {o.kind === 'exchange' && ['new', 'confirmed', 'ready'].includes(o.status) && can('returns.manage') && <Button variant="ghost" onClick={() => setModal('shop')}>Échange fait en boutique</Button>}
           {((!closed && o.status !== 'cancelled') || rest !== 0) && o.status !== 'cancelled' && can('orders.create') && <Button variant="ghost" icon="plus" onClick={() => setModal('pay')}>{rest < 0 ? 'Rendre l’argent au client' : 'Paiement reçu'}</Button>}
           {closed && o.status !== 'refused' && can('returns.manage') && <Button variant="ghost" icon="refresh" onClick={() => setModal('exchange')}>Retour / échange</Button>}
-          {!closed && o.status !== 'cancelled' && can('orders.create') && <Button variant="quiet" onClick={() => setModal('cancel')}>Annuler / supprimer</Button>}
+          {!closed && o.status !== 'cancelled' && can('orders.create') && <Button variant="danger" icon="trash" onClick={() => setModal('cancel')}>Annuler / supprimer</Button>}
           {closed && isWalkIn(o) && can('records.correct') && <Button variant="ghost" icon="edit" onClick={() => setModal('correct')}>Modifier / corriger la vente</Button>}
-          {closed && can('records.correct') && <Button variant="danger" onClick={() => setModal('void')}>Annuler / supprimer la vente</Button>}
+          {closed && can('records.correct') && <Button variant="danger" icon="trash" onClick={() => setModal('void')}>Annuler / supprimer la vente</Button>}
           {closed && !can('records.correct') && <span className="small muted">Erreur sur cette vente ? Le gérant ou le super-admin peut la corriger ou l’annuler.</span>}
         </div>
       </div>

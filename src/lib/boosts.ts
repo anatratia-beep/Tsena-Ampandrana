@@ -297,23 +297,20 @@ export function boostPerformance(from: string, to: string, pageId?: string): Boo
 
 // ---------- Compte boost du jour : délai, retards, responsables ----------
 // Les boosts tournent tous les jours (dimanche compris) : chaque page doit avoir son compte boost de chaque jour.
-// Délai : 17 h du lundi au vendredi, 14 h le samedi ; le dimanche (boutique fermée) se saisit au plus tard le lundi à 12 h.
+// Délai, le jour même : 17 h du lundi au vendredi, 14 h le samedi, 17 h le dimanche (réglables).
 const pad2 = (n: number) => String(n).padStart(2, '0');
-export const BOOST_DEADLINE = { week: '17:00', saturday: '14:00', sundayNextDay: '12:00' };
-/** Heure limite pour saisir le compte boost du jour `date` (AAAA-MM-JJ). */
-// Réglables dans Paramètres → Société (« Compte boost : heure limite ») ; par défaut, l'heure de fermeture du jour.
+export const BOOST_DEADLINE = { week: '17:00', saturday: '14:00', sunday: '17:00' };
+/** Heure limite pour saisir le compte boost du jour `date` (AAAA-MM-JJ) : toujours le jour même, dimanche compris. */
+// Réglables dans Paramètres → Société (« Compte boost : heure limite ») ; par défaut l'heure de fermeture du jour,
+// et 17 h pour un jour fermé (dimanche).
 export function boostDeadline(date: string): Date {
   const c = { ...DEFAULT_COMPANY, ...(get<Company>('settings', 'company') ?? {}) } as Company;
-  const hours = c.hours ?? DEFAULT_COMPANY.hours!;
-  const timeFor = (dow: number) => c.boostDeadlines?.[String(dow)] || hours[String(dow)]?.close || (dow === 6 ? BOOST_DEADLINE.saturday : BOOST_DEADLINE.week);
   const dow = new Date(`${date}T12:00:00`).getDay();
-  if (!hours[String(dow)]) {
-    // Jour fermé : le jour ouvert suivant, avant l'heure de rattrapage.
-    let next = addDays(date, 1);
-    for (let i = 0; i < 6 && !hours[String(new Date(`${next}T12:00:00`).getDay())]; i++) next = addDays(next, 1);
-    return new Date(`${next}T${c.boostClosedNext || BOOST_DEADLINE.sundayNextDay}:00`);
-  }
-  return new Date(`${date}T${timeFor(dow)}:00`);
+  return new Date(`${date}T${boostDeadlineTime(c, dow)}:00`);
+}
+export function boostDeadlineTime(c: Company, dow: number): string {
+  const hours = c.hours ?? DEFAULT_COMPANY.hours!;
+  return c.boostDeadlines?.[String(dow)] || hours[String(dow)]?.close || (dow === 6 ? BOOST_DEADLINE.saturday : dow === 0 ? BOOST_DEADLINE.sunday : BOOST_DEADLINE.week);
 }
 const WD = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
 export const deadlineText = (date: string) => { const dl = boostDeadline(date); const same = dayOf(dl.toISOString()) === date; return `${same ? '' : WD[dl.getDay()] + ' '}${pad2(dl.getHours())} h${dl.getMinutes() ? pad2(dl.getMinutes()) : ''}`; };

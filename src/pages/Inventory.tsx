@@ -216,7 +216,7 @@ function InventoryDetail({ inv, onClose }: { inv: Inventory; onClose: () => void
   const lines = onlyGaps ? inv.lines.filter((l) => l.delta) : inv.lines;
   return (
     <Modal title={`Inventaire ${inv.number}`} wide onClose={onClose} footer={<>
-      {inv.status === 'done' && can('records.correct') && <Button variant="quiet" onClick={() => setCancel(true)}>Annuler cet inventaire</Button>}
+      {inv.status === 'done' && can('records.correct') && <Button variant="danger" icon="x" onClick={() => setCancel(true)}>Annuler cet inventaire</Button>}
       <Button variant="ghost" icon="printer" onClick={() => printA4(`Inventaire ${inv.number}`, `${new Date(inv.at).toLocaleString('fr-FR')} · par ${inv.byName ?? '?'}${inv.status === 'cancelled' ? ' · ANNULÉ' : ''}`,
         `<div class="kpis"><div class="kpi"><span>Lignes comptées</span><b>${inv.counted}</b></div><div class="kpi"><span>Écarts</span><b>${inv.gaps}</b></div><div class="kpi"><span>Pièces</span><b>${inv.pcsGap}</b></div>${showCost ? `<div class="kpi strong"><span>Valeur</span><b>${arA4(inv.valueGap)}</b></div>` : ''}</div>`
         + a4Table({ head: ['Article', 'Code', 'Page', 'Théorique', 'Compté', 'Écart', ...(showCost ? ['Valeur'] : [])], num: showCost ? [3, 4, 5, 6] : [3, 4, 5], rows: lines.map((l) => [h(l.name), h(l.sku), h(pageName(l.pageId)), String(l.theo), String(l.counted), l.delta ? (l.delta > 0 ? '+' : '') + l.delta : '—', ...(showCost ? [l.delta ? arA4(l.delta * l.unitCost) : '—'] : [])]) }))}>PDF A4</Button>

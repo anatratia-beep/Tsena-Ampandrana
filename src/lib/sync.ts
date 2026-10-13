@@ -21,6 +21,7 @@ function setStatus(s: Partial<SyncStatus>) {
   status = { ...status, ...s };
   subs.forEach((f) => f());
 }
+export const syncStatus = () => status;
 export function useSyncStatus() {
   return useSyncExternalStore((cb) => { subs.add(cb); return () => subs.delete(cb); }, () => status);
 }
@@ -85,7 +86,7 @@ export async function syncNow(): Promise<void> {
     if (!cfg) return;
     const device = getMeta('deviceId', '');
     const conflicts: SyncConflictLog[] = [];
-    let sent = 0, received = 0;
+    let sent = 0, received = 0, fixedSkew = 0;
 
     // 1. Réception des modifications des autres appareils, fusionnées champ par champ avec celles d'ici.
     const pull = async () => {
@@ -114,6 +115,7 @@ export async function syncNow(): Promise<void> {
 
     // 2. Envoi des modifications locales (fusionnées), par paquets. Renvoyer deux fois la même version ne crée
     //    jamais de doublon : chaque enregistrement a un identifiant unique, le cloud le remplace au lieu de l'ajouter.
+    const rejected: { tbl: string; id: string }[] = [];
     const push = async () => {
       const entries = await outboxEntries();
       for (let i = 0; i < entries.length; i += 200) {
@@ -123,22 +125,50 @@ export async function syncNow(): Promise<void> {
           .filter((x) => x.r)
           .map(({ e, r }) => ({ tbl: e.tbl, id: r!.id, data: r, updated_at: r!.updatedAt, device }));
         if (rows.length) {
-          const res = await fetch(`${cfg.url}/rest/v1/records?on_conflict=tbl,id`, {
+          const res = await fetch(`${cfg.url}/rest/v1/records?on_conflict=tbl,id&select=tbl,id,updated_at`, {
             method: 'POST',
-            headers: { ...headers(cfg), Prefer: 'resolution=merge-duplicates,return=minimal' },
+            headers: { ...headers(cfg), Prefer: 'resolution=merge-duplicates,return=representation' },
             body: JSON.stringify(rows),
           });
           if (!res.ok) throw new Error(`Envoi refusé (${res.status}) ${await res.text()}`);
           sent += rows.length;
+          // Vérification : le cloud ignore sans rien dire une version qu'il croit plus ancienne que la sienne (heure du
+          // téléphone en retard…). Ces fiches ne reviennent pas dans la réponse : on va chercher la version du cloud,
+          // on la fusionne avec celle d'ici (les modifications d'ici repartent, plus récentes), et on renvoie.
+          let back: unknown = null;
+          try { back = await res.json(); } catch { back = null; }
+          if (Array.isArray(back)) {
+            const ok = new Set(back.filter((b: any) => b && b.tbl).map((b: any) => b.tbl + ':' + b.id));
+            for (const r of rows) if (!ok.has(r.tbl + ':' + r.id)) rejected.push({ tbl: r.tbl, id: r.id });
+          }
         }
         await outboxClear(chunk); // seulement les entrées qui n'ont pas changé pendant l'envoi
       }
     };
 
+    // Fiches refusées par le cloud (version jugée plus ancienne) : version du cloud reçue et fusionnée avec celle d'ici.
+    const reconcile = async () => {
+      const list = rejected.splice(0);
+      const byTbl = new Map<string, string[]>();
+      for (const r of list) byTbl.set(r.tbl, [...new Set([...(byTbl.get(r.tbl) ?? []), r.id])]);
+      for (const [tbl, ids] of byTbl) {
+        for (let i = 0; i < ids.length; i += 50) {
+          const part = ids.slice(i, i + 50).map((x) => `"${x.replace(/"/g, '')}"`).join(',');
+          const res = await fetch(`${cfg.url}/rest/v1/records?select=tbl,id,data,rev&tbl=eq.${encodeURIComponent(tbl)}&id=in.(${encodeURIComponent(part)})`, { headers: headers(cfg) });
+          if (!res.ok) throw new Error(`Vérification refusée (${res.status})`);
+          const rows = await res.json();
+          const r = await applyRemote(rows, 'sync');
+          received += r.applied; conflicts.push(...r.conflicts);
+        }
+      }
+      fixedSkew += list.length;
+    };
+
     await pull();
     await push();
+    if (rejected.length) { await reconcile(); await push(); }
     await pull();                                   // confirme : ce qui revient du cloud est fusionné à nouveau
-    if (await outboxCount()) { await push(); await pull(); }
+    if (await outboxCount()) { await push(); if (rejected.length) { await reconcile(); await push(); } await pull(); }
 
     // 3. Conflits réels (même champ modifié ici hors ligne et sur un autre appareil) : gardés pour vérification.
     if (conflicts.length) {

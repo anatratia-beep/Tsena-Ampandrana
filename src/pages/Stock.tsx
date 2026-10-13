@@ -8,7 +8,7 @@ import {
   addMoves, categoryPath, fmtAr, fmtNum, incomingOf, MOVE_LABELS, parseNum, stockOf, useCatalog, variantLabel,
   type Category, type MoveType, type Product, type StockMove, type Variant, photoOf, matchQuery, productText, searchItems } from '../lib/catalog';
 import { Button, FilterSelect, Confirm, Empty, PageHead, TextField, fmtDateTime, navigate, toast, useRoute, MoreMatches } from '../ui/kit';
-import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period';
+import { ListDates, PeriodPicker, defaultPeriod, inPeriod, type ListOrder, type Period } from '../ui/period';
 import { categoryOptions, Thumb } from './Products';
 import { downloadBlob, writeXlsx } from '../lib/xlsx';
 import { cancelMove } from '../lib/corrections';
@@ -58,6 +58,7 @@ function StockState() {
   const [allMatches, setAllMatches] = useState(false);
   const [others, setOthers] = useState(0);
   const [detail, setDetail] = useState<string | null>(null);
+  const [added, setAdded] = useState<Period>(defaultPeriod('all'));
 
   const rows = useMemo(() => {
     const n = q.trim().toLowerCase();
@@ -65,13 +66,14 @@ function StockState() {
       .map((v) => ({ v, p: get<Product>('products', v.productId), stock: stockOf(v.id), incoming: incomingOf(v.id) }))
       .filter((r) => r.p && r.p.active !== false && r.v.active !== false)
       .filter((r) => scope.product(r.p!.id))
-      .filter((r) => inCategory(r.p, cat)), (r) => `${r.v.sku} ${productText(r.p!)}`, n, allMatches);
+      .filter((r) => inCategory(r.p, cat))
+      .filter((r) => added.key === 'all' || inPeriod(r.p!.createdAt, added)), (r) => `${r.v.sku} ${productText(r.p!)}`, n, allMatches);
     queueMicrotask(() => setOthers(sr.others));
     return sr.list
       .filter((r) => f === 'in' ? r.stock > 0 : f === 'out' ? r.stock === 0 : f === 'neg' ? r.stock < 0 : true)
       .map((r) => ({ ...r, value: Math.max(0, r.stock) * (r.v.costAvg ?? 0) }))
       .sort((a, b) => sort === 'stock' ? b.stock - a.stock : sort === 'value' ? b.value - a.value : sort === 'new' ? (b.p!.createdAt).localeCompare(a.p!.createdAt) : sort === 'old' ? (a.p!.createdAt).localeCompare(b.p!.createdAt) : a.v.sku.localeCompare(b.v.sku, 'fr', { numeric: true }));
-  }, [variants, q, cat, f, sort, scope.on, allMatches]);
+  }, [variants, q, cat, f, sort, scope.on, allMatches, added]);
 
   const allRows = variants.filter((v) => { const p = get<Product>('products', v.productId); return p && p.active !== false && scope.product(p.id) && inCategory(p, cat); });
   const totals = allRows.reduce((t, v) => {
@@ -112,6 +114,7 @@ function StockState() {
             </select>
           </div>
         </div>
+        <div className="row list-dates-row"><span className="small muted">Articles ajoutés :</span><PeriodPicker value={added} onChange={setAdded} /></div>
         <div className="row-between">
           <div className="segmented" role="group">
             {([['in', 'En stock'], ['out', 'En rupture'], ['neg', 'Négatifs'], ['', 'Tout']] as const).map(([k, l]) => <button key={k} aria-pressed={f === k} onClick={() => setF(k)}>{l}</button>)}
@@ -154,6 +157,7 @@ function MovesTab() {
   const users = useTable<User>('users');
   useCatalog();
   const [period, setPeriod] = useState<Period>(defaultPeriod('today'));
+  const [mOrder, setMOrder] = useState<ListOrder>('new');
   const [type, setType] = useState('');
   const [dir, setDir] = useState<'' | 'in' | 'out'>('');
   const [userId, setUserId] = useState('');
@@ -167,8 +171,8 @@ function MovesTab() {
       .filter((m) => !dir || (dir === 'in' ? m.qty > 0 : m.qty < 0))
       .filter((m) => !userId || m.userId === userId)
       .filter((m) => { if (!n) return true; const v = get<Variant>('variants', m.variantId); const p = v && get<Product>('products', v.productId); return `${v?.sku} ${p?.name} ${m.reason}`.toLowerCase().includes(n); })
-      .sort((a, b) => b.at.localeCompare(a.at));
-  }, [moves, period, type, dir, userId, q]);
+      .sort((a, b) => (mOrder === 'new' ? b.at.localeCompare(a.at) : a.at.localeCompare(b.at)));
+  }, [moves, period, type, dir, userId, q, mOrder]);
   const [undo, setUndo] = useState<StockMove | null>(null);
   const [undoWhy, setUndoWhy] = useState('');
   const cancelledIds = useMemo(() => new Set(moves.filter((m) => m.refType === 'cancel' && m.refId).map((m) => m.refId!)), [moves]);
@@ -178,7 +182,7 @@ function MovesTab() {
   return (
     <>
       <div className="card stack">
-        <PeriodPicker value={period} onChange={setPeriod} />
+        <ListDates period={period} onPeriod={setPeriod} order={mOrder} onOrder={setMOrder} what="Date du mouvement" />
         <div className="row">
           <div className="field" style={{ flex: '1 1 200px' }}><input aria-label="Rechercher" placeholder="Rechercher un article, un motif" value={q} onChange={(e) => setQ(e.target.value)} /></div>
           <div className="field" style={{ flex: '0 1 170px' }}>
@@ -212,7 +216,7 @@ function MovesTab() {
                       {can('costs.view') && <td className="t-num">{m.unitCost ? fmtAr(m.unitCost) : '—'}</td>}
                       <td className="small">{m.reason}</td>
                       <td className="small muted">{m.userName}</td>
-                      {can('records.correct') && <td>{(!m.refType || m.refType === 'inventory' || m.refType === 'adjust') ? (cancelledIds.has(m.id) ? <span className="small muted">annulé</span> : <Button variant="quiet" className="btn-sm" onClick={() => setUndo(m)}>Annuler</Button>) : null}</td>}
+                      {can('records.correct') && <td>{(!m.refType || m.refType === 'inventory' || m.refType === 'adjust') ? (cancelledIds.has(m.id) ? <span className="small muted">annulé</span> : <Button variant="danger" icon="x" className="btn-sm" onClick={() => setUndo(m)}>Annuler</Button>) : null}</td>}
                     </tr>
                   );
                 })}

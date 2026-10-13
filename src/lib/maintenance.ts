@@ -8,7 +8,7 @@ import { addMoves, stockOf, type Product, type Variant } from './catalog';
 import { remaining, type Courier, type Order } from './orders';
 import { cloudBackup, downloadBackup } from './backup';
 import { writeXlsx, downloadBlob, type Cell } from './xlsx';
-import { PHOTO, compressPhoto, photoBytes } from './images';
+import { LOGO, PHOTO, RECEIPT, compressPhoto, photoBytes, tooHeavy } from './images';
 
 // ---------- Mot de passe oublié : lien envoyé à l'e-mail du compte cloud de la société ----------
 export const maskEmail = (e: string) => e.replace(/^(.)(.*)(.@.*)$/, (_, a, b, c) => a + '*'.repeat(Math.min(6, b.length)) + c);
@@ -113,10 +113,11 @@ export async function autoBackups() {
     if (!auto.some((r) => r.label.includes('hebdomadaire') && now.getTime() - new Date(r.created_at).getTime() < 6.5 * 864e5)) kinds.push('hebdomadaire');
     const ym = now.toISOString().slice(0, 7);
     if (!auto.some((r) => r.label.includes('mensuelle') && r.created_at.slice(0, 7) === ym)) kinds.push('mensuelle');
-    await cloudBackup(`Automatique — ${kinds.join(' + ')}`);
+    await cloudBackup(`Automatique — ${kinds.join(' + ')}`, { auto: true });
     await setMeta('lastAutoBackup', now.toISOString());
+    await setMeta('autoBackupSkip', null);
     await pruneBackups();
-  } catch { /* réessaiera au prochain démarrage */ }
+  } catch (e: any) { await setMeta('autoBackupSkip', { at: new Date().toISOString(), why: e?.message ?? String(e) }); /* réessaiera dans une heure */ }
 }
 
 /** Garde les 7 dernières quotidiennes, 5 hebdomadaires, 12 mensuelles ; les sauvegardes manuelles ne sont jamais effacées. */
@@ -239,22 +240,44 @@ export async function exportAllExcel() {
 }
 
 // ---------- Optimiser les photos déjà enregistrées ----------
-export function photoStats() {
-  const list = [...all<Product>('products').map((p) => p.photo), ...all<Variant>('variants').map((v) => v.photo)].filter(Boolean) as string[];
-  const bytes = list.reduce((t, p) => t + photoBytes(p), 0);
-  const heavy = list.filter((p) => photoBytes(p) > PHOTO.targetBytes * 1.15 || !p.startsWith('data:image/jpeg')).length;
-  return { count: list.length, bytes, heavy };
+// ---------- Photos : toutes ramenées à la norme (images.ts) pour ne pas alourdir la base ----------
+type PhotoJob = { table: TableName; id: string; field: string; photo: string; norm: { max: number; targetBytes: number } };
+function photoJobs(): PhotoJob[] {
+  const jobs: PhotoJob[] = [];
+  for (const p of all<Product>('products')) if (tooHeavy(p.photo, PHOTO.targetBytes)) jobs.push({ table: 'products', id: p.id, field: 'photo', photo: p.photo!, norm: PHOTO });
+  for (const v of all<Variant>('variants')) if (tooHeavy(v.photo, PHOTO.targetBytes)) jobs.push({ table: 'variants', id: v.id, field: 'photo', photo: v.photo!, norm: PHOTO });
+  for (const m of all<BaseRecord>('cashMoves')) if (tooHeavy(m.photo, RECEIPT.targetBytes)) jobs.push({ table: 'cashMoves', id: m.id, field: 'photo', photo: m.photo, norm: RECEIPT });
+  // Logos : un PNG léger (dessin avec transparence) est gardé tel quel ; seul un logo lourd est converti.
+  for (const c of all<BaseRecord>('categories')) if (tooHeavy(c.logo, LOGO.targetBytes, true)) jobs.push({ table: 'categories', id: c.id, field: 'logo', photo: c.logo, norm: LOGO });
+  const co = get<BaseRecord>('settings', 'company');
+  if (co && tooHeavy(co.logo, LOGO.targetBytes, true)) jobs.push({ table: 'settings', id: 'company', field: 'logo', photo: co.logo, norm: LOGO });
+  return jobs;
 }
-export async function optimizePhotos(onProgress?: (done: number, total: number) => void) {
-  const todo: { table: 'products' | 'variants'; id: string; photo: string }[] = [];
-  for (const p of all<Product>('products')) if (p.photo && (photoBytes(p.photo) > PHOTO.targetBytes * 1.15 || !p.photo.startsWith('data:image/jpeg'))) todo.push({ table: 'products', id: p.id, photo: p.photo });
-  for (const v of all<Variant>('variants')) if (v.photo && (photoBytes(v.photo) > PHOTO.targetBytes * 1.15 || !v.photo.startsWith('data:image/jpeg'))) todo.push({ table: 'variants', id: v.id, photo: v.photo });
-  let before = 0, after = 0;
+export function photoStats() {
+  const list = [...all<Product>('products').map((p) => p.photo), ...all<Variant>('variants').map((v) => v.photo), ...all<BaseRecord>('cashMoves').map((m) => m.photo), ...all<BaseRecord>('categories').map((c) => c.logo)].filter((x) => typeof x === 'string' && x.startsWith('data:image')) as string[];
+  const bytes = list.reduce((t, p) => t + photoBytes(p), 0);
+  return { count: list.length, bytes, heavy: photoJobs().length };
+}
+export async function optimizePhotos(onProgress?: (done: number, total: number) => void, limit = Infinity) {
+  const todo = photoJobs().slice(0, limit);
+  let before = 0, after = 0, done = 0;
   for (let i = 0; i < todo.length; i++) {
     const t = todo[i];
-    try { const np = await compressPhoto(t.photo); before += photoBytes(t.photo); after += photoBytes(np); await save(t.table, { id: t.id, photo: np }); } catch { /* photo illisible : laissée telle quelle */ }
+    try {
+      const np = await compressPhoto(t.photo, t.norm);
+      if (photoBytes(np) < photoBytes(t.photo) * 0.9 || !t.photo.startsWith('data:image/jpeg')) { before += photoBytes(t.photo); after += photoBytes(np); await save(t.table, { id: t.id, [t.field]: np }); done++; }
+    } catch { /* photo illisible : laissée telle quelle */ }
     onProgress?.(i + 1, todo.length);
   }
-  if (todo.length) await audit('Photos', `${todo.length} photo(s) optimisée(s) : ${Math.round(before / 1024)} Ko → ${Math.round(after / 1024)} Ko`);
-  return { count: todo.length, before, after };
+  if (done) await audit('Photos', `${done} photo(s) ramenée(s) à la norme : ${Math.round(before / 1024)} Ko → ${Math.round(after / 1024)} Ko`, undefined, undefined, 'low');
+  return { count: done, before, after };
+}
+/** Une fois par jour, sur l'appareil d'un admin : les photos trop lourdes (anciennes, importées…) sont réduites. */
+export async function autoOptimizePhotos() {
+  const u = currentUser();
+  if (!u || !['role-admin', 'role-superadmin'].includes(u.roleId)) return;
+  const last = getMeta<string | null>('lastPhotoOptim', null);
+  if (last && Date.now() - new Date(last).getTime() < 20 * 3600 * 1000) return;
+  await setMeta('lastPhotoOptim', new Date().toISOString());
+  try { await optimizePhotos(undefined, 150); } catch { /* réessaiera demain */ }
 }

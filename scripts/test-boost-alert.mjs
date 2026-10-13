@@ -20,7 +20,7 @@ await p.evaluate(async () => {
   await t.save('boostReadings', [{ id: 'br_b1_2026-10-12', boostId: 'b1', pageId: 'lp', date: '2026-10-12', spend: 2, messages: 20 }, { id: 'br_b1_2026-10-13', boostId: 'b1', pageId: 'lp', date: '2026-10-13', spend: 4, messages: 30 }]);
 });
 await p.reload(); await p.waitForTimeout(1500);
-await p.locator('button.bell').first().evaluate((el) => el.click()); await p.waitForTimeout(300);
+await p.locator('.bell').first().evaluate((el) => el.click()); await p.waitForTimeout(300);
 let body = N(await p.locator('body').innerText());
 await p.keyboard.press('Escape');
 ok(body.includes('Compte boost pas fait à l’heure') && body.includes('Rindra'), 'alerte au gérant / super-admin avec le nom du responsable');

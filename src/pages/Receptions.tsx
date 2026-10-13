@@ -5,7 +5,8 @@ import { get, useTable } from '../lib/db';
 import { fmtAr, fmtNum, nextNumber, parseNum, PURCHASE_STATUS, stockOf, todayYmd, useCatalog, variantLabel, type Product, type Purchase, type Variant } from '../lib/catalog';
 import { computeReception, lastRate, MODE_LABEL, purchaseQty, purchaseReceivedQty, transitTotalAr, UNIT_LABEL, validateReception, type Allocation, type Reception, type Supplier, type TransitInvoice } from '../lib/purchases';
 import { PurchasingTabs } from './ImportExport';
-import { Badge, Button, Confirm, Empty, IconButton, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute, DateSort, byAdded, type DateOrder } from '../ui/kit';
+import { Badge, Button, Confirm, Empty, IconButton, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
+import { ListDates, applyDates, defaultPeriod, type ListOrder, type Period } from '../ui/period';
 import { cancelReception } from '../lib/corrections';
 import { Icon } from '../ui/icons';
 import { Thumb } from './Products';
@@ -24,16 +25,17 @@ export function ReceptionsPage() {
 function ReceptionList() {
   const can = useCan();
   const recs = useTable<Reception>('receptions');
-  const [order, setOrder] = useState<DateOrder>('');
-  const sorted = byAdded([...recs].sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number)), order);
+  const [order, setOrder] = useState<ListOrder>('new');
+  const [period, setPeriod] = useState<Period>(defaultPeriod('all'));
+  const sorted = applyDates([...recs].sort((a, b) => b.number.localeCompare(a.number)), (r) => r.date || r.createdAt, period, order);
   return (
     <>
       <PageHead title="Achats et réceptions" subtitle="Arrivées de marchandise et factures du transit"
         actions={can('purchases.receive') && <Button icon="plus" onClick={() => navigate('/receptions/nouvelle')}>Nouvelle réception</Button>} />
       <PurchasingTabs current="receptions" />
-      <div className="row"><DateSort value={order} onChange={setOrder} /></div>
+      <div className="card"><ListDates period={period} onPeriod={setPeriod} order={order} onOrder={setOrder} what="Date de réception" /></div>
       <div className="card card-flush">
-        {sorted.length === 0 ? <Empty icon="download" title="Aucune réception pour l’instant"><p className="small">Quand une commande arrive, enregistrez-la ici avec la facture du transitaire.</p></Empty> : (
+        {sorted.length === 0 ? <Empty icon="download" title={recs.length ? 'Aucune réception sur cette période' : 'Aucune réception pour l’instant'}><p className="small">Quand une commande arrive, enregistrez-la ici avec la facture du transitaire.</p></Empty> : (
           <ul className="list">
             {sorted.map((r) => (
               <li key={r.id}>
@@ -230,7 +232,7 @@ function CancelReceptionButton({ r }: { r: Reception }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   return (<>
-    <Button variant="quiet" onClick={() => setOpen(true)}>Annuler la réception (erreur)</Button>
+    <Button variant="danger" icon="x" onClick={() => setOpen(true)}>Annuler la réception (erreur)</Button>
     {open && <Confirm title={`Annuler ${r.number}`} danger confirmLabel="Annuler la réception" onClose={() => setOpen(false)}
       message={<div className="stack-s"><p>Les {r.items.reduce((s, i) => s + i.qty, 0)} pièce(s) entrées par cette réception sont retirées exactement du stock, et les quantités reçues des achats sont remises. Tout reste dans l’historique.</p><TextField label="Raison" value={reason} onChange={setReason} required /></div>}
       onConfirm={async () => { if (!reason.trim()) throw new Error('Indiquez la raison.'); await cancelReception(r, reason.trim()); toast('Réception annulée : stock corrigé'); }} />}

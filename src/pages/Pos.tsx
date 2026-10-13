@@ -10,6 +10,7 @@ import {
   type Order, type OrderLine, type PayMethod, discountAr, stockShortages,
 } from '../lib/orders';
 import { useCompany } from '../lib/settings';
+import { ListDates, applyDates, defaultPeriod, inPeriod, type ListOrder, type Period } from '../ui/period';
 import { Badge, Choice, Button, DiscountField, Empty, MoreMatches, IconButton, Modal, PageHead, SelectField, TextField, fmtDateTime, toast } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { ItemPicker, StockTag } from './Orders';
@@ -46,6 +47,8 @@ export function PosPage() {
   const scope = useMyScope();
   // Ventes du jour : chaque vendeur voit d'abord les siennes (l'admin voit tout).
   const [allSales, setAllSales] = useState(can('reports.view'));
+  const [salesPeriod, setSalesPeriod] = useState<Period>(defaultPeriod('today'));
+  const [salesOrder, setSalesOrder] = useState<ListOrder>('new');
   const me = useMe();
   const minQty = company.wholesaleMinQty ?? 3;
   const step = company.internalRounding ?? 1;
@@ -79,7 +82,10 @@ export function PosPage() {
   }
 
   const today = todayYmd();
-  const todaySales = orders.filter((o) => isWalkIn(o) && o.createdAt.slice(0, 10) === today && o.status !== 'cancelled' && (allSales || o.createdBy === me.id || (!o.createdBy && o.createdByName === me.fullName))).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const mySales = orders.filter((o) => isWalkIn(o) && o.status !== 'cancelled' && (allSales || o.createdBy === me.id || (!o.createdBy && o.createdByName === me.fullName)));
+  const todaySales = mySales.filter((o) => inPeriod(o.createdAt, defaultPeriod('today')));
+  const shownSales = applyDates(mySales, (o) => o.createdAt, salesPeriod, salesOrder);
+  const shownTotal = shownSales.reduce((s, o) => s + Math.max(0, keptTotal(o) - (o.discount || 0)), 0);
   const todayTotal = todaySales.reduce((s, o) => s + Math.max(0, keptTotal(o) - (o.discount || 0)), 0);
 
   function add(a: { variantId: string; qty: number }[]) {
@@ -192,11 +198,12 @@ export function PosPage() {
         <span>Panier · {fmtNum(count)} article(s)</span><strong className="num">{fmtAr(total)}</strong><span>Encaisser ›</span>
       </button>}
       <div className="card card-flush">
-        <div className="card-pad row-between"><h2>{allSales ? 'Ventes du jour' : 'Mes ventes du jour'}</h2>
+        <div className="card-pad stack-s"><div className="row-between"><h2>{allSales ? 'Ventes' : 'Mes ventes'} <span className="small muted">({shownSales.length} · {fmtAr(shownTotal)})</span></h2>
           <div className="segmented" role="group" aria-label="Ventes"><button type="button" aria-pressed={!allSales} onClick={() => setAllSales(false)}>Mes ventes</button><button type="button" aria-pressed={allSales} onClick={() => setAllSales(true)}>Toutes</button></div></div>
-        {todaySales.length === 0 ? <Empty icon="list" title="Aucune vente sur place aujourd’hui" /> : (
+          <ListDates period={salesPeriod} onPeriod={setSalesPeriod} order={salesOrder} onOrder={setSalesOrder} what="Date de vente" /></div>
+        {shownSales.length === 0 ? <Empty icon="list" title="Aucune vente sur place sur cette période" /> : (
           <ul className="list">
-            {todaySales.map((o) => (
+            {shownSales.slice(0, 300).map((o) => (
               <li key={o.id} className="li-with-action">
                 <a className="list-item list-link" href={`#/commandes/${o.id}`}>
                   <div className="list-item-main">

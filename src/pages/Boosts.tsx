@@ -158,6 +158,11 @@ function PageTable({ pageId, days }: { pageId: string; days: string[] }) {
   const inPeriod = (b: Boost) => shownDays.some((d) => readingOn(b.id, d)) || shownDays.some((d) => activeOn(b, d));
   const boosts = all.filter((b) => b.startDate <= shownDays[shownDays.length - 1] && (showPaused ? true : !isPaused(b) || inPeriod(b)));
   const hiddenPaused = all.filter((b) => isPaused(b) && !boosts.includes(b)).length;
+  // Premier comptage : la veille du premier jour (le dimanche avant la semaine) sert de point de départ, pour que le
+  // compte du lundi soit déjà juste. Colonne affichée seulement pour la semaine où le suivi commence.
+  const veille = addDays(shownDays[0], -1);
+  const needsVeille = (b: Boost) => b.startDate <= veille && veille <= today && (() => { const f = readingsOf(b.id)[0]; return !f || f.date >= veille; })();
+  const showVeille = boosts.some(needsVeille);
   const stats = shownDays.map((d) => dayStats(pageId, d));
   const rev = useRevenue(shownDays[0], last).get(pageId) ?? new Map<string, number>();
   const revW = shownDays.reduce((t, d) => t + (rev.get(d) ?? 0), 0);
@@ -210,15 +215,16 @@ function PageTable({ pageId, days }: { pageId: string; days: string[] }) {
             </div>
             {(hiddenPaused > 0 || showPaused) && <label className="small row" style={{ gap: 6 }}><input type="checkbox" checked={showPaused} onChange={(e) => setShowPaused(e.target.checked)} /> Afficher les boosts en pause{hiddenPaused ? ` (${hiddenPaused})` : ''}</label>}
           </div>
-          {(() => { const m = missingBoosts(pageId, today).length; const late = m > 0 && new Date() > boostDeadline(today); return m > 0 ? <div className={`notice ${late ? 'notice-danger' : ''}`}><Icon name="alert" /><span>{late ? <><strong>Compte boost du jour en retard</strong> ({m} boost(s) sans saisie) : à faire tout de suite. Le gérant est prévenu.</> : <>Compte boost du jour à faire <strong>avant {deadlineText(today)}</strong> ({m} boost(s)). Les boosts tournent aussi les jours de fermeture : leur compte se fait le jour ouvert suivant (heures réglables dans Paramètres → Société).</>}</span></div> : null; })()}
+          {(() => { const m = missingBoosts(pageId, today).length; const late = m > 0 && new Date() > boostDeadline(today); return m > 0 ? <div className={`notice ${late ? 'notice-danger' : ''}`}><Icon name="alert" /><span>{late ? <><strong>Compte boost du jour en retard</strong> ({m} boost(s) sans saisie) : à faire tout de suite. Le gérant est prévenu.</> : <>Compte boost du jour à faire <strong>avant {deadlineText(today)}</strong> ({m} boost(s)). Chaque jour, dimanche compris, le compte se fait le jour même (heures réglables dans Paramètres → Société).</>}</span></div> : null; })()}
           <Help>{metric === 'msg'
-            ? 'Recopiez chaque jour, dans la case du jour, les conversations cumulées affichées par Meta (depuis le lancement du boost). Les jours précédents sont déjà remplis ; le chiffre vert sous chaque case = nouvelles conversations de ce jour (jour − veille : hier 20, aujourd’hui 25 → +5). Seule cette différence est comptée dans les totaux, jamais le cumul. Pour un boost déjà en cours quand on commence à le suivre, la première case est le « départ » : elle ne compte pas. L’enregistrement se fait en quittant la case. Glissez la poignée ⋮⋮ (ou les flèches sur téléphone) pour changer l’ordre des boosts.'
+            ? 'Recopiez chaque jour, dans la case du jour, les conversations cumulées affichées par Meta (depuis le lancement du boost). Les jours précédents sont déjà remplis ; le chiffre vert sous chaque case = nouvelles conversations de ce jour (jour − veille : hier 20, aujourd’hui 25 → +5). Seule cette différence est comptée dans les totaux, jamais le cumul. Pour un boost déjà en cours quand on commence à le suivre, remplissez la colonne « veille » (le jour avant la semaine) : c’est le point de départ, il ne compte pas, et le chiffre du lundi est déjà juste. Les semaines suivantes, cette colonne n’apparaît plus. L’enregistrement se fait en quittant la case. Glissez la poignée ⋮⋮ (ou les flèches sur téléphone) pour changer l’ordre des boosts.'
             : 'Dépense cumulée ($) affichée par Meta pour chaque boost (facultatif). Sert à calculer le coût par conversation.'}</Help>
         </div>
         {boosts.length === 0 ? <Empty icon="megaphone" title="Aucun boost sur cette période">{edit && <Button icon="plus" onClick={() => setForm('new')}>Ajouter un boost</Button>}</Empty> : (
           <div className="table-wrap" ref={wrapRef}><table className="table week-table boost-week">
             <thead><tr>
               <th className="bw-slot">N°</th><th className="bw-name">Boost</th>
+              {showVeille && <th className="t-num bw-veille" title="Premier comptage : recopiez le cumul de Meta de la veille. Point de départ, non compté dans les totaux.">{dayShort(veille)}<div className="small muted">veille · départ</div></th>}
               {shownDays.map((d) => <th key={d} className={`t-num ${isToday(d) ? 'is-today' : ''}`}>{isToday(d) ? 'Aujourd’hui' : dayShort(d)}</th>)}
               <th className="t-num">{last === today ? 'Du jour' : `Le ${dd(last)}`}<div className="small muted">jour − veille</div></th>
               <th className="t-num">Total<div className="small muted">période</div></th>
@@ -246,6 +252,19 @@ function PageTable({ pageId, days }: { pageId: string; days: string[] }) {
                     </td>
                     <td className="bw-name"><strong>{b.label || `Boost ${b.slot}`}</strong>
                       <div className="small muted">{paused ? <Badge tone="warn">En pause</Badge> : <Badge tone="ok">Actif</Badge>} lancé le {dd(b.startDate)}{b.dailyBudget ? ` · ${usd(b.dailyBudget)}/j` : ''}</div></td>
+                    {showVeille && (() => {
+                      if (!needsVeille(b)) return <td className="t-num muted bw-veille">·</td>;
+                      const r = readingOn(b.id, veille);
+                      return (
+                        <td className="bw-day bw-veille">
+                          {edit ? <CellInput label={`${metric === 'msg' ? 'Conversations' : 'Dépense'} boost ${b.slot} ${dd(veille)} (veille)`} decimal={metric === 'spend'} missing={!r}
+                            value={r ? (metric === 'msg' ? r.messages : r.spend) : undefined} placeholder="cumul veille"
+                            onCommit={(v) => (metric === 'msg' ? saveReading(b.id, veille, v, undefined) : saveReading(b.id, veille, r?.messages ?? (v == null ? undefined : 0), v))} />
+                            : <span className="num">{r ? (metric === 'msg' ? fmtNum(r.messages) : usd(r.spend)) : '—'}</span>}
+                          {r && <div className="bw-delta muted">départ</div>}
+                        </td>
+                      );
+                    })()}
                     {shownDays.map((d) => {
                       const r = readingOn(b.id, d);
                       const active = activeOn(b, d);
@@ -276,14 +295,14 @@ function PageTable({ pageId, days }: { pageId: string; days: string[] }) {
                   </tr>
                 );
               })}
-              <tr className="synth-total"><td className="bw-slot"></td><td className="bw-name">Total nouvelles conversations</td>{stats.map((s, i) => <td key={i} className={`t-num ${isToday(shownDays[i]) ? 'is-today' : ''}`}>{shownDays[i] > today ? '·' : s.entered ? fmtNum(s.theo) : '—'}</td>)}<td className="t-num">{fmtNum(stats[shownDays.indexOf(last)]?.theo ?? 0)}</td><td className="t-num">{fmtNum(msgW)}</td>{edit && <td></td>}</tr>
-              <tr className="bw-entry"><td className="bw-slot"></td><td className="bw-name">Compte saisi le <span className="small muted">(heure, par)</span></td>{shownDays.map((d) => { const e = lastEntry(pageId, d); const miss = d <= today ? missingBoosts(pageId, d).length : 0; const late = miss > 0 && new Date() > boostDeadline(d);
+              <tr className="synth-total"><td className="bw-slot"></td><td className="bw-name">Total nouvelles conversations</td>{showVeille && <td className="bw-veille"></td>}{stats.map((s, i) => <td key={i} className={`t-num ${isToday(shownDays[i]) ? 'is-today' : ''}`}>{shownDays[i] > today ? '·' : s.entered ? fmtNum(s.theo) : '—'}</td>)}<td className="t-num">{fmtNum(stats[shownDays.indexOf(last)]?.theo ?? 0)}</td><td className="t-num">{fmtNum(msgW)}</td>{edit && <td></td>}</tr>
+              <tr className="bw-entry"><td className="bw-slot"></td><td className="bw-name">Compte saisi le <span className="small muted">(heure, par)</span></td>{showVeille && <td className="bw-veille"></td>}{shownDays.map((d) => { const e = lastEntry(pageId, d); const miss = d <= today ? missingBoosts(pageId, d).length : 0; const late = miss > 0 && new Date() > boostDeadline(d);
                 return <td key={d} className={`small ${isToday(d) ? 'is-today' : ''}`}>{e ? <span title={new Date(e.at).toLocaleString('fr-FR')}>{new Date(e.at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}{e.by ? <><br /><span className="muted">{e.by}</span></> : null}</span> : d > today ? '·' : null}{miss > 0 && <div className={late ? 'neg' : 'muted'}>{late ? 'en retard' : `avant ${deadlineText(d)}`}</div>}</td>; })}<td></td><td></td>{edit && <td></td>}</tr>
-              <tr><td className="bw-slot"></td><td className="bw-name">Messages réels comptés <span className="small muted">(facultatif)</span></td>{shownDays.map((d, i) => <td key={d} className={`bw-day ${isToday(d) ? 'is-today' : ''}`}>{d > today ? <span className="muted">·</span> : edit ? <CellInput label={`Messages réels ${dd(d)}`} value={stats[i].real} onCommit={(v) => saveReal(pageId, d, v)} /> : <span className="num">{stats[i].real ?? '—'}</span>}</td>)}<td className="t-num">{stats[shownDays.indexOf(last)]?.real ?? '—'}</td><td className="t-num">{realW || '—'}</td>{edit && <td></td>}</tr>
-              <tr><td className="bw-slot"></td><td className="bw-name">Commandes en ligne</td>{stats.map((s, i) => <td key={i} className="t-num">{shownDays[i] > today ? '·' : fmtNum(s.orders)}</td>)}<td className="t-num">{fmtNum(stats[shownDays.indexOf(last)]?.orders ?? 0)}</td><td className="t-num">{fmtNum(ordersW)}</td>{edit && <td></td>}</tr>
-              <tr className="synth-total"><td className="bw-slot"></td><td className="bw-name">Chiffre d’affaires</td>{shownDays.map((d) => <td key={d} className="t-num small">{d > today ? '·' : fmtAr(rev.get(d) ?? 0)}</td>)}<td className="t-num small">{fmtAr(rev.get(last) ?? 0)}</td><td className="t-num">{fmtAr(revW)}</td>{edit && <td></td>}</tr>
-              <tr><td className="bw-slot"></td><td className="bw-name">CA par conversation</td>{stats.map((s, i) => <td key={i} className="t-num small">{s.theo ? fmtAr((rev.get(shownDays[i]) ?? 0) / s.theo) : '—'}</td>)}<td className="t-num small">{stats[shownDays.indexOf(last)]?.theo ? fmtAr((rev.get(last) ?? 0) / stats[shownDays.indexOf(last)].theo) : '—'}</td><td className="t-num">{msgW ? fmtAr(revW / msgW) : '—'}</td>{edit && <td></td>}</tr>
-              <tr><td className="bw-slot"></td><td className="bw-name">Dépense</td>{stats.map((s, i) => <td key={i} className="t-num small">{s.entered ? usd(s.spend) : '—'}</td>)}<td className="t-num small">{usd(stats[shownDays.indexOf(last)]?.spend ?? 0)}</td><td className="t-num small">{usd(spendW)}</td>{edit && <td></td>}</tr>
+              <tr><td className="bw-slot"></td><td className="bw-name">Messages réels comptés <span className="small muted">(facultatif)</span></td>{showVeille && <td className="bw-veille"></td>}{shownDays.map((d, i) => <td key={d} className={`bw-day ${isToday(d) ? 'is-today' : ''}`}>{d > today ? <span className="muted">·</span> : edit ? <CellInput label={`Messages réels ${dd(d)}`} value={stats[i].real} onCommit={(v) => saveReal(pageId, d, v)} /> : <span className="num">{stats[i].real ?? '—'}</span>}</td>)}<td className="t-num">{stats[shownDays.indexOf(last)]?.real ?? '—'}</td><td className="t-num">{realW || '—'}</td>{edit && <td></td>}</tr>
+              <tr><td className="bw-slot"></td><td className="bw-name">Commandes en ligne</td>{showVeille && <td className="bw-veille"></td>}{stats.map((s, i) => <td key={i} className="t-num">{shownDays[i] > today ? '·' : fmtNum(s.orders)}</td>)}<td className="t-num">{fmtNum(stats[shownDays.indexOf(last)]?.orders ?? 0)}</td><td className="t-num">{fmtNum(ordersW)}</td>{edit && <td></td>}</tr>
+              <tr className="synth-total"><td className="bw-slot"></td><td className="bw-name">Chiffre d’affaires</td>{showVeille && <td className="bw-veille"></td>}{shownDays.map((d) => <td key={d} className="t-num small">{d > today ? '·' : fmtAr(rev.get(d) ?? 0)}</td>)}<td className="t-num small">{fmtAr(rev.get(last) ?? 0)}</td><td className="t-num">{fmtAr(revW)}</td>{edit && <td></td>}</tr>
+              <tr><td className="bw-slot"></td><td className="bw-name">CA par conversation</td>{showVeille && <td className="bw-veille"></td>}{stats.map((s, i) => <td key={i} className="t-num small">{s.theo ? fmtAr((rev.get(shownDays[i]) ?? 0) / s.theo) : '—'}</td>)}<td className="t-num small">{stats[shownDays.indexOf(last)]?.theo ? fmtAr((rev.get(last) ?? 0) / stats[shownDays.indexOf(last)].theo) : '—'}</td><td className="t-num">{msgW ? fmtAr(revW / msgW) : '—'}</td>{edit && <td></td>}</tr>
+              <tr><td className="bw-slot"></td><td className="bw-name">Dépense</td>{showVeille && <td className="bw-veille"></td>}{stats.map((s, i) => <td key={i} className="t-num small">{s.entered ? usd(s.spend) : '—'}</td>)}<td className="t-num small">{usd(stats[shownDays.indexOf(last)]?.spend ?? 0)}</td><td className="t-num small">{usd(spendW)}</td>{edit && <td></td>}</tr>
             </tbody>
           </table></div>
         )}

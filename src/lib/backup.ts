@@ -1,9 +1,9 @@
 // Sauvegardes : fichier téléchargeable (chiffré ou non), copies dans le cloud, restauration, remise à zéro.
 import { DEFAULT_ROLES, PERMISSIONS } from './permissions';
-import { all, get, getRaw, dumpAll, getMeta, restoreAll, save, setMeta, TABLES, type BaseRecord } from './db';
+import { all, get, getRaw, dumpAll, getMeta, outboxCount, restoreAll, save, setMeta, TABLES, type BaseRecord } from './db';
 import { decryptText, encryptText, hashSecret, verifySecret } from './crypto';
 import { audit, currentUser, SUPERADMIN_ID, type User } from './auth';
-import { getCloud, syncNow } from './sync';
+import { getCloud, syncNow, syncStatus } from './sync';
 import { restoreDefaultZones } from './orders';
 import { restoreDefaultFinance } from './money';
 import { createRestorePoint } from './restorePoints';
@@ -153,14 +153,79 @@ async function cloudFetch(path: string, init: RequestInit = {}) {
   return res;
 }
 
-export async function cloudBackup(label: string) {
-  await cloudFetch('backups', {
+// ---- Contrôle des copies : une copie faite par un appareil pas encore synchronisé serait presque vide ----
+export interface DataStats { total: number; products: number; orders: number; stockMoves: number; customers: number }
+/** Nombre de fiches (non supprimées) d'une sauvegarde ou des données actuelles. */
+export function dataStats(data: Record<string, BaseRecord[]> = dumpAll()): DataStats {
+  const n = (t: string) => (Array.isArray(data?.[t]) ? data[t].filter((r) => r && !r.deleted).length : 0);
+  return { total: Object.keys(data || {}).reduce((s, t) => s + n(t), 0), products: n('products'), orders: n('orders'), stockMoves: n('stockMoves'), customers: n('customers') };
+}
+export const statsText = (s: DataStats) => `${s.total.toLocaleString('fr-FR')} fiches : ${s.products.toLocaleString('fr-FR')} articles, ${s.orders.toLocaleString('fr-FR')} commandes/ventes, ${s.stockMoves.toLocaleString('fr-FR')} mouvements de stock`;
+/** Nombre de fiches lu dans le libellé d'une copie (« … · 3 120 fiches »), ou null pour les anciennes copies. */
+export function labelCount(label: string): number | null {
+  const m = /·\s*([\d\s\u00a0\u202f.]+)\s*fiches/.exec(label || '');
+  return m ? Number(m[1].replace(/\D/g, '')) || 0 : null;
+}
+/** Une copie est suspecte si elle contient nettement moins de fiches que les données actuelles. */
+export function copyLooksIncomplete(label: string, current = dataStats().total): boolean {
+  const n = labelCount(label);
+  return n !== null && current > 50 && n < current * 0.8;
+}
+
+/** Raison pour laquelle cet appareil ne doit pas faire de copie automatique maintenant (null = prêt). */
+export async function cloudCopyBlocker(): Promise<string | null> {
+  const cfg = getCloud();
+  if (!cfg) return "appareil non relié au cloud";
+  await syncNow();
+  const st = syncStatus();
+  if (st.state !== 'ok') return `synchronisation pas terminée (${st.error || st.state})`;
+  if (await outboxCount()) return 'des modifications ne sont pas encore envoyées';
+  if (!getMeta<number>('lastRev', 0)) return "l'appareil n'a encore rien reçu du cloud";
+  // Comparaison avec le cloud : l'appareil doit avoir (presque) toutes les fiches du cloud.
+  try {
+    const res = await fetch(`${cfg.url}/rest/v1/records?select=id&limit=1&tbl=in.(${TABLES.join(',')})`, { headers: { apikey: cfg.anonKey, Authorization: `Bearer ${getCloud()!.accessToken}`, Prefer: 'count=exact' } });
+    const total = Number((res.headers.get('content-range') || '').split('/')[1]);
+    if (res.ok && isFinite(total) && total > 0) {
+      const dump = dumpAll(); const local = TABLES.reduce((s, t) => s + (dump[t]?.length ?? 0), 0);
+      if (local < total * 0.95) return `l'appareil n'a que ${local} fiches sur ${total} dans le cloud`;
+    }
+  } catch { /* vérification impossible : on se fie à la synchronisation */ }
+  return null;
+}
+
+/**
+ * Copie complète dans le cloud. Avant d'envoyer : synchronisation complète ; une copie automatique est refusée si
+ * l'appareil n'a pas toutes les données. Le nombre de fiches est noté dans le libellé, puis la copie est relue pour
+ * vérifier qu'elle est bien enregistrée.
+ */
+async function fetchRaw(path: string) {
+  const cfg = getCloud();
+  if (!cfg) throw new Error("Cet appareil n'est pas relié au cloud.");
+  const res = await fetch(`${cfg.url}/rest/v1/${path}`, { headers: { apikey: cfg.anonKey, Authorization: `Bearer ${cfg.accessToken}` } });
+  if (!res.ok) throw new Error(`Cloud : erreur ${res.status}`);
+  return res;
+}
+export async function cloudBackup(label: string, opts: { auto?: boolean } = {}) {
+  if (opts.auto) { const why = await cloudCopyBlocker(); if (why) throw new Error(`Copie automatique reportée : ${why}.`); }
+  const data = dumpAll();
+  const st = dataStats(data);
+  const full = `${label} · ${st.total.toLocaleString('fr-FR')} fiches`;
+  const res = await cloudFetch('backups?select=id', {
     method: 'POST',
-    headers: { Prefer: 'return=minimal' },
-    body: JSON.stringify({ label, device: getMeta('deviceName', ''), data: dumpAll() }),
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({ label: full, device: getMeta('deviceName', ''), data }),
   });
+  const rows = await res.json().catch(() => []);
+  if (!Array.isArray(rows) || !rows[0]?.id) throw new Error('La copie n’a pas été confirmée par le cloud : réessayez.');
+  // Relecture (parties légères) : le cloud doit rendre les mêmes catégories et comptes que ceux envoyés.
+  const chk = await fetchRaw(`backups?select=categories:data->categories,users:data->users&id=eq.${rows[0].id}`);
+  const back = (await chk.json())[0] || {};
+  const ok = (back.categories?.length ?? 0) === (data.categories?.length ?? 0) && (back.users?.length ?? 0) === (data.users?.length ?? 0);
+  if (!ok) throw new Error('La copie relue dans le cloud ne correspond pas aux données : réessayez.');
   await setMeta('lastCloudBackup', new Date().toISOString());
-  await audit('Sauvegarde', `Copie enregistrée dans le cloud (${label})`);
+  await setMeta('lastCloudBackupCheck', { at: new Date().toISOString(), label: full, stats: st });
+  await audit('Sauvegarde', `Copie enregistrée dans le cloud et vérifiée (${full})`);
+  return st;
 }
 
 export async function listCloudBackups(): Promise<{ id: string; created_at: string; label: string; device: string }[]> {
@@ -182,7 +247,7 @@ export async function autoCloudBackup() {
   if (!['role-admin', 'role-superadmin'].includes(u.roleId)) return;
   const last = getMeta<string | null>('lastCloudBackup', null);
   if (last && Date.now() - new Date(last).getTime() < 24 * 3600 * 1000) return;
-  try { await cloudBackup('Automatique quotidienne'); } catch { /* réessaiera plus tard */ }
+  try { await cloudBackup('Automatique quotidienne', { auto: true }); } catch { /* réessaiera plus tard */ }
 }
 
 /** Remet le logiciel à l'état d'origine sur tous les appareils (après une sauvegarde automatique). */

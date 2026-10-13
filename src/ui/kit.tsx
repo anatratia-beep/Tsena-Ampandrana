@@ -60,9 +60,10 @@ export function Button({ variant = 'primary', icon, busy, block, children, class
     </button>
   );
 }
-export function IconButton({ icon, label, ...rest }: React.ButtonHTMLAttributes<HTMLButtonElement> & { icon: IconName; label: string }) {
+export function IconButton({ icon, label, className = '', ...rest }: React.ButtonHTMLAttributes<HTMLButtonElement> & { icon: IconName; label: string }) {
+  // Suppression : toujours la même couleur (rouge), pour être reconnue d'un coup d'œil.
   return (
-    <button className="icon-btn" aria-label={label} title={label} {...rest}>
+    <button className={`icon-btn ${icon === 'trash' ? 'icon-btn-danger' : ''} ${className}`} aria-label={label} title={label} {...rest}>
       <Icon name={icon} />
     </button>
   );

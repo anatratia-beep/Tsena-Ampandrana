@@ -1,6 +1,8 @@
 // Notifications : calculées à partir des données (charges à payer, choix à préciser, stock bas, semaines à verser,
-// conflits de synchronisation, sauvegarde). Chacune peut être fermée (×) : elle revient plus tard selon son importance
-// (urgente : 1 h, importante : 2 h, information : 5 h), ou « pas aujourd'hui ». Réglage propre à chaque appareil.
+// conflits de synchronisation, sauvegarde). Un problème réglé disparaît tout seul. Chacune peut être fermée (×) : elle
+// revient plus tard selon son importance (urgente : 1 h, importante : 2 h, information : 5 h), reportée (1 h, 3 h,
+// demain, pas aujourd'hui) ou masquée « ne plus afficher » tant qu'aucun nouveau problème n'apparaît.
+// Réglage propre à chaque appareil.
 import { useMemo } from 'react';
 import { useCan } from './auth';
 import { getMeta, setMeta, useMeta, useTable } from './db';
@@ -29,6 +31,25 @@ export function snooze(id: string, hours: number | 'today') {
   return setMeta('notifSnooze', cur);
 }
 export const unsnooze = (id: string) => { const cur = { ...getMeta<Snoozes>('notifSnooze', {}) }; delete cur[id]; return setMeta('notifSnooze', cur); };
+/** Report jusqu'à demain matin (8 h). */
+export function snoozeTomorrow(id: string) {
+  const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(8, 0, 0, 0);
+  return snooze(id, (d.getTime() - Date.now()) / 3600_000);
+}
+
+// « Ne plus afficher » : la notification est masquée tant que le problème reste le même. Si la situation change
+// (nouveau problème, nombre différent, autre article…), sa signature change et elle réapparaît.
+type Hidden = Record<string, { at: string; title: string }>;
+export const notifSig = (n: Pick<Notif, 'id' | 'title'>) => `${n.id}|${n.title}`;
+export function hideNotif(n: Notif) {
+  const cur = { ...getMeta<Hidden>('notifHidden', {}) };
+  cur[notifSig(n)] = { at: new Date().toISOString(), title: n.title };
+  // Ménage : on garde les 300 plus récentes.
+  const keep = Object.entries(cur).sort((a, b) => b[1].at.localeCompare(a[1].at)).slice(0, 300);
+  return setMeta('notifHidden', Object.fromEntries(keep));
+}
+export function unhideNotif(sig: string) { const cur = { ...getMeta<Hidden>('notifHidden', {}) }; delete cur[sig]; return setMeta('notifHidden', cur); }
+export const hiddenNotifs = () => getMeta<Hidden>('notifHidden', {});
 
 /** Toutes les notifications de l'utilisateur connecté, avec l'heure de rappel si elles sont reportées. */
 export function useNotifications() {
@@ -36,6 +57,7 @@ export function useNotifications() {
   const orders = useTable<Order>('orders'); const moves = useTable('cashMoves'); const recs = useTable<Recurring>('recurring');
   const products = useTable<Product>('products'); const sm = useTable('stockMoves'); const conflicts = useTable<any>('syncConflicts'); const payouts = useTable('payouts'); const prospects = useTable('prospects'); const couriers = useTable<Courier>('couriers'); const settles = useTable('courierSettlements'); const auditRows = useTable<any>('audit'); const readings = useTable('boostReadings'); const boostsT = useTable('boosts');
   const snoozes = useMeta<Snoozes>('notifSnooze', {});
+  const hidden = useMeta<Hidden>('notifHidden', {});
   const reportSent = useMeta<Record<string, string>>('reportSent', {});
   const lastFile = useMeta<string | null>('lastFileBackup', null); const lastCloud = useMeta<string | null>('lastCloudBackup', null);
   // Le temps passe : les charges « à telle heure » apparaissent sans autre changement (rafraîchi chaque minute par le composant).
@@ -115,5 +137,5 @@ export function useNotifications() {
     return out.sort((a, b) => rank[a.level] - rank[b.level]);
   }, [orders, moves, recs, products, sm, conflicts, payouts, prospects, couriers, settles, auditRows, readings, boostsT, reportSent, lastFile, lastCloud, minute]);
   const now = new Date().toISOString();
-  return list.map((n) => ({ ...n, until: snoozes[n.id] && snoozes[n.id] > now ? snoozes[n.id] : undefined }));
+  return list.filter((n) => !hidden[notifSig(n)]).map((n) => ({ ...n, until: snoozes[n.id] && snoozes[n.id] > now ? snoozes[n.id] : undefined }));
 }

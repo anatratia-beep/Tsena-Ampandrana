@@ -1,7 +1,16 @@
-// Photos des articles : toujours le même traitement avant d'être enregistrées, quel que soit l'écran.
-// 1. redimensionner (480 px au plus grand côté) → 2. convertir en JPEG sur fond blanc → 3. compresser jusqu'à
-// ~40 Ko en gardant une qualité suffisante → 4. seulement ensuite, enregistrer dans la base.
-export const PHOTO = { max: 480, targetBytes: 40_000, qualities: [0.78, 0.7, 0.62, 0.55, 0.48, 0.42] };
+// Photos : toujours le même traitement avant d'être enregistrées, quel que soit l'écran.
+// 1. redimensionner → 2. convertir en JPEG sur fond blanc → 3. compresser jusqu'au poids visé en gardant une qualité
+// suffisante pour bien reconnaître l'article → 4. seulement ensuite, enregistrer dans la base.
+// Normes (une seule place pour les régler) :
+//  - photo d'article ou de variante : 600 px au plus grand côté, ~50 Ko (net sur téléphone et sur le ticket) ;
+//  - photo de reçu / justificatif : 1000 px, ~110 Ko (le texte doit rester lisible) ;
+//  - logo (société, page) : 256 px, ~40 Ko.
+export const PHOTO = { max: 600, targetBytes: 50_000, qualities: [0.8, 0.74, 0.68, 0.62, 0.56, 0.5] };
+export const RECEIPT = { max: 1000, targetBytes: 110_000 };
+export const LOGO = { max: 256, targetBytes: 40_000 };
+/** Une image est « trop lourde » au-delà de 15 % du poids visé, ou si elle n'est pas en JPEG (PNG, WEBP…). */
+export const tooHeavy = (dataUrl: string | undefined, target: number, allowPng = false) =>
+  !!dataUrl && dataUrl.startsWith('data:image') && (bytesOf(dataUrl) > target * 1.15 || (!allowPng && !dataUrl.startsWith('data:image/jpeg')));
 
 function loadImage(blob: Blob): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -11,7 +20,7 @@ function loadImage(blob: Blob): Promise<HTMLImageElement> {
     img.src = URL.createObjectURL(blob);
   });
 }
-const bytesOf = (dataUrl: string) => Math.round((dataUrl.length - dataUrl.indexOf(',') - 1) * 0.75);
+function bytesOf(dataUrl: string) { return Math.round((dataUrl.length - dataUrl.indexOf(',') - 1) * 0.75); }
 
 /** Retourne la photo prête à enregistrer (data URL JPEG légère). */
 export async function compressPhoto(src: Blob | string, opts: { max?: number; targetBytes?: number } = {}): Promise<string> {

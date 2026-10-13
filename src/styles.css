@@ -907,9 +907,8 @@ tr.row-error td { background: var(--danger-soft); }
 @media (max-width: 600px) {
   .notif { padding: 8px 10px; gap: 8px; }
   .notif > svg { display: none; }
-  .notif-main strong { font-size: .9rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .notif-main .small { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
-  .notif-actions { flex-wrap: nowrap; }
+  .notif-main strong { font-size: .9rem; }
+  .notif-actions { flex-wrap: wrap; }
   .notif-actions .btn { min-height: 34px; padding: 0 10px; font-size: .85rem; }
   .notif-more { display: flex; gap: 6px; align-items: center; margin: 0; }
 }
@@ -1202,3 +1201,22 @@ tr.row-error td { background: var(--danger-soft); }
 
 .version-line { display: block; padding: 4px 12px 0; color: inherit; opacity: .7; text-decoration: none; }
 .updated-banner { align-items: flex-start; }
+
+/* Compteur dans le menu (Notifications) */
+.nav-count { margin-left: auto; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; background: var(--danger); color: #fff; font-size: .75rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.notif-title { overflow-wrap: anywhere; }
+.notif-text { overflow-wrap: anywhere; }
+.notif-snooze { flex-wrap: wrap; margin-top: 6px; }
+a.bell { text-decoration: none; }
+/* Colonne « veille » du premier comptage boost */
+.boost-week .bw-veille { background: color-mix(in srgb, var(--gold, #d69e2e) 10%, transparent); border-right: 2px dashed var(--line-strong); }
+
+/* Boutons de suppression / annulation : rouges partout, avec icône */
+.icon-btn.icon-btn-danger { color: var(--danger); }
+.icon-btn.icon-btn-danger:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.btn-danger svg { flex-shrink: 0; }
+/* Filtre de dates des listes : période + ordre, sur une ligne (passe à la ligne sur téléphone) */
+.list-dates { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.list-dates > .field { flex: 0 1 200px; }
+.list-dates .period-picker { flex: 1 1 280px; }
+.list-dates-row { align-items: center; gap: 8px; flex-wrap: wrap; }
