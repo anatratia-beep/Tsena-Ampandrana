@@ -52,7 +52,7 @@ export function grid(from: string, to: string): Grid {
   const expensesByDay: Record<string, number> = Object.fromEntries(days.map((d) => [d, 0]));
   for (const m of expenseMoves) expensesByDay[dayOf(m.at)] = (expensesByDay[dayOf(m.at)] ?? 0) - m.amount;
   // Colonnes : toutes les pages (catégories principales), dans l'ordre alphabétique ; « Sans page » à la fin si besoin.
-  const pages: PageCol[] = all<Category>('categories').filter((c) => !c.parentId).sort((a, b) => a.name.localeCompare(b.name, 'fr')).map((c) => ({ id: c.id, name: c.name }));
+  const pages: PageCol[] = all<Category>('categories').filter((c) => !c.parentId && (!c.removed || seen.has(c.id))).sort((a, b) => a.name.localeCompare(b.name, 'fr')).map((c) => ({ id: c.id, name: c.name }));
   if (seen.has('_')) pages.push({ id: '_', name: 'Sans page' });
   const pageTotals = Object.fromEntries(pages.map((p) => [p.id, days.reduce((t, d) => t + (sales[d][p.id] ?? 0), 0)]));
   const dayTotals = Object.fromEntries(days.map((d) => [d, Object.values(sales[d]).reduce((t, v) => t + v, 0)]));

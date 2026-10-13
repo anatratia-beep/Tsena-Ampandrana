@@ -4,13 +4,14 @@ import { useMemo, useRef, useState } from 'react';
 import { compressPhoto, photoBytes } from '../lib/images';
 import { audit, useCan } from '../lib/auth';
 import { get, remove, save, useTable } from '../lib/db';
-import { categoryPath, normText, parseNum, type AttrValue, type CatAttr, type Category, type Product } from '../lib/catalog';
+import { categoryPath, fmtAr, normText, parseNum, type AttrValue, type CatAttr, type Category, type Product } from '../lib/catalog';
 import {
   ATTR_PRESETS, ATTR_SUGGESTIONS, activeAttrs, activeValues, articleId, articleParts, categoryTemplate, combinations, findArticle,
   makeAttr, saveArticles, shortId, suggestCatCode, suggestCode, usageOf, type Selection,
 } from '../lib/attrs';
 import { downloadBlob } from '../lib/xlsx';
 import { resizeImage } from '../lib/settings';
+import { pageRemovalInfo, removePage, restorePage } from '../lib/pages';
 import { Help, Button, Confirm, Empty, IconButton, Modal, PageHead, Req, SelectField, TextField, navigate, toast } from '../ui/kit';
 import { Icon } from '../ui/icons';
 
@@ -23,7 +24,8 @@ export function CategoriesPage() {
   const [edit, setEdit] = useState<Category | 'new' | null>(null);
   const [build, setBuild] = useState<Category | null>(null);
   const [del, setDel] = useState<Category | null>(null);
-  const list = [...cats].sort((a, b) => categoryPath(a.id).localeCompare(categoryPath(b.id), 'fr'));
+  const list = [...cats].filter((c) => !c.removed).sort((a, b) => categoryPath(a.id).localeCompare(categoryPath(b.id), 'fr'));
+  const removedPages = cats.filter((c) => c.removed && !c.parentId).sort((a, b) => (b.removedAt ?? '').localeCompare(a.removedAt ?? ''));
   const count = (id: string) => products.filter((p) => p.categoryId === id && p.active !== false).length;
   const editable = can('catalog.edit');
   return (
@@ -61,7 +63,8 @@ export function CategoriesPage() {
                   {editable && <Button icon="plus" disabled={!attrs.length} onClick={() => setBuild(c)}>Créer des articles</Button>}
                   <Button variant="ghost" onClick={() => navigate(`/articles?cat=${c.id}`)}>Voir les articles</Button>
                   {editable && <Button variant="ghost" icon="download" disabled={!attrs.length} onClick={async () => downloadBlob(await categoryTemplate(c), fileName(c))}>Excel à remplir</Button>}
-                  {editable && n === 0 && !cats.some((x) => x.parentId === c.id) && <IconButton icon="trash" label="Supprimer la page" onClick={() => setDel(c)} />}
+                  {editable && !c.parentId && <IconButton icon="trash" label={`Supprimer la page ${c.name}`} onClick={() => setDel(c)} />}
+                  {editable && c.parentId && n === 0 && !cats.some((x) => x.parentId === c.id) && <IconButton icon="trash" label="Supprimer la catégorie" onClick={() => setDel(c)} />}
                 </div>
               </div>
             );
@@ -70,9 +73,43 @@ export function CategoriesPage() {
       )}
       {edit && <CategoryEditor cat={edit === 'new' ? undefined : edit} onClose={() => setEdit(null)} />}
       {build && <ArticleBuilder cat={build} onClose={() => setBuild(null)} />}
-      {del && <Confirm title="Supprimer la page" danger confirmLabel="Supprimer" message={<p>La page « {del.name} » et ses variantes seront supprimées (elle n’a aucun article).</p>}
-        onClose={() => setDel(null)} onConfirm={async () => { await remove('categories', del.id); await audit('Page supprimée', del.name); }} />}
+      {del && !del.parentId && <DeletePage c={del} onClose={() => setDel(null)} />}
+      {del && del.parentId && <Confirm title="Supprimer la catégorie" danger confirmLabel="Supprimer" message={<p>La catégorie « {del.name} » sera supprimée (elle n’a aucun article).</p>}
+        onClose={() => setDel(null)} onConfirm={async () => { await remove('categories', del.id); await audit('Catégorie supprimée', del.name); }} />}
+      {removedPages.length > 0 && (
+        <details className="card removed-pages">
+          <summary><strong>Pages supprimées ({removedPages.length})</strong> <span className="small muted">— rien n’est perdu : restaurez-les quand vous voulez</span></summary>
+          <ul className="list">{removedPages.map((c) => (
+            <li key={c.id} className="list-item">
+              <span className="page-logo">{c.logo ? <img src={c.logo} alt="" /> : <Icon name="store" size={18} />}</span>
+              <div className="list-item-main"><span className="list-item-title">{c.name}</span>
+                <p className="small muted">Supprimée{c.removedAt ? ` le ${new Date(c.removedAt).toLocaleDateString('fr-FR')}` : ''}{c.removedBy ? ` par ${c.removedBy}` : ''} · {products.filter((p) => p.removedWithPage === c.id).length} article(s) rangé(s) avec elle</p></div>
+              {editable && <Button variant="ghost" icon="refresh" onClick={async () => { await restorePage(c.id); toast(`Page « ${c.name} » restaurée`); }}>Restaurer</Button>}
+            </li>
+          ))}</ul>
+        </details>
+      )}
     </>
+  );
+}
+
+/** Supprimer une page : elle et ses articles sont rangés de côté, l'historique reste ; restaurable. */
+function DeletePage({ c, onClose }: { c: Category; onClose: () => void }) {
+  const info = pageRemovalInfo(c.id);
+  if (info.pending.length) return (
+    <Modal title={`Supprimer la page « ${c.name} » ?`} onClose={onClose} footer={<Button onClick={onClose}>Compris</Button>}>
+      <div className="notice notice-danger"><Icon name="alert" /><div className="stack-s"><strong>Impossible pour le moment</strong>
+        <span className="small">{info.pending.length} commande(s) pas encore terminée(s) contiennent des articles de cette page : {info.pending.slice(0, 10).join(', ')}{info.pending.length > 10 ? '…' : ''}. Terminez-les (livrées, refusées) ou annulez-les d’abord.</span></div></div>
+    </Modal>
+  );
+  return (
+    <Confirm title={`Supprimer la page « ${c.name} » ?`} confirmLabel="Supprimer la page" typeToConfirm="SUPPRIMER" onClose={onClose}
+      message={<div className="stack-s">
+        <p>La page et ses <strong>{info.articles} article(s)</strong> ne seront plus proposés à la vente ni dans les listes.</p>
+        <p className="small"><strong>Rien n’est effacé :</strong> les ventes, le chiffre d’affaires, les boosts, les récapitulatifs et le journal gardent son nom et ses chiffres. Vous pouvez la restaurer à tout moment (en bas de cet écran, « Pages supprimées »).</p>
+        {info.stockPcs > 0 && <div className="notice"><Icon name="alert" /><span>Il reste <strong>{info.stockPcs} pièce(s)</strong> en stock (valeur {fmtAr(info.stockValue)}). Elles restent comptées dans la valeur du stock, mais ne seront plus en vente.</span></div>}
+      </div>}
+      onConfirm={async () => { await removePage(c.id); toast(`Page « ${c.name} » supprimée (restaurable)`); }} />
   );
 }
 

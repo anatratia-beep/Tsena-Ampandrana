@@ -147,7 +147,7 @@ export function ImportPage() {
       if (pageCat) { setSheets(sh); setKind('page'); setPageId(pageCat.id); return; }
       if (sh.some((x) => x.name === 'tsena')) throw new Error('Ce fichier a été fait pour une page qui n’existe plus dans Trésor en ligne (supprimée ?). Téléchargez de nouveau le fichier de la page.');
       const k = detectKind(sh);
-      const pages = all<Category>('categories').filter((c) => activeAttrs(c).length);
+      const pages = all<Category>('categories').filter((c) => !c.removed && activeAttrs(c).length);
       // Fichier à vous (vos colonnes) : lu avec les variantes de la page quand il nomme une page ou a les colonnes de ses variantes.
       if (k !== 'commande' && k !== 'fournisseurs' && k !== 'categories' && pages.length && (looksLikePageFile(sh, pages) || (!k && sh.some((x) => headerRowOf(x) >= 0)))) { setSheets(sh); setKind('mapped'); setSimpleOk(k === 'articles'); return; }
       if (!k) throw new Error("Je ne reconnais pas les colonnes de ce fichier. Utilisez un des modèles ci-dessous, ou vérifiez la ligne des titres.");

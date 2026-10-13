@@ -135,7 +135,7 @@ export function ProspectForm({ p, onClose, onSaved }: { p?: Prospect; onClose: (
   useCatalog();
   const me = useMe();
   const zones = useTable<Zone>('zones').filter((z) => z.active !== false).sort((a, b) => (a.order ?? 99) - (b.order ?? 99) || a.name.localeCompare(b.name));
-  const pages = useTable<Category>('categories').filter((c) => !c.parentId).sort((a, b) => (a.order ?? 99) - (b.order ?? 99) || a.name.localeCompare(b.name));
+  const pages = useTable<Category>('categories').filter((c) => !c.parentId && !c.removed).sort((a, b) => (a.order ?? 99) - (b.order ?? 99) || a.name.localeCompare(b.name));
   const [fbName, setFbName] = useState(p?.fbName ?? '');
   const [phone, setPhone] = useState(p?.phone ?? '');
   const [pageId, setPageId] = useState(p?.pageId ?? (me.pageIds?.length === 1 ? me.pageIds[0] : ''));

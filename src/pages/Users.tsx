@@ -148,7 +148,7 @@ function UserForm({ user, me, roles, users, onClose, onCreated }: { user: User |
   const isCourier = roleId === COURIER_ROLE;
   const freeCouriers = couriers.filter((c) => !c.removed && (c.id === user?.courierId || !users.some((u) => u.courierId === c.id)));
   const [courierId, setCourierId] = useState(user?.courierId ?? '__new');
-  const pages = useTable<Category>('categories').filter((c) => !c.parentId).sort((a, b) => a.name.localeCompare(b.name));
+  const pages = useTable<Category>('categories').filter((c) => !c.parentId && !c.removed).sort((a, b) => a.name.localeCompare(b.name));
   // Mot de passe : visible et modifiable uniquement par le super-admin et le gérant.
   const canSetPwd = me.roleId === SUPERADMIN_ROLE || me.roleId === ADMIN_ROLE;
   const [pwd, setPwd] = useState(user ? '' : tempPassword());

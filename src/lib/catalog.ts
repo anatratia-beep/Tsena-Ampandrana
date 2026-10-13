@@ -12,6 +12,8 @@ export interface Category extends BaseRecord {
   name: string; parentId?: string; order?: number; code?: string; attrs?: CatAttr[];
   /** Page (catégorie principale) : ce qui figure en tête des tickets de ses ventes. */
   logo?: string; ticketName?: string; slogan?: string; phone?: string; ticketFooter?: string;
+  /** Page supprimée (rangée de côté, restaurable) : cachée des listes, l'historique garde son nom. */
+  removed?: boolean; removedAt?: string; removedBy?: string;
 }
 export interface Product extends BaseRecord {
   code: string;
@@ -24,6 +26,8 @@ export interface Product extends BaseRecord {
   link?: string;
   notes?: string;
   active: boolean;
+  /** Article rangé avec sa page supprimée (remis en vente si la page est restaurée). */
+  removedWithPage?: string;
   /** Valeurs choisies pour les variantes de la catégorie : id de la variante → id de la valeur. */
   attrs?: Record<string, string>;
   /** Lot ou promotion : article sans stock propre qui regroupe d'autres articles (voir lots.ts). */
@@ -233,7 +237,7 @@ export async function receiveIntoStock(entries: { variantId: string; qty: number
 export async function ensureCategory(name: string, parentId?: string): Promise<string> {
   const clean = name.trim();
   const found = all<Category>('categories').find((c) => c.name.toLowerCase() === clean.toLowerCase() && (c.parentId || undefined) === (parentId || undefined));
-  if (found) return found.id;
+  if (found) { if (found.removed) await save('categories', { id: found.id, removed: false }); return found.id; }
   // Identifiant tiré du nom : la même catégorie créée sur deux appareils hors ligne ne fait qu'une.
   const slug = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const [c] = await save('categories', { id: `cat_${parentId ? parentId.slice(0, 12) + '_' : ''}${slug(clean) || 'x'}`, name: clean, parentId });

@@ -14,7 +14,7 @@ export function rootOf(categoryId?: string): string {
 export const productPage = (productId?: string) => rootOf(productId ? get<Product>('products', productId)?.categoryId : undefined);
 export const variantPage = (variantId: string) => productPage(get<Variant>('variants', variantId)?.productId);
 
-export const userPages = (u?: User): string[] => (u?.pageIds || []).filter((id) => get('categories', id));
+export const userPages = (u?: User): string[] => (u?.pageIds || []).filter((id) => { const c = get<Category>('categories', id); return !!c && !c.removed; });
 export const pageNames = (ids: string[]) => ids.map((id) => get<Category>('categories', id)?.name).filter(Boolean).join(', ');
 
 /**

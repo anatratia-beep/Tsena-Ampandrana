@@ -48,7 +48,7 @@ export const STOP_REASONS = ['Peu performant', 'Remplacé par un nouveau boost',
 // ---------- Pages ----------
 /** Pages = catégories principales (sans parent), par ordre alphabétique. */
 export function allPages(): Category[] {
-  return all<Category>('categories').filter((c) => !c.parentId).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  return all<Category>('categories').filter((c) => !c.parentId && !c.removed).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
 }
 export const pageName = (id: string) => get<Category>('categories', id)?.name ?? 'Page supprimée';
 

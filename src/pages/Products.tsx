@@ -13,6 +13,7 @@ import { blobToThumb } from '../lib/xlsx';
 import { photoBytes } from '../lib/images';
 import { Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
 import { Icon } from '../ui/icons';
+import { rootOf } from '../lib/scope';
 import { ArticleBuilder, AttrBadges } from './Categories';
 import { LOT_STATUS, LotDetail, LotForm, NewArticleChooser, TierEditor, lotPhoto, tierText } from './Lots';
 import { isLot, lotAvailable, lotStatus, type PriceTier } from '../lib/lots';
@@ -38,7 +39,7 @@ export function Thumb({ src, size = 56, alt = '', zoom }: { src?: string; size?:
 }
 
 export function categoryOptions(categories: Category[], empty = 'Sans catégorie') {
-  const opts = [...categories].map((c) => ({ value: c.id, label: categoryPath(c.id) })).sort((a, b) => a.label.localeCompare(b.label));
+  const opts = [...categories].filter((c) => !c.removed && !(c.parentId && get<Category>('categories', rootOf(c.id))?.removed)).map((c) => ({ value: c.id, label: categoryPath(c.id) })).sort((a, b) => a.label.localeCompare(b.label));
   return [{ value: '', label: empty }, ...opts];
 }
 
