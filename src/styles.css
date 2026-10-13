@@ -1199,3 +1199,6 @@ tr.row-error td { background: var(--danger-soft); }
 /* Journal : actions à vérifier */
 .audit-table tr.is-todo td { background: var(--danger-soft); }
 .audit-table tr.is-suspect td { background: var(--warn-soft); }
+
+.version-line { display: block; padding: 4px 12px 0; color: inherit; opacity: .7; text-decoration: none; }
+.updated-banner { align-items: flex-start; }

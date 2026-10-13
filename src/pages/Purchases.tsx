@@ -7,8 +7,9 @@ import {
   type Product, type Purchase, type PurchaseLine, type PurchaseStatus, type Variant, matchQuery, productText, stockOf, searchItems } from '../lib/catalog';
 import { lastRate, lineTotal, purchaseGoods, purchasePaid, purchaseQty, purchaseReceivedQty, purchaseTotal, purchaseTotalAr, toAr, type Supplier } from '../lib/purchases';
 import { PurchasingTabs } from './ImportExport';
-import { Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDate, navigate, toast, useRoute } from '../ui/kit';
+import { Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDate, navigate, toast, useRoute, DateSort, byAdded, type DateOrder } from '../ui/kit';
 import { Icon } from '../ui/icons';
+import { voidPurchase } from '../lib/corrections';
 import { ACCOUNTS, ACCOUNT_IDS, addMove, atFor, type AccountId } from '../lib/money';
 import { ProductForm, Thumb } from './Products';
 
@@ -30,13 +31,14 @@ function PurchaseList() {
   const [tab, setTab] = useState<'open' | 'received' | 'all'>('open');
   const [q, setQ] = useState('');
   const [creating, setCreating] = useState(false);
+  const [order, setOrder] = useState<DateOrder>('');
   const list = useMemo(() => {
     const n = q.trim().toLowerCase();
-    return purchases
+    return byAdded(purchases
       .filter((p) => tab === 'all' || (tab === 'open' ? !['received', 'cancelled'].includes(p.status) : p.status === 'received'))
       .filter((p) => !n || `${p.number} ${p.orderRef} ${p.trackingNo} ${get<Supplier>('suppliers', p.supplierId || '')?.name} ${p.notes}`.toLowerCase().includes(n))
-      .sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number));
-  }, [purchases, tab, q]);
+      .sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number)), order);
+  }, [purchases, tab, q, order]);
   const open = purchases.filter((p) => !['received', 'cancelled'].includes(p.status));
   const openQty = open.reduce((s, p) => s + purchaseQty(p) - purchaseReceivedQty(p), 0);
   const unpaid = purchases.filter((p) => p.status !== 'cancelled').reduce((s, p) => s + Math.max(0, toAr(purchaseTotal(p) - purchasePaid(p), p.currency, p.rate)), 0);
@@ -61,6 +63,7 @@ function PurchaseList() {
             {([['open', 'En cours'], ['received', 'Reçues'], ['all', 'Toutes']] as const).map(([k, l]) => <button key={k} aria-pressed={tab === k} onClick={() => setTab(k)}>{l}</button>)}
           </div>
           <div className="field" style={{ flex: '1 1 240px', maxWidth: 360 }}><input aria-label="Rechercher" placeholder="N° de commande, suivi, fournisseur…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+          <DateSort value={order} onChange={setOrder} />
         </div>
       </div>
       <div className="card card-flush">
@@ -105,6 +108,8 @@ function PurchaseDetail({ id }: { id: string }) {
   useTable('suppliers');
   const receptions = useTable('receptions');
   const p = get<Purchase>('purchases', id);
+  const [voiding, setVoiding] = useState(false);
+  const [voidWhy, setVoidWhy] = useState('');
   const [editing, setEditing] = useState(false);
   const [paying, setPaying] = useState(false);
   const [cancel, setCancel] = useState(false);
@@ -164,6 +169,7 @@ function PurchaseDetail({ id }: { id: string }) {
             {['ordered', 'shipped'].includes(p.status) && <Button variant="ghost" onClick={() => setStatus('arrived')}>Marquer arrivée à Madagascar</Button>}
             {p.status === 'partial' && <Button variant="ghost" onClick={() => setClose(true)}>Clôturer (le reste ne viendra pas)</Button>}
             {!['received', 'cancelled', 'partial'].includes(p.status) && <Button variant="quiet" onClick={() => setCancel(true)}>Annuler la commande</Button>}
+            {['received', 'partial'].includes(p.status) && can('records.correct') && <Button variant="quiet" onClick={() => setVoiding(true)}>Annuler la commande (erreur)</Button>}
           </div>
         )}
         <div className="kv-row">
@@ -240,6 +246,9 @@ function PurchaseDetail({ id }: { id: string }) {
       {can('purchases.manage') && p.status === 'ordered' && !recs.length && <div className="row"><Button variant="quiet" icon="trash" onClick={() => setDel(true)}>Supprimer la commande</Button></div>}
 
       {editing && <PurchaseForm purchase={p} onClose={() => setEditing(false)} />}
+      {voiding && <Confirm title={`Annuler ${p.number}`} danger confirmLabel="Annuler la commande" onClose={() => setVoiding(false)}
+        message={<div className="stack-s"><p>Commande déjà reçue : ses réceptions sont annulées et les pièces reçues sont <strong>retirées exactement du stock</strong>. Les paiements au fournisseur restent (supprimez-les à part si besoin). Tout reste dans l’historique.</p><TextField label="Raison" value={voidWhy} onChange={setVoidWhy} required /></div>}
+        onConfirm={async () => { if (!voidWhy.trim()) throw new Error('Indiquez la raison.'); await voidPurchase(p, voidWhy.trim()); toast('Commande annulée : stock corrigé'); }} />}
       {paying && <PaymentModal purchase={p} onClose={() => setPaying(false)} />}
       {cancel && <Confirm title="Annuler la commande" danger confirmLabel="Annuler la commande" message={<p>Les pièces ne seront plus comptées « en arrivage ».</p>} onClose={() => setCancel(false)} onConfirm={() => setStatus('cancelled')} />}
       {close && <Confirm title="Clôturer la commande" confirmLabel="Clôturer" message={<p>Les pièces non reçues ne seront plus attendues. Elles restent visibles comme manquantes.</p>} onClose={() => setClose(false)} onConfirm={() => setStatus('received')} />}

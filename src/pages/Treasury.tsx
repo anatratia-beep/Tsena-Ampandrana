@@ -3,7 +3,7 @@ import { closedBy } from '../lib/closed';
 import { useMemo, useRef, useState } from 'react';
 import { useCan } from '../lib/auth';
 import { save, useTable } from '../lib/db';
-import { fmtAr, parseNum } from '../lib/catalog';
+import { fmtAr, parseNum, parseAr } from '../lib/catalog';
 import { compressPhoto } from '../lib/images';
 import {
   ACCOUNTS, ACCOUNT_IDS, MOVE_TYPES, addMove, addTransfer, atFor, balances, confirmRecurring, dayOf, deleteMove, dueRecurring, flows, skipRecurring, today,
@@ -130,7 +130,7 @@ function MoveForm({ kind, onClose }: { kind: FormKind; onClose: () => void }) {
   const file = useRef<HTMLInputElement>(null);
   const withCat = kind === 'expense' || kind === 'income';
   const title = { expense: 'Nouvelle dépense', income: 'Autre revenu', owner_in: 'Apport du gérant', owner_out: 'Retrait du gérant', opening: 'Solde de départ d’un compte' }[kind];
-  const n = parseNum(amount) || 0;
+  const n = parseAr(amount) || 0;
   const dayLocked = locked(date);
   const weekClosed = kind === 'expense' || kind === 'income' ? closedBy(date) : undefined;
   async function submit() {
@@ -176,7 +176,7 @@ function TransferForm({ onClose }: { onClose: () => void }) {
   const [fee, setFee] = useState('');
   const [date, setDate] = useState(today());
   const [note, setNote] = useState('');
-  const n = parseNum(amount) || 0;
+  const n = parseAr(amount) || 0;
   return (
     <Modal title="Virement entre comptes" onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={!n || from === to || locked(date)} onClick={async () => { await addTransfer(from, to, n, atFor(date), note.trim() || undefined, parseNum(fee) || 0); toast('Virement enregistré'); onClose(); }}>Enregistrer</Button></>}>
@@ -265,7 +265,7 @@ function ConfirmRecurring({ d, onClose }: { d: ReturnType<typeof dueRecurring>[n
   const [account, setAccount] = useState<AccountId>(d.r.account);
   return (
     <Modal title={`${d.r.label} — ${fmtDate(d.date)}`} onClose={onClose}
-      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={!parseNum(amount)} onClick={async () => { await confirmRecurring(d, parseNum(amount)!, account); toast('Opération enregistrée'); onClose(); }}>Confirmer le paiement</Button></>}>
+      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={!parseAr(amount)} onClick={async () => { await confirmRecurring(d, parseAr(amount)!, account); toast('Opération enregistrée'); onClose(); }}>Confirmer le paiement</Button></>}>
       <div className="grid-2">
         <TextField label="Montant (Ar)" required value={amount} onChange={setAmount} inputMode="numeric" />
         <SelectField label={d.r.kind === 'expense' ? 'Payé depuis' : 'Reçu sur'} value={account} onChange={(v) => setAccount(v as AccountId)} options={accountOptions} />
@@ -333,11 +333,11 @@ function RecurringForm({ rec, onClose }: { rec?: Recurring; onClose: () => void 
   const [start, setStart] = useState(rec?.startMonth ?? today().slice(0, 7));
   const [active, setActive] = useState(rec?.active ?? true);
   const list = cats.filter((c) => c.kind === kind);
-  const ok = label.trim() && parseNum(amount) && list.some((c) => c.id === cat);
+  const ok = label.trim() && parseAr(amount) && list.some((c) => c.id === cat);
   return (
     <Modal title={rec ? 'Modifier l’opération récurrente' : 'Nouvelle opération récurrente'} onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={!ok} onClick={async () => {
-        await save('recurring', { ...(rec ? { id: rec.id } : {}), kind, label: label.trim(), categoryId: cat, account, amount: parseNum(amount)!, day: Math.min(31, Math.max(1, Number(day) || 1)), startMonth: start, active });
+        await save('recurring', { ...(rec ? { id: rec.id } : {}), kind, label: label.trim(), categoryId: cat, account, amount: parseAr(amount)!, day: Math.min(31, Math.max(1, Number(day) || 1)), startMonth: start, active });
         toast('Opération récurrente enregistrée'); onClose();
       }}>Enregistrer</Button></>}>
       <div className="stack">

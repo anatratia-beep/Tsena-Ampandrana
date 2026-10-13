@@ -1,0 +1,26 @@
+// Annuler une commande Chine déjà reçue (erreur) : réception annulée, pièces retirées exactement du stock.
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const p = await (await b.newContext({ viewport: { width: 1280, height: 900 }, timezoneId: 'Indian/Antananarivo' })).newPage();
+let fail = 0; const ok = (c, m) => { console.log((c ? 'OK   ' : 'FAIL ') + m); if (!c) fail++; };
+p.on('pageerror', (e) => { console.log('ERR', e.message); fail++; });
+await p.goto('http://localhost:5173/'); await p.waitForTimeout(600);
+await p.getByLabel("Nom d'utilisateur").fill('super-adm'); await p.locator('input[type=password]').fill('anosy'); await p.keyboard.press('Enter');
+await p.getByRole('button', { name: 'Plus tard' }).click(); await p.waitForTimeout(400);
+await p.evaluate(async () => { const t = window.__tsena; const now = new Date().toISOString();
+  await t.save('products', { id: 'a', code: 'A', name: 'Montre', priceRetail: 15000, active: true });
+  await t.save('variants', { id: 'va', productId: 'a', sku: 'A', costAvg: 5000, active: true });
+  await t.save('stockMoves', { variantId: 'va', qty: 3, type: 'initial', at: now });
+  await t.save('purchases', { id: 'pu1', number: 'ACH-1', date: '2026-10-10', status: 'received', currency: 'RMB', rate: 600, lines: [{ id: 'pl', variantId: 'va', qtyOrdered: 10, qtyReceived: 10, unitPrice: 20 }], payments: [] });
+  await t.save('receptions', { id: 're1', number: 'REC-1', date: '2026-10-12', purchaseIds: ['pu1'], invoice: { mode: 'sea', otherFees: [] }, allocation: 'qty', transitTotalAr: 0, items: [{ purchaseId: 'pu1', lineId: 'pl', variantId: 'va', qty: 10, goodsUnitAr: 4000, transitUnitAr: 1000, unitCost: 5000 }] });
+  await t.save('stockMoves', { variantId: 'va', qty: 10, type: 'reception', refType: 'reception', refId: 're1', at: now });
+});
+const stock = () => p.evaluate(() => window.__tsena.all('stockMoves').filter((m) => m.variantId === 'va').reduce((s, m) => s + m.qty, 0));
+ok(await stock() === 13, 'stock avant : 13');
+await p.goto('http://localhost:5173/#/achats/pu1'); await p.waitForTimeout(600);
+await p.getByRole('button', { name: 'Annuler la commande (erreur)' }).click(); await p.waitForTimeout(200);
+await p.getByRole('dialog').getByLabel('Raison').fill('saisie en double');
+await p.getByRole('dialog').getByRole('button', { name: 'Annuler la commande' }).click(); await p.waitForTimeout(700);
+const st = await p.evaluate(() => ({ pu: window.__tsena.get('purchases', 'pu1'), re: window.__tsena.get('receptions', 're1') }));
+ok(await stock() === 3 && st.pu.status === 'cancelled' && st.re.cancelled && st.pu.lines[0].qtyReceived === 0, 'achat annulé : réception annulée, stock revenu à 3');
+console.log(fail ? `${fail} ÉCHEC(S)` : 'TOUT EST BON'); await b.close();

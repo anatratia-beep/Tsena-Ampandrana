@@ -22,6 +22,10 @@ export interface Company extends BaseRecord {
   targetMonth?: number;      // objectif de chiffre d'affaires par mois (Ar)
   internalRounding?: number; // vente interne : prix de revient arrondi au palier supérieur (1, 100, 500… Ar)
   hours?: Record<string, { open: string; close: string } | null>; // clé 0 = dimanche … 6 = samedi
+  /** Compte boost : heure limite par jour ouvert (clé 0…6) ; vide = heure de fermeture. */
+  boostDeadlines?: Record<string, string>;
+  /** Jour fermé (dimanche) : le compte boost se fait le jour ouvert suivant, avant cette heure. */
+  boostClosedNext?: string;
 }
 
 export const DEFAULT_COMPANY: Company = {

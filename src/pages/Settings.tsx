@@ -111,6 +111,21 @@ function CompanyTab() {
           );
         })}
       </div>
+      <div className="card stack" style={{ background: 'var(--surface-2)' }}>
+        <div><h3>Compte boost : heure limite</h3><Help>Les boosts tournent tous les jours : le compte boost doit être fait chaque jour avant cette heure. Après, le responsable reçoit une alerte et le gérant et le super-admin sont prévenus. Vide = heure de fermeture.</Help></div>
+        {[1, 2, 3, 4, 5, 6, 0].filter((d) => (form.hours ?? DEFAULT_COMPANY.hours!)[String(d)]).map((d) => {
+          const close = (form.hours ?? DEFAULT_COMPANY.hours!)[String(d)]!.close;
+          return (
+            <div key={d} className="row hours-row">
+              <span style={{ width: 90 }}><strong>{['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'][d]}</strong></span>
+              <span className="small">avant</span>
+              <input className="cell-input" style={{ width: 110 }} type="time" aria-label={`Heure limite compte boost ${['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'][d]}`} value={form.boostDeadlines?.[String(d)] ?? close} onChange={(e) => setForm({ ...form, boostDeadlines: { ...(form.boostDeadlines ?? {}), [String(d)]: e.target.value } })} />
+            </div>
+          );
+        })}
+        <div className="row hours-row"><span className="small">Jour fermé (dimanche) : compte à faire le jour ouvert suivant avant</span>
+          <input className="cell-input" style={{ width: 110 }} type="time" aria-label="Heure limite compte boost jour fermé" value={form.boostClosedNext ?? '12:00'} onChange={(e) => setForm({ ...form, boostClosedNext: e.target.value })} /></div>
+      </div>
       <div className="grid-2">
         <TextField label="Objectif de chiffre d’affaires par jour (Ar)" value={form.targetDay ? String(form.targetDay) : ''} onChange={(v) => setForm({ ...form, targetDay: Number(v.replace(/\D/g, '')) || undefined })} inputMode="numeric" hint="Facultatif : une barre de progression s’affiche sur l’accueil et dans le rapport du jour." />
         <TextField label="Objectif de chiffre d’affaires par mois (Ar)" value={form.targetMonth ? String(form.targetMonth) : ''} onChange={(v) => setForm({ ...form, targetMonth: Number(v.replace(/\D/g, '')) || undefined })} inputMode="numeric" hint="Facultatif : progression du mois, avec le rythme à tenir." />

@@ -4,7 +4,7 @@ import { variantPage } from '../lib/scope';
 import { useMemo, useState } from 'react';
 import { audit, useCan } from '../lib/auth';
 import { get, remove, save, useTable } from '../lib/db';
-import { fmtAr, fmtNum, parseNum } from '../lib/catalog';
+import { fmtAr, fmtNum, parseNum, parseAr } from '../lib/catalog';
 import { orderText, choiceQty, hasPendingChoice, courierAccount, courierSplit, fmtPhone, isPickupZone, orderLabel, remaining, totalQty, type Courier, type Order, type Zone } from '../lib/orders';
 import { Help, Badge, FilterSelect, MultiPick, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, Toggle, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
 import { Icon } from '../ui/icons';
@@ -250,7 +250,7 @@ function SettleModal({ courier, onClose }: { courier: Courier; onClose: () => vo
   const selCollect = sel.reduce((t, o) => t + deliveryNet(o).collect, 0);
   const selFeeOwed = sel.reduce((t, o) => t + deliveryNet(o).feeOwed, 0);
   const expected = b.carry + selNet;
-  const n = amount == null ? Math.abs(expected) : parseNum(amount) || 0;
+  const n = amount == null ? Math.abs(expected) : parseAr(amount) || 0;
   const owesShop = expected >= 0;
   const after = owesShop ? expected - n : expected + n;
   const toggle = (id: string) => setChecked(checked.includes(id) ? checked.filter((x) => x !== id) : [...checked, id]);

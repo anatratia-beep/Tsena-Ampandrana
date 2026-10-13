@@ -4,7 +4,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { audit, useCan } from '../lib/auth';
 import { all, save, useTable } from '../lib/db';
-import { fmtAr, matchQuery, parseNum } from '../lib/catalog';
+import { fmtAr, matchQuery, parseNum, parseAr } from '../lib/catalog';
 import { compressPhoto } from '../lib/images';
 import {
   ACCOUNTS, ACCOUNT_IDS, FREQS, RHYTHMS, WEEKDAYS, addMove, atFor, catHabit, confirmRecurring, dayOf, deleteMove, dueRecurring, habitText, nextOccurrence, recurringText, skipRecurring, today, typeForCat,
@@ -78,9 +78,9 @@ export function PayDue({ d, onClose }: { d: ReturnType<typeof dueRecurring>[numb
   const [busy, setBusy] = useState(false);
   return (
     <Modal title={`Payer : ${d.r.label}`} onClose={onClose}
-      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} disabled={!parseNum(amount)} onClick={async () => {
+      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} disabled={!parseAr(amount)} onClick={async () => {
         setBusy(true);
-        try { await confirmRecurring(d, parseNum(amount)!, account); toast('Dépense enregistrée'); onClose(); } catch (e: any) { toast(e.message, 'error'); setBusy(false); }
+        try { await confirmRecurring(d, parseAr(amount)!, account); toast('Dépense enregistrée'); onClose(); } catch (e: any) { toast(e.message, 'error'); setBusy(false); }
       }}>Enregistrer le paiement</Button></>}>
       <div className="stack">
         <p className="small muted">Échéance du {fmtDate(d.date)} · {recurringText(d.r)}</p>
@@ -194,7 +194,7 @@ export function ExpenseForm({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [pay, setPay] = useState<ReturnType<typeof dueRecurring>[number] | null>(null);
   const file = useRef<HTMLInputElement>(null);
-  const n = parseNum(amount) || 0;
+  const n = parseAr(amount) || 0;
   const closed = closedBy(date);
   const c = cats.find((x) => x.id === cat);
   const type = typeOver ?? typeForCat(c);
@@ -354,13 +354,13 @@ function FixedForm({ rec, onClose }: { rec?: Recurring; onClose: () => void }) {
   const [start, setStart] = useState(rec?.startMonth ?? today().slice(0, 7));
   const [active, setActive] = useState(rec?.active ?? true);
   const incomeCats = useTable<FinanceCategory>('financeCategories').filter((c) => c.kind === 'income' && c.active !== false);
-  const ok = label.trim() && parseNum(amount) && cat;
+  const ok = label.trim() && parseAr(amount) && cat;
   return (
     <Modal title={rec ? 'Modifier la charge fixe' : 'Nouvelle charge fixe'} onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={!ok} onClick={async () => {
-        await save('recurring', { ...(rec ? { id: rec.id } : {}), kind, label: label.trim(), categoryId: cat, typeId: kind === 'expense' ? type : undefined, account, amount: parseNum(amount)!, freq,
+        await save('recurring', { ...(rec ? { id: rec.id } : {}), kind, label: label.trim(), categoryId: cat, typeId: kind === 'expense' ? type : undefined, account, amount: parseAr(amount)!, freq,
           day: Math.min(31, Math.max(1, Number(day) || 1)), weekday: Number(weekday), month: Number(month), time: time || undefined, startMonth: start, active });
-        await audit(rec ? 'Charge fixe modifiée' : 'Charge fixe ajoutée', `${label.trim()} : ${parseNum(amount)} Ar, ${FREQS[freq].toLowerCase()}`);
+        await audit(rec ? 'Charge fixe modifiée' : 'Charge fixe ajoutée', `${label.trim()} : ${parseAr(amount)} Ar, ${FREQS[freq].toLowerCase()}`);
         toast('Charge fixe enregistrée'); onClose();
       }}>Enregistrer</Button></>}>
       <div className="stack">

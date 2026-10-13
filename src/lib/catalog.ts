@@ -70,6 +70,18 @@ export const ADJUST_REASONS = ['Correction de saisie', 'Casse / abîmé', 'Perte
 // ---------- Formats ----------
 export const fmtAr = (n?: number | null) => (n == null || isNaN(n) ? '—' : Math.round(n).toLocaleString('fr-FR') + ' Ar');
 export const fmtNum = (n?: number | null, d = 0) => (n == null || isNaN(n) ? '—' : n.toLocaleString('fr-FR', { maximumFractionDigits: d }));
+/**
+ * Montant en Ariary (pas de centimes) : accepte « 20000 », « 20 000 », « 20.000 », « 20,000 », « 20 000 Ar ».
+ * Évite qu'un paiement saisi avec des séparateurs soit ignoré.
+ */
+export const parseAr = (s: string | number | null | undefined): number | undefined => {
+  if (s == null) return undefined;
+  if (typeof s === 'number') return isNaN(s) ? undefined : Math.round(s);
+  const t = s.replace(/ar\b/i, '').trim();
+  const digits = t.replace(/[^\d]/g, '');
+  if (!digits) return undefined;
+  return (t.startsWith('-') ? -1 : 1) * Number(digits);
+};
 export const parseNum = (s: string | number | null | undefined): number | undefined => {
   if (s == null) return undefined;
   if (typeof s === 'number') return isNaN(s) ? undefined : s;

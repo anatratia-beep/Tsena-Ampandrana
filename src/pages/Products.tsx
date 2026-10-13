@@ -10,9 +10,10 @@ import {
   type Category, type Product, type StockMove, type Variant, searchItems } from '../lib/catalog';
 import { blobToThumb } from '../lib/xlsx';
 import { photoBytes } from '../lib/images';
-import { Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDateTime, navigate, toast, useRoute, MoreMatches } from '../ui/kit';
+import { Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDateTime, navigate, toast, useRoute, MoreMatches, DateSort, type DateOrder } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { rootOf } from '../lib/scope';
+import { findDuplicates, resolveDuplicates, usesOf, type DupGroup } from '../lib/duplicates';
 import { ArticleBuilder, AttrBadges } from './Categories';
 import { LOT_STATUS, LotDetail, LotForm, NewArticleChooser, TierEditor, lotPhoto, tierText } from './Lots';
 import { isLot, lotAvailable, lotStatus, type PriceTier } from '../lib/lots';
@@ -67,6 +68,8 @@ function ProductList() {
   const scope = useMyScope();
   const [allMatches, setAllMatches] = useState(false);
   const [others, setOthers] = useState(0);
+  const [dups, setDups] = useState(false);
+  const [order, setOrder] = useState<DateOrder>('');
 
   const list = useMemo(() => {
     const n = q.trim().toLowerCase();
@@ -90,15 +93,19 @@ function ProductList() {
         if (sf === 'incoming') return incoming > 0;
         return true;
       })
-      .sort((a, b) => a.p.code.localeCompare(b.p.code, 'fr', { numeric: true }));
-  }, [products, q, cat, sf, showArchived, scope.on, allMatches]);
+      .sort((a, b) => order === 'new' ? b.p.createdAt.localeCompare(a.p.createdAt) : order === 'old' ? a.p.createdAt.localeCompare(b.p.createdAt) : a.p.code.localeCompare(b.p.code, 'fr', { numeric: true }));
+  }, [products, q, cat, sf, showArchived, scope.on, allMatches, order]);
 
+  const dupCount = useMemo(() => findDuplicates().length, [products]);
   return (
     <>
+      {dups && <DuplicatesModal onClose={() => setDups(false)} />}
+      {dupCount > 0 && can('catalog.edit') && !dups && <div className="notice"><Icon name="alert" /><span style={{ flex: 1 }}><strong>{dupCount} groupe(s) d’articles en double possible(s)</strong> (même photo et même taille dans deux pages, ou même nom) : ils faussent le stock et les recherches.</span><Button variant="ghost" onClick={() => setDups(true)}>Vérifier</Button></div>}
       <PageHead title="Articles" subtitle={`${products.filter((p) => p.active !== false).length} articles`}
         actions={<>
           {can('catalog.edit') && <Button variant="ghost" icon="list" onClick={() => navigate('/pages')}>Pages et variantes</Button>}
           {can('catalog.edit') && <Button variant="ghost" icon="upload" onClick={() => navigate('/import')}>Importer</Button>}
+          {can('catalog.edit') && dupCount > 0 && <Button variant="ghost" icon="alert" onClick={() => setDups(true)}>Articles en double ({dupCount})</Button>}
           {can('catalog.edit') && <Button icon="plus" onClick={() => setChoosing(true)}>Nouvel article</Button>}
         </>} />
       <ScopeBar scope={scope} />
@@ -112,6 +119,7 @@ function ProductList() {
               {categoryOptions(categories, 'Toutes les catégories').map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
+          <DateSort value={order} onChange={setOrder} />
         </div>
         <MoreMatches n={others} onShow={() => setAllMatches(true)} />
         <div className="row-between">
@@ -617,3 +625,44 @@ function CategoriesModal({ onClose }: { onClose: () => void }) {
 }
 
 export { MOVE_LABELS };
+
+/** Articles en double : choisir lequel garder dans chaque groupe ; les autres sont archivés (stock remis à 0 ou transféré). */
+function DuplicatesModal({ onClose }: { onClose: () => void }) {
+  useTable('products'); useTable('stockMoves'); useTable('orders');
+  const groups = findDuplicates();
+  const pages = [...new Set(groups.flatMap((g) => g.pages))];
+  const [keep, setKeep] = useState<Record<string, string>>({});
+  const [move, setMove] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const keepOf = (g: DupGroup) => keep[g.key] ?? '';
+  const choosePage = (pid: string) => { const k: Record<string, string> = {}; for (const g of groups) { const it = g.items.find((p) => rootOf(p.categoryId) === pid); if (it) k[g.key] = it.id; } setKeep(k); };
+  const ready = groups.filter((g) => keepOf(g));
+  const apply = async () => {
+    setBusy(true);
+    try {
+      for (const g of ready) { const k = g.items.find((p) => p.id === keepOf(g))!; await resolveDuplicates(k, g.items.filter((p) => p.id !== k.id), move); }
+      toast(`${ready.length} groupe(s) réglé(s) : doublons archivés`); setKeep({});
+    } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
+  };
+  return (
+    <Modal title="Articles en double" wide onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>Fermer</Button><Button busy={busy} disabled={!ready.length} onClick={apply}>Archiver les doublons ({ready.length} groupe(s))</Button></>}>
+      <div className="stack">
+        <p className="small">Pour chaque groupe, choisissez <strong>l’article à garder</strong> (celui de la bonne page). Les autres sont archivés : ils sortent des ventes et des recherches, leur stock est remis à 0, et toutes les ventes passées gardent leur historique. Un point de restauration est créé avant.</p>
+        {pages.length > 1 && <div className="row" style={{ gap: 6, alignItems: 'center' }}><span className="small">Garder partout la page :</span>{pages.map((pid) => <button key={pid} type="button" className="chip" onClick={() => choosePage(pid)}>{get<Category>('categories', pid)?.name ?? 'Sans page'}</button>)}</div>}
+        <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={move} onChange={(e) => setMove(e.target.checked)} /> Ajouter le stock des doublons à l’article gardé (sinon il est remis à 0)</label>
+        {groups.length === 0 ? <p className="small muted">Aucun doublon trouvé.</p> : groups.map((g) => (
+          <div key={g.key} className="card stack-s" style={{ background: 'var(--surface-2)' }}>
+            {g.items.map((p) => (
+              <label key={p.id} className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'nowrap' }}>
+                <input type="radio" name={g.key} checked={keepOf(g) === p.id} onChange={() => setKeep({ ...keep, [g.key]: p.id })} aria-label={`Garder ${p.code}`} />
+                <Thumb src={p.photo} size={44} />
+                <span style={{ flex: 1, minWidth: 0 }}><strong>{p.name}</strong><span className="small muted"> · {p.code} · page {get<Category>('categories', rootOf(p.categoryId))?.name ?? '—'}</span><br /><span className="small">stock {productStock(p.id)} · utilisé dans {usesOf(p)} vente(s)/commande(s)</span></span>
+                {keepOf(g) === p.id ? <Badge tone="ok">À garder</Badge> : keepOf(g) ? <Badge tone="danger">Sera archivé</Badge> : null}
+              </label>
+            ))}
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+}

@@ -6,7 +6,8 @@ import { RecapPage } from './pages/Recap';
 import { WorkDateBanner } from './pages/Tools';
 import { ReportsPage } from './pages/Reports';
 import { managesOwnPassword, roleOf, useCan, useCurrentUser, logout, useMe } from './lib/auth';
-import { getMeta, setMeta, useMeta } from './lib/db';
+import { all, getMeta, setMeta, useMeta } from './lib/db';
+import { CHANGELOG } from './lib/changelog';
 import { useApplyAppearance, useCompany } from './lib/settings';
 import { syncNow, useSyncStatus } from './lib/sync';
 import { autoBackups } from './lib/maintenance';
@@ -188,6 +189,7 @@ function Shell() {
             </span>
           </a>
           <Button variant="quiet" icon="logout" onClick={() => logout()}>Se déconnecter</Button>
+          <a className="small muted version-line" href="#/parametres/systeme" title="Version installée sur cet appareil">Version du {new Date(__BUILD_DATE__).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</a>
         </div>
       </aside>
       {open && <div className="scrim" onClick={() => setOpen(false)} />}
@@ -200,7 +202,7 @@ function Shell() {
           <SyncPill />
         </header>
         <main className="main">
-          <div className="content"><WorkDateBanner /><NotifBar /><BackBar items={items} />{current.page()}</div>
+          <div className="content"><UpdatedBanner /><WorkDateBanner /><NotifBar /><BackBar items={items} />{current.page()}</div>
         </main>
         <nav className="bottom-nav" aria-label="Raccourcis">
           {mobileItems.map((i) => (
@@ -211,6 +213,28 @@ function Shell() {
           <button onClick={() => setOpen(true)}><Icon name="menu" size={22} />Menu</button>
         </nav>
       </div>
+    </div>
+  );
+}
+
+/** Après une mise à jour : bandeau « Logiciel mis à jour » avec la date et les nouveautés (une fois par version). */
+function UpdatedBanner() {
+  const seen = useMeta<string | null>('seenBuild', null);
+  // Appareil déjà utilisé avant cette version (journal non vide) : on annonce la mise à jour, même sans version notée.
+  const [first] = useState(() => getMeta<string | null>('seenBuild', null) ?? (all('audit').length > 3 ? '2026-10-12' : null));
+  useEffect(() => { if (!seen && !first) void setMeta('seenBuild', __BUILD_DATE__); }, [seen, first]);
+  if (!first || seen === __BUILD_DATE__) return null;
+  const since = first.slice(0, 10);
+  const news = CHANGELOG.filter((r) => r.date >= since).flatMap((r) => r.items);
+  return (
+    <div className="notice notice-ok updated-banner" role="status">
+      <Icon name="check" />
+      <div style={{ flex: 1 }} className="stack-s">
+        <strong>Logiciel mis à jour — version du {new Date(__BUILD_DATE__).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</strong>
+        {news.length > 0 && <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>{news.slice(0, 8).map((n) => <li key={n}>{n}</li>)}</ul>}
+        <span className="small muted">Vos données n’ont pas changé.</span>
+      </div>
+      <Button variant="ghost" onClick={() => { void setMeta('seenBuild', __BUILD_DATE__); }}>Compris</Button>
     </div>
   );
 }

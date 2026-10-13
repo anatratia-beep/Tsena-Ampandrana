@@ -19,7 +19,7 @@ await p.evaluate(async () => {
   await t.save('stockMoves', { variantId: 'va1', qty: -2, type: 'sale', refType: 'order', refId: 'S1', at: now });
 });
 await p.goto('http://localhost:5173/#/commandes/S1'); await p.waitForTimeout(500);
-await p.getByRole('button', { name: 'Annuler la vente (erreur)' }).click(); await p.waitForTimeout(200);
+await p.getByRole('button', { name: 'Annuler / supprimer la vente' }).click(); await p.waitForTimeout(200);
 await p.getByRole('dialog').getByRole('button', { name: 'Annuler la vente' }).click(); await p.waitForTimeout(500);
 const a = await p.evaluate(() => window.__tsena.all('audit').find((r) => r.action === 'Vente annulée'));
 ok(a && a.level === 'high' && a.review === 'todo' && a.role, 'annulation : action « Important », à vérifier, rôle noté');

@@ -33,19 +33,19 @@ await p.evaluate(async () => {
 const stock = (v) => p.evaluate((id) => window.__tsena.all('stockMoves').filter((m) => m.variantId === id).reduce((s, m) => s + m.qty, 0), v);
 // 1. Annuler une vente sur place terminée
 await p.goto('http://localhost:5173/#/commandes/S1'); await p.waitForTimeout(500);
-await p.getByRole('button', { name: 'Annuler la vente (erreur)' }).click(); await p.waitForTimeout(200);
+await p.getByRole('button', { name: 'Annuler / supprimer la vente' }).click(); await p.waitForTimeout(200);
 await p.getByRole('dialog').getByRole('button', { name: 'Annuler la vente' }).click(); await p.waitForTimeout(500);
 ok(await stock('va1') === 10, 'vente sur place annulée : stock PH6 36 revenu à 10');
 const s1 = await p.evaluate(() => window.__tsena.get('orders', 'S1'));
 ok(s1.status === 'cancelled' && s1.payments.some((x) => x.amount === -30000), 'vente annulée et 30 000 Ar rendus enregistrés');
 // 2. Annuler une commande livrée en partie
 await p.goto('http://localhost:5173/#/commandes/D1'); await p.waitForTimeout(500);
-await p.getByRole('button', { name: 'Annuler la vente (erreur)' }).click(); await p.waitForTimeout(200);
+await p.getByRole('button', { name: 'Annuler / supprimer la vente' }).click(); await p.waitForTimeout(200);
 await p.getByRole('dialog').getByRole('button', { name: 'Annuler la vente' }).click(); await p.waitForTimeout(500);
 ok(await stock('va2') === 10, 'commande livrée en partie annulée : stock PH6 37 revenu à 10 (pas 11)');
 // 3. Corriger une vente : 2 → 1
 await p.goto('http://localhost:5173/#/commandes/S2'); await p.waitForTimeout(500);
-await p.getByRole('button', { name: 'Corriger la vente' }).click(); await p.waitForTimeout(200);
+await p.getByRole('button', { name: 'Modifier / corriger la vente' }).click(); await p.waitForTimeout(200);
 const dlg = p.getByRole('dialog');
 await dlg.getByLabel('Quantité k1').fill('1');
 await dlg.getByLabel('Raison de la correction').fill('mauvaise quantité');

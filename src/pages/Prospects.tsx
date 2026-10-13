@@ -4,7 +4,7 @@
 import { useMemo, useState } from 'react';
 import { useCan, useMe } from '../lib/auth';
 import { get, newId, useTable } from '../lib/db';
-import { fmtAr, matchQuery, parseNum, useCatalog, type Category } from '../lib/catalog';
+import { fmtAr, matchQuery, parseNum, useCatalog, type Category, parseAr } from '../lib/catalog';
 import { fmtPhone, isPickupZone, normPhone, PAY_METHODS, type Order, type PayMethod, type Zone } from '../lib/orders';
 import {
   ABANDON, PRIORITY, STALE_DAYS, WAIT, abandonProspect, bucketOf, estimate, followUp, itemLabel, itemsText, markConverted, missing, reopenProspect, saveProspect, staleDays, tomorrow9,
@@ -302,8 +302,8 @@ function PaidModal({ p, onClose }: { p: Prospect; onClose: () => void }) {
   const [ref, setRef] = useState('');
   return (
     <Modal title="Paiement reçu" onClose={onClose}
-      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={!parseNum(amount)} onClick={async () => {
-        await followUp(p, `Paiement reçu : ${parseNum(amount)} Ar (${PAY_METHODS[method]})`, p.followAt, { waitDone: true, paid: { amount: parseNum(amount)!, method, ref: ref.trim() || undefined } });
+      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={!parseAr(amount)} onClick={async () => {
+        await followUp(p, `Paiement reçu : ${parseAr(amount)} Ar (${PAY_METHODS[method]})`, p.followAt, { waitDone: true, paid: { amount: parseAr(amount)!, method, ref: ref.trim() || undefined } });
         toast('Paiement noté : il sera repris dans la commande'); onClose();
       }}>Enregistrer</Button></>}>
       <div className="stack">

@@ -4,7 +4,7 @@
 import { useRef, useState } from 'react';
 import { audit, useCan, useCurrentUser } from '../lib/auth';
 import { useTable } from '../lib/db';
-import { fmtAr, parseNum } from '../lib/catalog';
+import { fmtAr, parseNum, parseAr } from '../lib/catalog';
 import { compressPhoto } from '../lib/images';
 import { addDays, addMove, atFor, deleteMove, today, type FinanceCategory } from '../lib/money';
 import { catName, dayRecap, dayRecapText, dayReview } from '../lib/payouts';
@@ -68,7 +68,7 @@ function Expenses({ date, moves, total }: { date: string; moves: CashMove[]; tot
   const file = useRef<HTMLInputElement>(null);
   const isToday = date === today();
   const closed = closedBy(date);
-  const n = parseNum(amount) || 0;
+  const n = parseAr(amount) || 0;
   const catId = cat || (cats.find((c) => c.id === 'fc-divers') ?? cats[0])?.id || '';
   const submit = async () => {
     setBusy(true);

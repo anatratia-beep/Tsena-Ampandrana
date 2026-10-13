@@ -311,3 +311,22 @@ export function MoreMatches({ n, onShow }: { n: number; onShow: () => void }) {
   if (!n) return null;
   return <p className="small muted more-matches">Résultats exacts seulement. <button type="button" className="link-btn" onClick={onShow}>Voir aussi {n} résultat(s) approchant(s)</button></p>;
 }
+
+/** Tri par date d'ajout (date de saisie dans le logiciel), proposé dans les listes. */
+export type DateOrder = '' | 'new' | 'old';
+export function DateSort({ value, onChange, label = 'Tri' }: { value: DateOrder; onChange: (v: DateOrder) => void; label?: string }) {
+  return (
+    <div className="field date-sort" style={{ flex: '0 1 210px' }}>
+      <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value as DateOrder)}>
+        <option value="">Tri habituel</option>
+        <option value="new">Ajoutés récemment d’abord</option>
+        <option value="old">Ajoutés il y a longtemps d’abord</option>
+      </select>
+    </div>
+  );
+}
+/** Applique le tri par date d'ajout (createdAt) si demandé. */
+export function byAdded<T extends { createdAt: string }>(list: T[], order: DateOrder): T[] {
+  if (!order) return list;
+  return [...list].sort((a, b) => (order === 'new' ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt)));
+}

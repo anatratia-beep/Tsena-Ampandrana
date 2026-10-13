@@ -6,7 +6,7 @@
 import { useMemo, useState } from 'react';
 import { useCan } from '../lib/auth';
 import { get, save, useTable } from '../lib/db';
-import { fmtAr, parseNum } from '../lib/catalog';
+import { fmtAr, parseNum, parseAr } from '../lib/catalog';
 import {
   cancelDeliveryToShop, choiceQty, courierSplit, fmtPhone, hasPendingChoice, orderLabel, recordReturn, remaining, PAY_METHODS,
   type Courier, type Order, type Zone,
@@ -97,7 +97,7 @@ function CourierSheet({ courier, canSettle }: { courier: Courier; canSettle: boo
   const feeOwed = on.reduce((t, r) => t + r.x.feeOwed, 0);
   const inHand = collect + feeKept;
   const handOver = b.carry + (mode === 'retenue' ? collect - feeOwed : inHand);
-  const n = amount == null ? Math.max(0, handOver) : parseNum(amount) ?? 0;
+  const n = amount == null ? Math.max(0, handOver) : parseAr(amount) ?? 0;
   const payFees = mode === 'apart' ? feeAll : 0;
   const after = b.carry + collect - feeOwed - n + payFees; // après validation : + il doit encore ; − la boutique lui doit
   const blockedRows = rows.filter((r) => r.blocked);

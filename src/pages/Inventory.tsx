@@ -13,6 +13,8 @@ import { Badge, Button, Confirm, Empty, FilterSelect, Help, Modal, MoreMatches, 
 import { Icon } from '../ui/icons';
 import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period';
 import { Thumb } from './Products';
+import { printA4, a4Table, arA4, h } from '../lib/a4';
+import { exportTables } from '../ui/table';
 
 const pageName = (id: string) => (id ? get<Category>('categories', id)?.name ?? 'Page supprimée' : 'Sans page');
 
@@ -144,12 +146,39 @@ function History() {
   const [period, setPeriod] = useState<Period>(defaultPeriod('month'));
   const [open, setOpen] = useState<Inventory | null>(null);
   const list = inventories().filter((i) => inPeriod(i.at, period) && (!page || i.pageIds.includes(page) || i.lines.some((l) => l.pageId === page)));
+  const linesOf = (i: Inventory) => (page ? i.lines.filter((l) => l.pageId === page) : i.lines);
+  const pagesOf = (i: Inventory) => (i.pageIds.length ? i.pageIds.map(pageName).join(', ') : [...new Set(i.lines.map((l) => pageName(l.pageId)))].join(', '));
+  const sum = (i: Inventory) => { const g = linesOf(i).filter((l) => l.delta); return { n: linesOf(i).length, g: g.length, pcs: g.reduce((s, l) => s + l.delta, 0), val: g.reduce((s, l) => s + l.delta * l.unitCost, 0) }; };
+  const title = `Historique des inventaires${page ? ` — ${pageName(page)}` : ''}`;
+  const exportXls = () => exportTables(`historique-inventaires.xlsx`, [
+    { name: 'Inventaires', cols: [
+      { key: 'n', label: 'N°', value: (i: Inventory) => i.number, width: 12 }, { key: 'd', label: 'Date et heure', value: (i: Inventory) => new Date(i.at).toLocaleString('fr-FR'), width: 20 },
+      { key: 'b', label: 'Par', value: (i: Inventory) => i.byName ?? '', width: 18 }, { key: 'p', label: 'Pages', value: pagesOf, width: 30 },
+      { key: 'l', label: 'Lignes comptées', value: (i: Inventory) => sum(i).n, width: 12 }, { key: 'g', label: 'Écarts', value: (i: Inventory) => sum(i).g, width: 9 },
+      { key: 'pc', label: 'Pièces', value: (i: Inventory) => sum(i).pcs, width: 9 }, ...(showCost ? [{ key: 'v', label: 'Valeur (Ar)', value: (i: Inventory) => Math.round(sum(i).val), money: true, width: 14 }] : []),
+      { key: 's', label: 'État', value: (i: Inventory) => (i.status === 'cancelled' ? `Annulé (${i.cancelReason ?? ''})` : 'Validé'), width: 22 }, { key: 'no', label: 'Note', value: (i: Inventory) => i.note ?? '', width: 26 },
+    ], rows: list, notes: [title] },
+    { name: 'Détail des lignes', cols: [
+      { key: 'n', label: 'Inventaire', value: (r: any) => r.inv, width: 12 }, { key: 'd', label: 'Date', value: (r: any) => r.date, width: 18 }, { key: 'pg', label: 'Page', value: (r: any) => pageName(r.pageId), width: 18 },
+      { key: 'sku', label: 'Code variante', value: (r: any) => r.sku, width: 22 }, { key: 'a', label: 'Article', value: (r: any) => r.name, width: 30 },
+      { key: 't', label: 'Théorique', value: (r: any) => r.theo, width: 10 }, { key: 'c', label: 'Stock', value: (r: any) => r.counted, width: 9 }, { key: 'e', label: 'Écart', value: (r: any) => r.delta, width: 9 },
+      ...(showCost ? [{ key: 'v', label: 'Valeur écart (Ar)', value: (r: any) => Math.round(r.delta * r.unitCost), money: true, width: 14 }] : []),
+    ], rows: list.flatMap((i) => linesOf(i).map((l) => ({ ...l, inv: i.number, date: new Date(i.at).toLocaleString('fr-FR') }))) },
+  ]);
+  const exportPdf = () => printA4(title, `Du ${period.from ? new Date(`${period.from}T12:00:00`).toLocaleDateString('fr-FR') : 'début'} au ${period.to ? new Date(`${period.to}T12:00:00`).toLocaleDateString('fr-FR') : 'aujourd’hui'}`,
+    a4Table({ head: ['N°', 'Date et heure', 'Par', 'Pages', 'Lignes', 'Écarts', 'Pièces', ...(showCost ? ['Valeur'] : []), 'État'], num: showCost ? [4, 5, 6, 7] : [4, 5, 6],
+      rows: list.map((i) => { const x = sum(i); return [h(i.number), h(new Date(i.at).toLocaleString('fr-FR')), h(i.byName ?? ''), h(pagesOf(i)), String(x.n), String(x.g), String(x.pcs), ...(showCost ? [arA4(x.val)] : []), i.status === 'cancelled' ? 'Annulé' : 'Validé']; }) }));
   return (
     <>
       <div className="card stack">
-        <div className="row">
+        <div className="row-between">
           <div className="field" style={{ flex: '0 1 220px' }}><FilterSelect label="Page" value={page} onChange={setPage} options={[{ value: '', label: 'Toutes les pages' }, ...allPages().map((p) => ({ value: p.id, label: p.name }))]} /></div>
+          <div className="row" style={{ gap: 6 }}>
+            <Button variant="ghost" className="btn-sm" icon="download" disabled={!list.length} onClick={exportXls}>Excel</Button>
+            <Button variant="ghost" className="btn-sm" icon="printer" disabled={!list.length} onClick={exportPdf}>PDF A4</Button>
+          </div>
         </div>
+        <p className="small muted">Pour refaire un comptage : ouvrez un inventaire → « Exporter (Excel) », puis dans « Compter » → « Importer le comptage (Excel) ».</p>
         <PeriodPicker value={period} onChange={setPeriod} />
       </div>
       <div className="card card-flush">
@@ -188,6 +217,9 @@ function InventoryDetail({ inv, onClose }: { inv: Inventory; onClose: () => void
   return (
     <Modal title={`Inventaire ${inv.number}`} wide onClose={onClose} footer={<>
       {inv.status === 'done' && can('records.correct') && <Button variant="quiet" onClick={() => setCancel(true)}>Annuler cet inventaire</Button>}
+      <Button variant="ghost" icon="printer" onClick={() => printA4(`Inventaire ${inv.number}`, `${new Date(inv.at).toLocaleString('fr-FR')} · par ${inv.byName ?? '?'}${inv.status === 'cancelled' ? ' · ANNULÉ' : ''}`,
+        `<div class="kpis"><div class="kpi"><span>Lignes comptées</span><b>${inv.counted}</b></div><div class="kpi"><span>Écarts</span><b>${inv.gaps}</b></div><div class="kpi"><span>Pièces</span><b>${inv.pcsGap}</b></div>${showCost ? `<div class="kpi strong"><span>Valeur</span><b>${arA4(inv.valueGap)}</b></div>` : ''}</div>`
+        + a4Table({ head: ['Article', 'Code', 'Page', 'Théorique', 'Compté', 'Écart', ...(showCost ? ['Valeur'] : [])], num: showCost ? [3, 4, 5, 6] : [3, 4, 5], rows: lines.map((l) => [h(l.name), h(l.sku), h(pageName(l.pageId)), String(l.theo), String(l.counted), l.delta ? (l.delta > 0 ? '+' : '') + l.delta : '—', ...(showCost ? [l.delta ? arA4(l.delta * l.unitCost) : '—'] : [])]) }))}>PDF A4</Button>
       <Button variant="ghost" icon="download" onClick={async () => downloadBlob(await inventoryWorkbook(inv), `${inv.number}.xlsx`)}>Exporter (Excel)</Button>
       <Button onClick={onClose}>Fermer</Button></>}>
       <div className="stack">

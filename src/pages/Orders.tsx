@@ -4,7 +4,7 @@ import { ScopeBar } from '../ui/scope';
 import { useMemo, useState } from 'react';
 import { audit, currentUser, useCan } from '../lib/auth';
 import { bizNow, get, newId, save, useTable } from '../lib/db';
-import { fmtAr, fmtNum, nextNumber, parseNum, productVariants, useCatalog, variantLabel, type Product, type Variant , photoOf, matchQuery, matchExact, searchItems, productText} from '../lib/catalog';
+import { fmtAr, fmtNum, nextNumber, parseNum, productVariants, useCatalog, variantLabel, type Product, type Variant , photoOf, matchQuery, matchExact, searchItems, productText, parseAr} from '../lib/catalog';
 import {
   addPayment, availableOf, backToPrepare, cancelOrder, cancelDeliveryToShop, CHANNELS, completeAtShop, confirmOrder, dispatchOrder, exchangeBalance, findCustomer, fmtPhone,
   canReassign, customerIdFor, choiceQty, hasPendingChoice, needsSettlement, reassignCourier, isOutsideHours, isPickupZone, isWalkIn, orderLabel, handOverAtShop, itemsTotal, keptTotal, linePrice, markReady, normPhone, ORDER_STATUS, orderTotal, paidTotal, PAY_METHODS, recordReturn, remaining,
@@ -14,7 +14,7 @@ import {
 import { useCompany } from '../lib/settings';
 import { correctWalkInSale, netMoves, refundSuggested, voidOrder } from '../lib/corrections';
 import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, feeState, payDeferredFees, settleCourier, type AccountId } from '../lib/money';
-import { Help, DiscountField, Badge, Button, Confirm, Empty, FilterSelect, IconButton, Modal, MoreMatches, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
+import { Help, DiscountField, Badge, Button, Confirm, Empty, FilterSelect, IconButton, Modal, MoreMatches, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute, DateSort, type DateOrder } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period';
 import { Thumb } from './Products';
@@ -65,6 +65,7 @@ function OrderList({ tabKey }: { tabKey?: string }) {
   const [q, setQ] = useState('');
   const [courierF, setCourierF] = useState('');
   const [pageF, setPageF] = useState('');
+  const [order, setOrder] = useState<DateOrder>('');
   const [creating, setCreating] = useState(false);
   const [following, setFollowing] = useState(false);
   const [sel, setSel] = useState<string[]>([]);
@@ -83,8 +84,8 @@ function OrderList({ tabKey }: { tabKey?: string }) {
   const list = useMemo(() => orders
     .filter((o) => base(o) && inTab(tab, o))
     .filter((o) => !done || q.trim() || inPeriod(o.createdAt, period))
-    .sort((a, b) => (done ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt))),
-  [orders, tab.key, q, period, scope.on, courierF, pageF]);
+    .sort((a, b) => (order === 'new' || (!order && done) ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt))),
+  [orders, tab.key, q, period, scope.on, courierF, pageF, order]);
   // La recherche reste dans l'onglet ; on indique seulement où d'autres commandes correspondent.
   const elsewhere = q.trim() ? TABS.filter((t) => t.key !== tab.key).map((t) => ({ t, n: orders.filter((o) => base(o) && inTab(t, o)).length })).filter((x) => x.n) : [];
   const selected = list.filter((o) => sel.includes(o.id));
@@ -111,6 +112,7 @@ function OrderList({ tabKey }: { tabKey?: string }) {
           <div className="field" style={{ flex: '2 1 240px' }}><input aria-label="Rechercher" placeholder={`Rechercher dans « ${tab.label} » : téléphone, nom, n°, lieu, article…`} value={q} onChange={(e) => setQ(e.target.value)} /></div>
           <div className="field" style={{ flex: '1 1 160px' }}><FilterSelect label="Livreur" value={courierF} onChange={(v) => { setCourierF(v); setSel([]); }} options={[{ value: '', label: 'Tous les livreurs' }, ...couriers.filter((c) => c.active !== false).sort((a, b) => a.name.localeCompare(b.name, 'fr')).map((c) => ({ value: c.id, label: c.name }))]} /></div>
           {pages.length > 1 && <div className="field" style={{ flex: '1 1 160px' }}><FilterSelect label="Page" value={pageF} onChange={setPageF} options={[{ value: '', label: 'Toutes les pages' }, ...pages.map((p) => ({ value: p.id, label: p.name }))]} /></div>}
+          <DateSort value={order} onChange={setOrder} />
         </div>
         {done && !q && <PeriodPicker value={period} onChange={setPeriod} />}
         {elsewhere.length > 0 && <p className="small muted" style={{ margin: 0 }}>Aussi trouvé dans : {elsewhere.map(({ t, n }, i) => <span key={t.key}>{i ? ', ' : ''}<button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => switchTab(t.key)}>{t.label} ({n})</button></span>)}</p>}
@@ -226,9 +228,12 @@ export function OrderForm({ order, exchangeOf, onClose, onSaved, prefill: pre }:
   const [discount, setDiscount] = useState(order?.discountPct ? String(order.discountPct) : order?.discount ? String(order.discount) : '');
   const [discUnit, setDiscUnit] = useState<'ar' | 'pct'>(order?.discountPct ? 'pct' : 'ar');
   const [notes, setNotes] = useState(order?.notes ?? pre?.notes ?? '');
-  const [prepay, setPrepay] = useState(pre?.prepay?.amount ? String(pre.prepay.amount) : '');
-  const [prepayMethod, setPrepayMethod] = useState<PayMethod>(pre?.prepay?.method ?? 'mvola');
-  const [prepayRef, setPrepayRef] = useState(pre?.prepay?.ref ?? '');
+  // Paiements déjà reçus à la création (plusieurs possibles : espèces + MVola…).
+  const [pays, setPays] = useState<{ amount: string; method: PayMethod; ref: string }[]>([{ amount: pre?.prepay?.amount ? String(pre.prepay.amount) : '', method: pre?.prepay?.method ?? 'mvola', ref: pre?.prepay?.ref ?? '' }]);
+  const prepay = pays[0].amount; const setPrepay = (v: string) => setPays([{ ...pays[0], amount: v }, ...pays.slice(1)]);
+  const prepayMethod = pays[0].method;
+  const prepaid = pays.reduce((s, x) => s + (parseAr(x.amount) || 0), 0);
+  const setPay = (i: number, patch: Partial<{ amount: string; method: PayMethod; ref: string }>) => setPays(pays.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   const [picking, setPicking] = useState(false);
   const [zonesOpen, setZonesOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -302,14 +307,14 @@ export function OrderForm({ order, exchangeOf, onClose, onSaved, prefill: pre }:
       } else {
         const u = currentUser();
         const now = new Date(bizNow());
-        const payments = parseNum(prepay) ? [{ id: newId(), at: now.toISOString(), amount: parseNum(prepay)!, method: prepayMethod, ref: prepayRef.trim() || undefined, receivedBy: 'shop' as const, userName: u?.fullName }] : [];
+        const payments = pays.filter((x) => (parseAr(x.amount) || 0) > 0).map((x) => ({ id: newId(), at: now.toISOString(), amount: parseAr(x.amount)!, method: x.method, ref: x.ref.trim() || undefined, receivedBy: 'shop' as const, userName: u?.fullName }));
         const [o] = await save('orders', {
           ...data, number: nextNumber(exchangeOf ? 'ECH' : 'C', 'orders'), kind: exchangeOf ? 'exchange' : 'order', parentId: exchangeOf?.parent.id,
           returnLines: exchangeOf?.returnLines, credit: draft.credit || undefined, payments, status: 'confirmed', statusDates: { confirmed: now.toISOString() },
           outsideHours: isOutsideHours(now, company), createdBy: u?.id, createdByName: u?.fullName,
         });
         await audit(exchangeOf ? 'Échange créé' : 'Commande créée', `${(o as Order).number} — ${fmtPhone(p)} — ${fmtAr(total)}`, 'orders', o.id);
-        toast(`Commande ${(o as Order).number} enregistrée`); onClose(); onSaved?.(o as Order);
+        toast(`Commande ${(o as Order).number} enregistrée${payments.length ? ` — payé ${fmtAr(payments.reduce((s, x) => s + x.amount, 0))} (${payments.map((x) => PAY_METHODS[x.method]).join(' + ')})` : ''}`); onClose(); onSaved?.(o as Order);
       }
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
@@ -388,13 +393,17 @@ export function OrderForm({ order, exchangeOf, onClose, onSaved, prefill: pre }:
             <div className="row" style={{ gap: 6 }}>
               <button type="button" className="chip" onClick={() => setPrepay(String(Math.max(0, total - draft.deliveryFee)))}>Articles payés</button>
               {draft.deliveryFee > 0 && <button type="button" className="chip" onClick={() => setPrepay(String(Math.max(0, total)))}>Tout payé (articles + frais)</button>}
-              {prepay && <button type="button" className="chip" onClick={() => setPrepay('')}>Rien payé</button>}
+              {prepaid > 0 && <button type="button" className="chip" onClick={() => setPays([{ amount: '', method: 'mvola', ref: '' }])}>Rien payé</button>}
             </div>
-            <div className="grid-2">
-              <TextField label="Montant (Ar)" value={prepay} onChange={setPrepay} inputMode="numeric" />
-              <SelectField label="Moyen" value={prepayMethod} onChange={(v) => setPrepayMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />
-              {prepayMethod !== 'cash' && <TextField label="Référence de la transaction" value={prepayRef} onChange={setPrepayRef} />}
-            </div>
+            {pays.map((x, i) => (
+              <div key={i} className="grid-2 pay-row">
+                <TextField label={pays.length > 1 ? `Montant ${i + 1} (Ar)` : 'Montant (Ar)'} value={x.amount} onChange={(v) => setPay(i, { amount: v })} inputMode="numeric" hint={x.amount && parseAr(x.amount) ? `= ${fmtAr(parseAr(x.amount))}` : undefined} />
+                <SelectField label="Moyen" value={x.method} onChange={(v) => setPay(i, { method: v as PayMethod })} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />
+                {x.method !== 'cash' && <TextField label="Référence de la transaction" value={x.ref} onChange={(v) => setPay(i, { ref: v })} />}
+                {pays.length > 1 && <div><Button variant="quiet" onClick={() => setPays(pays.filter((_, j) => j !== i))}>Retirer ce paiement</Button></div>}
+              </div>
+            ))}
+            <div><Button variant="ghost" className="btn-sm" icon="plus" onClick={() => setPays([...pays, { amount: '', method: pays.some((x) => x.method === 'cash') ? 'mvola' : 'cash', ref: '' }])}>Ajouter un autre moyen de paiement</Button></div>
           </div>
         )}
         <TextField label="Observations" value={notes} onChange={setNotes} placeholder="Ex. appeler avant de venir, client au bureau jusqu’à 16 h…" />
@@ -405,9 +414,9 @@ export function OrderForm({ order, exchangeOf, onClose, onSaved, prefill: pre }:
           {exchangeOf && <div><span>Articles repris</span><strong className="num">− {fmtAr(draft.credit)}</strong></div>}
           <div><span>Frais de livraison</span><strong className="num">{fmtAr(draft.deliveryFee)}</strong></div>
           <div className="summary-total"><span>{exchangeOf ? (total >= 0 ? 'Le client paie' : 'À rendre au client') : 'Total à payer'}</span><strong className="num">{fmtAr(Math.abs(total))}</strong></div>
-          {parseNum(prepay) ? <div><span>Déjà payé</span><strong className="num">− {fmtAr(parseNum(prepay))}</strong></div> : null}
-          {parseNum(prepay) ? <div className="summary-total"><span>Reste à payer par le client</span><strong className="num">{fmtAr(Math.max(0, total - (parseNum(prepay) || 0)))}</strong></div> : null}
-          {draft.deliveryFee > 0 && !exchangeOf && (() => { const x = courierSplit({ ...draft, payments: parseNum(prepay) ? [{ id: 'x', at: '', amount: parseNum(prepay)!, method: prepayMethod, receivedBy: 'shop' }] : [] } as Order); return (
+          {prepaid ? <div><span>Déjà payé</span><strong className="num">− {fmtAr(prepaid)}</strong></div> : null}
+          {prepaid ? <div className="summary-total"><span>Reste à payer par le client</span><strong className="num">{fmtAr(Math.max(0, total - prepaid))}</strong></div> : null}
+          {draft.deliveryFee > 0 && !exchangeOf && (() => { const x = courierSplit({ ...draft, payments: prepaid ? [{ id: 'x', at: '', amount: prepaid, method: prepayMethod, receivedBy: 'shop' }] : [] } as Order); return (
             <div className="small muted" style={{ display: 'block' }}>Le livreur encaissera <strong>{fmtAr(x.toCollect)}</strong> pour la boutique{x.feeKept ? <> + ses frais {fmtAr(x.feeKept)}</> : null}{x.feeOwed ? <> ; frais {fmtAr(x.feeOwed)} déjà payés, à lui reverser en espèces</> : null}.</div>
           ); })()}
         </div>
@@ -565,9 +574,10 @@ function OrderDetail({ id }: { id: string }) {
           {o.kind === 'exchange' && ['new', 'confirmed', 'ready'].includes(o.status) && can('returns.manage') && <Button variant="ghost" onClick={() => setModal('shop')}>Échange fait en boutique</Button>}
           {((!closed && o.status !== 'cancelled') || rest !== 0) && o.status !== 'cancelled' && can('orders.create') && <Button variant="ghost" icon="plus" onClick={() => setModal('pay')}>{rest < 0 ? 'Rendre l’argent au client' : 'Paiement reçu'}</Button>}
           {closed && o.status !== 'refused' && can('returns.manage') && <Button variant="ghost" icon="refresh" onClick={() => setModal('exchange')}>Retour / échange</Button>}
-          {!closed && o.status !== 'cancelled' && can('orders.create') && <Button variant="quiet" onClick={() => setModal('cancel')}>Annuler</Button>}
-          {closed && isWalkIn(o) && can('records.correct') && <Button variant="ghost" icon="edit" onClick={() => setModal('correct')}>Corriger la vente</Button>}
-          {closed && can('records.correct') && <Button variant="quiet" onClick={() => setModal('void')}>Annuler la vente (erreur)</Button>}
+          {!closed && o.status !== 'cancelled' && can('orders.create') && <Button variant="quiet" onClick={() => setModal('cancel')}>Annuler / supprimer</Button>}
+          {closed && isWalkIn(o) && can('records.correct') && <Button variant="ghost" icon="edit" onClick={() => setModal('correct')}>Modifier / corriger la vente</Button>}
+          {closed && can('records.correct') && <Button variant="danger" onClick={() => setModal('void')}>Annuler / supprimer la vente</Button>}
+          {closed && !can('records.correct') && <span className="small muted">Erreur sur cette vente ? Le gérant ou le super-admin peut la corriger ou l’annuler.</span>}
         </div>
       </div>
 
@@ -707,7 +717,7 @@ export function ReturnModal({ order: o, onClose }: { order: Order; onClose: () =
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [toShop, setToShop] = useState(false);
-  const amountVal = amount == null ? toCollect : parseNum(amount) ?? 0;
+  const amountVal = amount == null ? toCollect : parseAr(amount) ?? 0;
   const c = o.kind === 'exchange' ? exchangeBalance(sim) : orderTotal(sim);
   const prepaid = (o.payments || []).filter((p) => p.receivedBy === 'shop').reduce((t, p) => t + p.amount, 0);
   const paidHow = [...new Set((o.payments || []).filter((p) => p.receivedBy === 'shop').map((p) => `${PAY_METHODS[p.method]}${p.ref ? ' réf. ' + p.ref : ''}`))].join(', ');
@@ -793,7 +803,7 @@ function EditPaymentModal({ order: o, payment: p, onClose }: { order: Order; pay
   const [amount, setAmount] = useState(String(p.amount));
   const [method, setMethod] = useState<PayMethod>(p.method);
   const [reason, setReason] = useState('Erreur de saisie');
-  const n = parseNum(amount) ?? NaN;
+  const n = parseAr(amount) ?? NaN;
   return (
     <Modal title={`Corriger un paiement — ${o.number}`} onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={isNaN(n) || (n === p.amount && method === p.method)} onClick={async () => { await editPayment(o, p.id, n, method, reason.trim() || undefined); toast('Paiement corrigé'); onClose(); }}>Enregistrer la correction</Button></>}>
@@ -818,8 +828,8 @@ function PayModal({ order: o, onClose }: { order: Order; onClose: () => void }) 
   const [by, setBy] = useState<'shop' | 'courier'>('shop');
   return (
     <Modal title={refund ? `Argent rendu au client — ${o.number}` : `Paiement reçu — ${o.number}`} onClose={onClose}
-      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={!parseNum(amount)} onClick={async () => {
-        await addPayment(o, { amount: refund ? -parseNum(amount)! : parseNum(amount)!, method, ref: ref.trim() || undefined, receivedBy: by, courierId: by === 'courier' ? o.courierId : undefined });
+      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={!parseAr(amount)} onClick={async () => {
+        await addPayment(o, { amount: refund ? -parseAr(amount)! : parseAr(amount)!, method, ref: ref.trim() || undefined, receivedBy: by, courierId: by === 'courier' ? o.courierId : undefined });
         toast(refund ? 'Remboursement enregistré' : 'Paiement enregistré'); onClose();
       }}>Enregistrer</Button></>}>
       <div className="stack">
@@ -863,7 +873,7 @@ function VoidModal({ order: o, onClose }: { order: Order; onClose: () => void })
         {suggested > 0 && <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={refund} onChange={(e) => setRefund(e.target.checked)} /> L’argent reçu ({fmtAr(suggested)}) est rendu au client / sort de la caisse</label>}
         {refund && <div className="grid-2"><TextField label="Montant rendu (Ar)" value={amount} onChange={setAmount} inputMode="numeric" /><SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} /></div>}
       </div>}
-      onConfirm={async () => { if (!why) throw new Error('Indiquez le motif.'); await voidOrder(o, why, refund ? { amount: parseNum(amount) || 0, method } : undefined); toast(`${o.number} annulée : stock remis`); }} />
+      onConfirm={async () => { if (!why) throw new Error('Indiquez le motif.'); await voidOrder(o, why, refund ? { amount: parseAr(amount) || 0, method } : undefined); toast(`${o.number} annulée : stock remis`); }} />
   );
 }
 
@@ -969,7 +979,7 @@ function PickupModal({ order: o, onClose }: { order: Order; onClose: () => void 
     <Modal title={`Retrait en boutique — ${o.number}`} onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} onClick={async () => {
         setBusy(true);
-        try { await handOverAtShop(o, parseNum(amount) ? { amount: parseNum(amount)!, method, ref: ref.trim() || undefined } : undefined); } catch (e: any) { toast(e.message, 'error'); setBusy(false); return; }
+        try { await handOverAtShop(o, parseAr(amount) ? { amount: parseAr(amount)!, method, ref: ref.trim() || undefined } : undefined); } catch (e: any) { toast(e.message, 'error'); setBusy(false); return; }
         toast('Commande remise au client'); setBusy(false); onClose();
       }}>Valider</Button></>}>
       <div className="stack">

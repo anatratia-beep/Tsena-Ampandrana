@@ -5,7 +5,7 @@
 import { useState } from 'react';
 import { useCan, useCurrentUser } from '../lib/auth';
 import { useTable } from '../lib/db';
-import { fmtAr, parseNum } from '../lib/catalog';
+import { fmtAr, parseNum, parseAr } from '../lib/catalog';
 import { addDays, today } from '../lib/money';
 import { cancelHandover, changedSince, handoverHistory, receiveHandover, sellerDay, sellersOfDay, type Handover, type SellerDay } from '../lib/handovers';
 import { printA4, a4Table, arA4, h } from '../lib/a4';
@@ -126,7 +126,7 @@ function Sheet({ d, self, onDone }: { d: SellerDay; self?: boolean; onDone?: () 
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [cancel, setCancel] = useState(false);
-  const n = parseNum(amount);
+  const n = parseAr(amount);
   const gap = (n || 0) - d.toPay;
   const ho = d.handover;
   const submit = async () => {

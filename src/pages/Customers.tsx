@@ -7,7 +7,7 @@ import { all, get, save, useTable } from '../lib/db';
 import { fmtAr, fmtNum, matchQuery } from '../lib/catalog';
 import { customerIdFor, customerText, fmtPhone, keptTotal, normPhone, type Customer, type Order, type Zone } from '../lib/orders';
 import { itemsText, WAIT, type Prospect } from '../lib/prospects';
-import { Badge, Button, Empty, Modal, PageHead, SelectField, TextField, navigate, toast, useRoute } from '../ui/kit';
+import { Badge, Button, Empty, Modal, PageHead, SelectField, TextField, navigate, toast, useRoute, DateSort, byAdded, type DateOrder } from '../ui/kit';
 import { OrderForm, OrderRow } from './Orders';
 
 function stats(c: Customer, orders: Order[]) {
@@ -34,19 +34,19 @@ function CustomerList() {
   const can = useCan();
   const zones = useTable<Zone>('zones');
   const scope = useMyScope();
+  const [order, setOrder] = useState<DateOrder>('');
   const list = useMemo(() => {
     const n = q.trim();
-    return customers
+    return byAdded(customers
       .filter((c) => !scope.on || orders.some((o) => o.customerId === c.id && scope.mine(o)))
-      .filter((c) => !n || matchQuery(customerText(c), n))
-      .map((c) => ({ c, s: stats(c, orders) }))
-      .sort((a, b) => (b.s.last || b.c.createdAt).localeCompare(a.s.last || a.c.createdAt));
-  }, [customers, orders, q, scope.on]);
+      .filter((c) => !n || matchQuery(customerText(c), n)), order).map((c) => ({ c, s: stats(c, orders) }))
+      .sort((a, b) => order ? 0 : (b.s.last || b.c.createdAt).localeCompare(a.s.last || a.c.createdAt));
+  }, [customers, orders, q, scope.on, order]);
   return (
     <>
       <PageHead title="Clients" subtitle={`${customers.length} client(s) — créés automatiquement à chaque commande`} actions={can('orders.create') && <Button icon="plus" onClick={() => setAdding(true)}>Nouveau client</Button>} />
       <ScopeBar scope={scope} mineLabel="Mes clients" text="Vous voyez les clients de vos commandes et ventes." />
-      <div className="card"><div className="field"><input aria-label="Rechercher" placeholder="Rechercher : téléphone, nom, nom Facebook, lieu, notes…" value={q} onChange={(e) => setQ(e.target.value)} /></div></div>
+      <div className="card row"><div className="field" style={{ flex: '1 1 240px' }}><input aria-label="Rechercher" placeholder="Rechercher : téléphone, nom, nom Facebook, lieu, notes…" value={q} onChange={(e) => setQ(e.target.value)} /></div><DateSort value={order} onChange={setOrder} /></div>
       <div className="card card-flush">
         {list.length === 0 ? <Empty icon="users" title="Aucun client" /> : (
           <ul className="list">

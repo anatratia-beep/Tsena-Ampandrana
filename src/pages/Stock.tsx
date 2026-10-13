@@ -52,7 +52,7 @@ function StockState() {
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('');
   const [f, setF] = useState<'' | 'in' | 'out' | 'neg'>('in');
-  const [sort, setSort] = useState<'code' | 'stock' | 'value'>('code');
+  const [sort, setSort] = useState<'code' | 'stock' | 'value' | 'new' | 'old'>('code');
   const [limit, setLimit] = useState(150);
   const scope = useMyScope();
   const [allMatches, setAllMatches] = useState(false);
@@ -70,7 +70,7 @@ function StockState() {
     return sr.list
       .filter((r) => f === 'in' ? r.stock > 0 : f === 'out' ? r.stock === 0 : f === 'neg' ? r.stock < 0 : true)
       .map((r) => ({ ...r, value: Math.max(0, r.stock) * (r.v.costAvg ?? 0) }))
-      .sort((a, b) => sort === 'stock' ? b.stock - a.stock : sort === 'value' ? b.value - a.value : a.v.sku.localeCompare(b.v.sku, 'fr', { numeric: true }));
+      .sort((a, b) => sort === 'stock' ? b.stock - a.stock : sort === 'value' ? b.value - a.value : sort === 'new' ? (b.p!.createdAt).localeCompare(a.p!.createdAt) : sort === 'old' ? (a.p!.createdAt).localeCompare(b.p!.createdAt) : a.v.sku.localeCompare(b.v.sku, 'fr', { numeric: true }));
   }, [variants, q, cat, f, sort, scope.on, allMatches]);
 
   const allRows = variants.filter((v) => { const p = get<Product>('products', v.productId); return p && p.active !== false && scope.product(p.id) && inCategory(p, cat); });
@@ -108,7 +108,7 @@ function StockState() {
           </div>
           <div className="field" style={{ flex: '0 1 180px' }}>
             <select aria-label="Trier" value={sort} onChange={(e) => setSort(e.target.value as any)}>
-              <option value="code">Trier par code</option><option value="stock">Plus grand stock</option>{showCost && <option value="value">Plus grande valeur</option>}
+              <option value="code">Trier par code</option><option value="stock">Plus grand stock</option>{showCost && <option value="value">Plus grande valeur</option>}<option value="new">Ajoutés récemment d’abord</option><option value="old">Ajoutés il y a longtemps d’abord</option>
             </select>
           </div>
         </div>

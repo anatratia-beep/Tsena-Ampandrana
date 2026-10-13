@@ -104,6 +104,21 @@ export async function cancelReception(r: Reception & { cancelled?: boolean }, re
   await audit('Réception annulée', `${r.number} — ${reason} : ${pcs} pièce(s) retirées du stock`, 'receptions', r.id);
 }
 
+/**
+ * Annule une commande Chine déjà reçue (erreur) : ses réceptions sont annulées (pièces retirées exactement du stock),
+ * puis la commande passe « annulée ». Refusé si une réception mélange plusieurs commandes (à annuler à part).
+ */
+export async function voidPurchase(p: Purchase, reason: string) {
+  const recs = all<Reception & { cancelled?: boolean }>('receptions').filter((r) => !r.cancelled && r.purchaseIds.includes(p.id));
+  const mixed = recs.filter((r) => r.purchaseIds.length > 1);
+  if (mixed.length) throw new Error(`La réception ${mixed.map((r) => r.number).join(', ')} contient aussi d’autres commandes : annulez-la d’abord depuis Réceptions.`);
+  await pointBefore(`annulation de ${p.number}`);
+  for (const r of recs) await cancelReception(r, `${p.number} annulée : ${reason}`);
+  const fresh = get<Purchase>('purchases', p.id)!;
+  await save('purchases', { id: p.id, status: 'cancelled', statusDates: { ...(fresh.statusDates || {}), cancelled: new Date().toISOString().slice(0, 10) }, notes: [fresh.notes, `Annulée : ${reason}`].filter(Boolean).join('\n') });
+  await audit('Commande Chine annulée', `${p.number} — ${reason}${recs.length ? ` : ${recs.length} réception(s) annulée(s), stock retiré` : ''}`, 'purchases', p.id);
+}
+
 /** Annule un mouvement de stock saisi à la main (ajustement, inventaire, stock initial) : mouvement inverse. */
 export async function cancelMove(m: StockMove, reason: string) {
   if (m.refType && !['inventory', 'adjust'].includes(m.refType)) throw new Error('Ce mouvement vient d’une vente, d’une livraison ou d’une réception : corrigez ou annulez cette opération à la place.');

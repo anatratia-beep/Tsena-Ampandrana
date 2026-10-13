@@ -25,7 +25,7 @@ await p.getByRole('button', { name: 'Créer un point maintenant' }).click(); awa
 ok(N(await p.locator('main').innerText()).includes('Manuel'), 'point de restauration créé');
 // Erreur : la vente est annulée, puis 3 pièces retirées à la main
 await p.goto('http://localhost:5173/#/commandes/S1'); await p.waitForTimeout(500);
-await p.getByRole('button', { name: 'Annuler la vente (erreur)' }).click(); await p.waitForTimeout(200);
+await p.getByRole('button', { name: 'Annuler / supprimer la vente' }).click(); await p.waitForTimeout(200);
 await p.getByRole('dialog').getByRole('button', { name: 'Annuler la vente' }).click(); await p.waitForTimeout(500);
 ok(await stock() === 10, 'après l’erreur : stock 10, vente annulée');
 await p.goto('http://localhost:5173/#/parametres/sauvegarde'); await p.waitForTimeout(600);

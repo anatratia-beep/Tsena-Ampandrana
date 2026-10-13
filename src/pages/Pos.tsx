@@ -4,7 +4,7 @@ import { useCan, useMe, type User } from '../lib/auth';
 import { rootOf, useMyScope } from '../lib/scope';
 import { ScopeBar } from '../ui/scope';
 import { get, getMeta, newId, useTable } from '../lib/db';
-import { fmtAr, fmtNum, parseNum, productVariants, todayYmd, useCatalog, variantLabel, type Product, type Variant, matchQuery, searchItems, productText, attrSummary, findProductByCode, findVariantBySku, type Category} from '../lib/catalog';
+import { fmtAr, fmtNum, parseNum, productVariants, todayYmd, useCatalog, variantLabel, type Product, type Variant, matchQuery, searchItems, productText, attrSummary, findProductByCode, findVariantBySku, type Category, parseAr } from '../lib/catalog';
 import {
   availableOf, createWalkInSale, internalPrice, isOutsideHours, isWalkIn, linePrice, orderLabel, PAY_METHODS, paidTotal, keptTotal, priceOrder, removeLine, reservedIndex, useWholesale,
   type Order, type OrderLine, type PayMethod, discountAr, stockShortages,
@@ -231,16 +231,16 @@ function PayDialog({ total, onClose, onPaid }: { total: number; onClose: () => v
   const [pays, setPays] = useState<{ method: PayMethod; amount: string; ref: string }[]>([{ method: 'cash', amount: String(total), ref: '' }]);
   const [given, setGiven] = useState('');
   const [busy, setBusy] = useState(false);
-  const sum = pays.reduce((s, p) => s + (parseNum(p.amount) || 0), 0);
-  const cash = pays.filter((p) => p.method === 'cash').reduce((s, p) => s + (parseNum(p.amount) || 0), 0);
-  const change = given ? (parseNum(given) || 0) - cash : 0;
+  const sum = pays.reduce((s, p) => s + (parseAr(p.amount) || 0), 0);
+  const cash = pays.filter((p) => p.method === 'cash').reduce((s, p) => s + (parseAr(p.amount) || 0), 0);
+  const change = given ? (parseAr(given) || 0) - cash : 0;
   const missing = total - sum;
   const set = (i: number, patch: Partial<{ method: PayMethod; amount: string; ref: string }>) => setPays(pays.map((p, j) => (j === i ? { ...p, ...patch } : p)));
   return (
     <Modal title={`Encaisser ${fmtAr(total)}`} onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} disabled={sum <= 0 || sum > total} onClick={async () => {
         setBusy(true);
-        try { await onPaid(pays.map((p) => ({ amount: parseNum(p.amount) || 0, method: p.method, ref: p.ref.trim() || undefined })), parseNum(given) || undefined); } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
+        try { await onPaid(pays.map((p) => ({ amount: parseAr(p.amount) || 0, method: p.method, ref: p.ref.trim() || undefined })), parseAr(given) || undefined); } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
       }}>{missing > 0 ? `Valider (reste ${fmtAr(missing)})` : 'Valider la vente'}</Button></>}>
       <div className="stack">
         {pays.map((p, i) => (

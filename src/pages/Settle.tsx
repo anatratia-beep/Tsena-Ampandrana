@@ -2,7 +2,7 @@
 // en une fois — articles et frais séparés, frais du livreur (retenus, payés à part, différés), montant remis.
 import { useState } from 'react';
 import { bizNow, save } from '../lib/db';
-import { fmtAr, parseNum } from '../lib/catalog';
+import { fmtAr, parseNum, parseAr } from '../lib/catalog';
 import { courierSplit, orderLabel, type Courier, type Order } from '../lib/orders';
 import { ACCOUNTS, ACCOUNT_IDS, courierBalance, settleCourier, type AccountId } from '../lib/money';
 import { Button, Modal, SelectField, TextField, toast } from '../ui/kit';
@@ -34,7 +34,7 @@ export function SettleModal({ courier, orders, onClose, onDone }: { courier: Cou
   const feeOwed = rows.reduce((t, r) => t + r.x.feeOwed, 0);
   const inHand = collect + feeKept;
   const expected = Math.max(0, b.carry + (mode === 'retenue' ? collect - feeOwed : inHand));
-  const n = amount == null ? expected : parseNum(amount) ?? 0;
+  const n = amount == null ? expected : parseAr(amount) ?? 0;
   const payFees = mode === 'apart' ? feeAll : 0;
   const after = b.carry + collect - feeOwed - n + payFees;
   const gap = n - expected;
