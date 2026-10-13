@@ -473,6 +473,22 @@ function SyncHistoryCard() {
   );
 }
 
+/** Vérifie tout de suite s'il existe une version plus récente en ligne, l'installe et recharge l'application. */
+async function checkNow() {
+  try {
+    const v = await (await fetch(`./version.json?t=${Date.now()}`, { cache: 'no-store' })).json();
+    if (!v?.built || v.built === __BUILD_DATE__) { toast('Vous avez déjà la dernière version', 'info'); return; }
+    toast('Nouvelle version trouvée : installation…', 'info');
+    const reg = await navigator.serviceWorker?.getRegistration();
+    if (!reg) { location.reload(); return; }
+    await reg.update();
+    const sw = reg.waiting ?? reg.installing;
+    if (!sw) { location.reload(); return; }
+    if (sw.state === 'installed') { sw.postMessage('skipWaiting'); return; }
+    sw.addEventListener('statechange', () => { if (sw.state === 'installed') sw.postMessage('skipWaiting'); else if (sw.state === 'redundant') location.reload(); });
+  } catch { toast('Pas de connexion : impossible de chercher une mise à jour', 'error'); }
+}
+
 /** Version de l'application et réparation de la synchronisation (onglets Cloud et Système). */
 function VersionAndResync() {
   const [resyncOpen, setResyncOpen] = useState(false);
@@ -481,11 +497,7 @@ function VersionAndResync() {
       <div className="card stack">
         <div><h3>Version</h3><p className="small muted">Trésor en ligne {__APP_VERSION__} — construite le {fmtDateTime(__BUILD_DATE__)}.</p></div>
         <div className="row">
-          <Button variant="ghost" icon="refresh" onClick={async () => {
-            const reg = await navigator.serviceWorker?.getRegistration();
-            await reg?.update();
-            toast(reg?.waiting ? 'Nouvelle version prête' : 'Vous avez la dernière version', 'info');
-          }}>Chercher une mise à jour</Button>
+          <Button variant="ghost" icon="refresh" onClick={checkNow}>Chercher une mise à jour</Button>
         </div>
       </div>
       <div className="card stack">

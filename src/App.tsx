@@ -213,27 +213,51 @@ function Shell() {
   );
 }
 
-/** Propose la nouvelle version quand une mise à jour du logiciel est disponible. */
+/**
+ * Mises à jour du logiciel, sans attendre :
+ * - vérifie au démarrage, à chaque retour sur l'application (téléphone rallumé, onglet revenu), au retour du réseau
+ *   et toutes les 3 minutes, en lisant version.json (toujours à neuf) ;
+ * - une nouvelle version s'installe aussitôt et s'applique toute seule (rechargement), sauf si l'utilisateur est en
+ *   train de saisir (case active ou fenêtre ouverte) : la barre « Mettre à jour » s'affiche alors, et la mise à jour
+ *   se fait dès qu'il quitte l'application.
+ */
 function UpdateBar() {
   const [waiting, setWaiting] = useState<ServiceWorker | null>(null);
   useEffect(() => {
     if (!('serviceWorker' in navigator) || location.hostname === 'localhost') return;
     let reloading = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (!reloading) { reloading = true; location.reload(); } });
-    navigator.serviceWorker.register('./sw.js').then((reg) => {
-      if (reg.waiting && navigator.serviceWorker.controller) setWaiting(reg.waiting);
+    const busy = () => { const a = document.activeElement as HTMLElement | null; return !!document.querySelector('[role=dialog]') || !!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)); };
+    const apply = (sw: ServiceWorker) => { if (document.hidden || !busy()) sw.postMessage('skipWaiting'); else setWaiting(sw); };
+    const watch = (reg: ServiceWorkerRegistration) => {
+      if (reg.waiting && navigator.serviceWorker.controller) apply(reg.waiting);
       reg.addEventListener('updatefound', () => {
         const sw = reg.installing;
-        sw?.addEventListener('statechange', () => { if (sw.state === 'installed' && navigator.serviceWorker.controller) setWaiting(sw); });
+        sw?.addEventListener('statechange', () => { if (sw.state === 'installed' && navigator.serviceWorker.controller) apply(sw); });
       });
-      setInterval(() => reg.update().catch(() => {}), 30 * 60000);
-    }).catch(() => {});
+    };
+    let reg: ServiceWorkerRegistration | undefined;
+    const check = async () => {
+      if (!reg || !navigator.onLine) return;
+      try {
+        const v = await (await fetch(`./version.json?t=${Date.now()}`, { cache: 'no-store' })).json();
+        if (v?.built && v.built !== __BUILD_DATE__) await reg.update();
+      } catch { /* hors ligne : on réessaiera */ }
+      if (reg.waiting && navigator.serviceWorker.controller) apply(reg.waiting);
+    };
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((r) => { reg = r; watch(r); void check(); }).catch(() => {});
+    const onVis = () => { if (document.hidden) { const w = reg?.waiting; if (w) w.postMessage('skipWaiting'); } else void check(); };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('online', check);
+    window.addEventListener('focus', check);
+    const t = setInterval(check, 3 * 60000);
+    return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('online', check); window.removeEventListener('focus', check); clearInterval(t); };
   }, []);
   if (!waiting) return null;
   return (
     <div className="update-bar" role="status">
-      Nouvelle version disponible
-      <Button onClick={() => waiting.postMessage('skipWaiting')}>Mettre à jour</Button>
+      Nouvelle version prête
+      <Button onClick={() => waiting.postMessage('skipWaiting')}>Mettre à jour maintenant</Button>
     </div>
   );
 }

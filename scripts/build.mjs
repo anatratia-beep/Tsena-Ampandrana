@@ -7,6 +7,7 @@ import { join, relative } from 'node:path';
 const root = new URL('..', import.meta.url).pathname;
 const dist = join(root, 'dist');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+const BUILT = new Date().toISOString(); // même date dans l'application et dans version.json : sert à repérer une nouvelle version
 
 rmSync(dist, { recursive: true, force: true });
 mkdirSync(join(dist, 'assets'), { recursive: true });
@@ -27,7 +28,7 @@ const result = await esbuild.build({
   define: {
     'process.env.NODE_ENV': '"production"',
     __APP_VERSION__: JSON.stringify(pkg.version),
-    __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
+    __BUILD_DATE__: JSON.stringify(BUILT),
   },
   logLevel: 'warning',
 });
@@ -66,7 +67,7 @@ const version = pkg.version + '-' + hash.digest('hex').slice(0, 10);
 let sw = readFileSync(join(root, 'src/sw.js'), 'utf8');
 sw = sw.replace('__VERSION__', version).replace('__PRECACHE__', JSON.stringify(['./', ...files]));
 writeFileSync(join(dist, 'sw.js'), sw);
-writeFileSync(join(dist, 'version.json'), JSON.stringify({ version }));
+writeFileSync(join(dist, 'version.json'), JSON.stringify({ version, built: BUILT }));
 
 console.log(`Build ${version} : ${files.length} fichiers`);
 

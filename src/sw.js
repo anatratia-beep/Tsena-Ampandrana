@@ -4,8 +4,16 @@ const PRECACHE = __PRECACHE__;
 const APP_CACHE = 'tsena-app-' + VERSION;
 const FONT_CACHE = 'tsena-fonts';
 
+// Installation : chaque fichier est téléchargé à neuf (?v=version, sans cache) pour ne jamais garder une ancienne
+// copie servie par l'hébergeur (GitHub Pages garde ses fichiers jusqu'à 10 minutes).
+const fresh = (u) => new Request(u + (u.includes('?') ? '&' : '?') + 'v=' + VERSION, { cache: 'reload' });
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(APP_CACHE).then((c) => c.addAll(PRECACHE)));
+  event.waitUntil(caches.open(APP_CACHE).then((c) => Promise.all(PRECACHE.map(async (u) => {
+    const res = await fetch(fresh(u));
+    if (!res.ok) throw new Error(u + ' : HTTP ' + res.status);
+    await c.put(u, res.clone());
+    if (u === './') await c.put('./index.html', res);
+  }))));
 });
 
 self.addEventListener('activate', (event) => {
@@ -47,7 +55,7 @@ self.addEventListener('fetch', (event) => {
       try {
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 4000);
-        const res = await fetch(req, { signal: ctrl.signal, cache: 'no-store' });
+        const res = await fetch(new Request(req.url.split('#')[0].split('?')[0] + '?v=' + Date.now(), { signal: ctrl.signal, cache: 'no-store' }));
         clearTimeout(t);
         if (res.ok) { cache.put('./index.html', res.clone()); return res; }
         throw new Error('HTTP ' + res.status);
