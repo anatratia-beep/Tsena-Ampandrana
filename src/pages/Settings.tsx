@@ -13,6 +13,7 @@ import { PrintersTab } from './Printers';
 import { ClearDataCard, ToolsTab } from './Tools';
 import { KEEP, deleteCloudBackup, pruneBackups } from '../lib/maintenance';
 import { ConflictsCard, DevicesCard } from './SyncCards';
+import { actionsSince, createRestorePoint, restorePoints, restoreToPoint, type RestorePoint } from '../lib/restorePoints';
 
 const TABS = [
   { key: 'societe', label: 'Société', perm: 'settings.company' },
@@ -359,6 +360,8 @@ function BackupTab() {
         ) : <p className="small">Reliez l'appareil au cloud (onglet « Cloud et synchronisation ») pour activer les copies automatiques.</p>}
       </div>
 
+      {(can('system.admin') || can('records.correct')) && <RestorePointsCard />}
+
       {can('system.admin') && (
         <div className="card stack">
           <div><h3>Restaurer</h3><p className="muted small">Remet les données d'une sauvegarde. L'état actuel est d'abord téléchargé automatiquement, par précaution.</p></div>
@@ -393,6 +396,58 @@ function BackupTab() {
       {restoreOpen && <RestoreFileModal onClose={() => setRestoreOpen(false)} onReady={(p) => { setRestoreOpen(false); setPick(p); }} />}
       {pick && <RestoreConfirm pick={pick} onClose={() => setPick(null)} />}
     </div>
+  );
+}
+
+/** Points de restauration automatiques : revenir au moment d'avant une erreur (super-admin). */
+function RestorePointsCard() {
+  const can = useCan();
+  useMeta('restorePoints', []); useTable('audit');
+  const points = restorePoints();
+  const [open, setOpen] = useState<RestorePoint | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="card stack">
+      <div className="row-between">
+        <div><h3>Points de restauration</h3><p className="muted small">Copies automatiques de toutes les données, faites chaque jour et juste avant chaque action risquée (annulation, correction, suppression, inventaire, import, restauration). Les {points.length ? points.length : ''} dernières sont gardées sur cet appareil. En cas d’erreur, le super-admin peut revenir au moment d’avant : il voit d’abord toutes les actions faites depuis, par qui et quand. Le journal d’activité, lui, n’est jamais effacé.</p></div>
+        <Button variant="ghost" busy={busy} onClick={async () => { setBusy(true); const p = await createRestorePoint('Manuel'); setBusy(false); toast(p ? 'Point de restauration créé' : 'Impossible de créer le point (place insuffisante ?)', p ? 'info' : 'error'); }}>Créer un point maintenant</Button>
+      </div>
+      {points.length === 0 ? <p className="small muted">Aucun point pour l’instant : le premier est créé automatiquement aujourd’hui.</p> : (
+        <ul className="list">{points.map((p) => { const n = actionsSince(p.at); const hi = n.filter((a) => a.level === 'high').length; return (
+          <li key={p.id} className="list-item">
+            <div className="list-item-main"><span className="list-item-title">{fmtDateTime(p.at)} — {p.reason}</span>
+              <p className="small muted">{p.byName ? `par ${p.byName} · ` : ''}{n.length} action(s) depuis{hi ? ` dont ${hi} importante(s)` : ''} · {p.counts.orders ?? 0} vente(s)/commande(s), {p.counts.products ?? 0} article(s)</p></div>
+            <Button variant="ghost" onClick={() => setOpen(p)}>{can('system.admin') ? 'Voir / revenir' : 'Voir'}</Button>
+          </li>); })}</ul>
+      )}
+      {open && <RestorePointModal p={open} onClose={() => setOpen(null)} />}
+    </div>
+  );
+}
+
+function RestorePointModal({ p, onClose }: { p: RestorePoint; onClose: () => void }) {
+  const can = useCan();
+  const acts = actionsSince(p.at);
+  const byUser = new Map<string, typeof acts>();
+  for (const a of acts) { const k = a.userName || '—'; if (!byUser.has(k)) byUser.set(k, []); byUser.get(k)!.push(a); }
+  const [confirm, setConfirm] = useState(false);
+  return (
+    <Modal title={`Point du ${fmtDateTime(p.at)}`} wide onClose={onClose} footer={<>
+      <Button variant="ghost" onClick={onClose}>Fermer</Button>
+      {can('system.admin') && <Button variant="danger" onClick={() => setConfirm(true)}>Revenir à ce point</Button>}</>}>
+      <div className="stack">
+        <p>{p.reason}{p.byName ? ` · ${p.byName}` : ''}. <strong>{acts.length} action(s)</strong> ont été faites depuis : si vous revenez à ce point, leurs effets sur les données sont annulés (elles restent visibles dans le journal).</p>
+        {[...byUser.entries()].map(([u, list]) => (
+          <div key={u} className="stack-s"><strong>{u} — {list.length} action(s)</strong>
+            <ul className="list small">{list.slice(0, 30).map((a) => <li key={a.id} className="list-item"><span className="num muted" style={{ whiteSpace: 'nowrap' }}>{fmtDateTime(a.at)}</span><span className="list-item-main"><strong>{a.action}</strong> — {a.details}</span>{a.level === 'high' && <Badge tone="danger">Important</Badge>}</li>)}</ul>
+            {list.length > 30 && <p className="small muted">+ {list.length - 30} autre(s)…</p>}
+          </div>
+        ))}
+      </div>
+      {confirm && <Confirm title="Revenir à ce point de restauration ?" danger confirmLabel="Revenir à ce point" typeToConfirm="RESTAURER" onClose={() => setConfirm(false)}
+        message={<div className="stack-s"><p>Toutes les données (ventes, stock, trésorerie, articles…) redeviennent celles du {fmtDateTime(p.at)}, sur tous les appareils reliés au cloud. Les {acts.length} action(s) faites depuis sont perdues et devront être ressaisies si elles étaient justes.</p><p className="small">Un nouveau point « avant de revenir » est créé d’abord : vous pourrez annuler ce retour.</p></div>}
+        onConfirm={async () => { await restoreToPoint(p.id); toast('Données remises au point choisi'); onClose(); }} />}
+    </Modal>
   );
 }
 

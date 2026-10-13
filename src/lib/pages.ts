@@ -6,6 +6,7 @@ import { audit, currentUser } from './auth';
 import { productVariants, stockOf, variantCost, type Category, type Product, type Variant } from './catalog';
 import { rootOf } from './scope';
 import type { Order } from './orders';
+import { pointBefore } from './restorePoints';
 
 /** La page et toutes ses sous-catégories. */
 function familyOf(pageId: string): string[] {
@@ -35,6 +36,7 @@ export async function removePage(pageId: string) {
   if (!c) throw new Error('Page introuvable.');
   const info = pageRemovalInfo(pageId);
   if (info.pending.length) throw new Error(`Des commandes pas encore terminées contiennent des articles de cette page : ${info.pending.slice(0, 8).join(', ')}${info.pending.length > 8 ? '…' : ''}. Terminez-les ou annulez-les d’abord.`);
+  await pointBefore(`suppression de la page ${c.name}`);
   const me = currentUser()?.fullName; const at = new Date().toISOString();
   const prods = productsOf(pageId).filter((p) => p.active !== false);
   if (prods.length) await save('products', prods.map((p) => ({ id: p.id, active: false, removedWithPage: pageId })));

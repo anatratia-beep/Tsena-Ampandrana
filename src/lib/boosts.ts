@@ -9,7 +9,7 @@
 //   inférieure à la précédente est une erreur de saisie et n'est pas acceptée) ;
 // - le vendeur compte aussi les messages réellement reçus sur la page (messages physiques).
 import { all, get, save, type BaseRecord } from './db';
-import { audit, currentUser } from './auth';
+import { audit, currentUser, type Role, type User } from './auth';
 import type { Category } from './catalog';
 import { addDays, dayOf } from './money';
 import { isWalkIn, type Order } from './orders';
@@ -292,4 +292,68 @@ export function boostPerformance(from: string, to: string, pageId?: string): Boo
     else { r.verdict = 'average'; r.advice = 'Dans la moyenne : à surveiller.'; }
   }
   return rows;
+}
+
+// ---------- Compte boost du jour : délai, retards, responsables ----------
+// Les boosts tournent tous les jours (dimanche compris) : chaque page doit avoir son compte boost de chaque jour.
+// Délai : 17 h du lundi au vendredi, 14 h le samedi ; le dimanche (boutique fermée) se saisit au plus tard le lundi à 12 h.
+const pad2 = (n: number) => String(n).padStart(2, '0');
+export const BOOST_DEADLINE = { week: '17:00', saturday: '14:00', sundayNextDay: '12:00' };
+/** Heure limite pour saisir le compte boost du jour `date` (AAAA-MM-JJ). */
+export function boostDeadline(date: string): Date {
+  const d = new Date(`${date}T12:00:00`);
+  const dow = d.getDay();
+  if (dow === 0) { const m = addDays(date, 1); return new Date(`${m}T${BOOST_DEADLINE.sundayNextDay}:00`); }
+  return new Date(`${date}T${dow === 6 ? BOOST_DEADLINE.saturday : BOOST_DEADLINE.week}:00`);
+}
+export const deadlineText = (date: string) => { const dl = boostDeadline(date); const same = dayOf(dl.toISOString()) === date; return `${same ? '' : 'lundi '}${pad2(dl.getHours())} h${dl.getMinutes() ? pad2(dl.getMinutes()) : ''}`; };
+
+/** Boosts actifs d'une page sans saisie ce jour-là. */
+export const missingBoosts = (pageId: string, date: string) => activeBoosts(pageId, date).filter((b) => !readingOn(b.id, date));
+/** Heure de la dernière saisie du compte boost d'une page un jour donné, et par qui. */
+export function lastEntry(pageId: string, date: string): { at: string; by?: string } | undefined {
+  const rs = all<BoostReading>('boostReadings').filter((r) => r.pageId === pageId && r.date === date);
+  const last = rs.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  return last ? { at: last.updatedAt, by: last.userName } : undefined;
+}
+
+/** Personnes chargées du compte boost d'une page : responsables, et vendeurs à qui la page est attribuée. */
+export function boostOwners(pageId: string): User[] {
+  const roles = new Map(all<Role>('roles').map((r) => [r.id, r]));
+  return all<User>('users').filter((u) => u.active && !u.removed && roles.get(u.roleId)?.permissions.includes('boosts.enter') && (u.roleId === 'role-manager' || (u.pageIds ?? []).includes(pageId)));
+}
+
+export interface BoostDue { pageId: string; date: string; missing: number; deadline: Date; late: boolean }
+/** Comptes boost à faire (pages et jours), des 7 derniers jours, en retard ou bientôt dus. */
+export function boostDues(now = new Date(), pageIds?: string[]): BoostDue[] {
+  const out: BoostDue[] = [];
+  const todayYmd = dayOf(now.toISOString());
+  const pages = allPages().filter((p) => !pageIds || pageIds.includes(p.id));
+  for (let i = 0; i < 7; i++) {
+    const date = addDays(todayYmd, -i);
+    const dl = boostDeadline(date);
+    for (const p of pages) {
+      const miss = missingBoosts(p.id, date);
+      if (!miss.length) continue;
+      const late = now > dl;
+      const soon = !late && dl.getTime() - now.getTime() <= 2 * 3600_000; // rappel 2 h avant
+      if (late || soon || i > 0) out.push({ pageId: p.id, date, missing: miss.length, deadline: dl, late });
+    }
+  }
+  return out;
+}
+
+/**
+ * Trace dans le journal chaque compte boost pas fait à l'heure (une seule fois par page et par jour, même depuis
+ * plusieurs appareils : identifiant fixe), pour que le gérant et le super-admin voient qui n'a pas fait le travail.
+ */
+export async function logMissedBoosts(now = new Date()) {
+  const u = currentUser();
+  if (!u || !all<Role>('roles').find((r) => r.id === u.roleId)?.permissions.includes('records.correct') && u.roleId !== 'role-superadmin') return;
+  for (const d of boostDues(now).filter((x) => x.late)) {
+    const id = `audit_boostmiss_${d.pageId}_${d.date}`;
+    if (get('audit', id)) continue;
+    const owners = boostOwners(d.pageId).map((u) => u.fullName).join(', ') || 'personne n’est désigné';
+    await save('audit', { id, at: now.toISOString(), action: 'Compte boost non fait', details: `${pageName(d.pageId)}, ${new Date(`${d.date}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: '2-digit' })} : ${d.missing} boost(s) sans saisie à ${deadlineText(d.date)} — à faire par : ${owners}`, entity: 'boosts', entityId: d.pageId, level: 'medium', userId: null, userName: 'Contrôle automatique' });
+  }
 }

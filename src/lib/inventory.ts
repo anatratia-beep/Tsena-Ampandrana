@@ -8,6 +8,7 @@ import { addMoves, categoryPath, nextNumber, stockOf, variantCost, variantLabel,
 import { rootOf } from './scope';
 import { normHeader, writeXlsx, type Sheet } from './xlsx';
 import { netMoves } from './corrections';
+import { pointBefore } from './restorePoints';
 import type { Order } from './orders';
 
 export interface InventoryLine { variantId: string; sku: string; name: string; pageId: string; theo: number; counted: number; delta: number; unitCost: number }
@@ -41,6 +42,7 @@ export async function validateInventory(counts: { variantId: string; counted: nu
     return { variantId, sku: v.sku, name: fullName(v), pageId: rootOf(productOfVariant(v)?.categoryId) || '', theo, counted, delta: counted - theo, unitCost: variantCost(v) };
   });
   if (!lines.length) throw new Error('Aucune ligne comptée.');
+  await pointBefore('inventaire');
   const gapsL = lines.filter((l) => l.delta !== 0);
   const at = new Date().toISOString();
   const [inv] = await save('inventories', {
@@ -56,6 +58,7 @@ export async function validateInventory(counts: { variantId: string; counted: nu
 /** Annule un inventaire validé par erreur : le stock revient exactement à ce qu'il était avant. */
 export async function cancelInventory(inv: Inventory, reason: string) {
   if (inv.status === 'cancelled') throw new Error('Inventaire déjà annulé.');
+  await pointBefore(`annulation de ${inv.number}`);
   const net = netMoves('inventory', inv.id);
   const at = new Date().toISOString();
   await addMoves([...net.entries()].map(([variantId, q]) => ({ variantId, qty: -q, type: 'adjust' as const, refType: 'inventory', refId: inv.id, reason: `${inv.number} annulé (${reason})`, at })));

@@ -6,6 +6,7 @@ import { audit, currentUser, SUPERADMIN_ID, type User } from './auth';
 import { getCloud, syncNow } from './sync';
 import { restoreDefaultZones } from './orders';
 import { restoreDefaultFinance } from './money';
+import { createRestorePoint } from './restorePoints';
 
 export interface BackupFile {
   app: 'TSENA';
@@ -133,6 +134,7 @@ export async function readBackup(file: File, password?: string): Promise<{ meta:
 export async function restoreBackup(data: Record<string, BaseRecord[]>, mode: 'replace' | 'merge', label: string) {
   // Sécurité : on télécharge d'abord l'état actuel, pour pouvoir revenir en arrière.
   await downloadBackup();
+  await createRestorePoint(`Avant restauration de ${label}`);
   await restoreAll(data, mode);
   await audit('Restauration', `${mode === 'replace' ? 'Remplacement' : 'Fusion'} depuis ${label}`);
   syncNow();

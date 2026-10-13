@@ -11,6 +11,7 @@ import { assertOpenAt } from './closed';
 import { isWalkIn, type Order, type OrderLine, type PayMethod, type Payment } from './orders';
 import type { Purchase, Reception } from './purchases';
 import type { PurchaseStatus } from './catalog';
+import { pointBefore } from './restorePoints';
 
 /** Statut d'un achat après annulation d'une réception. */
 function statusAfterReceptionLines(prev: PurchaseStatus, lines: Purchase['lines']): PurchaseStatus {
@@ -46,6 +47,7 @@ const dayIso = (o: Order) => (isWalkIn(o) ? o.createdAt : o.dispatchedAt || o.cr
 export async function voidOrder(o: Order, reason: string, refund?: { amount: number; method: PayMethod }) {
   if (o.status === 'cancelled') throw new Error('Cette commande est déjà annulée.');
   assertOpenAt(dayIso(o), 'Annulation');
+  await pointBefore(`annulation de ${o.number}`);
   const pcs = await reverseStock('order', o.id, `${o.number} annulée (${reason})`);
   const at = bizNow();
   const u = currentUser();
@@ -68,6 +70,7 @@ export async function correctWalkInSale(o: Order, lines: OrderLine[], discount: 
   if (o.status === 'cancelled') throw new Error('Vente annulée.');
   assertOpenAt(o.createdAt, 'Correction');
   if (!lines.length) throw new Error('Il reste au moins un article : pour tout enlever, annulez la vente.');
+  await pointBefore(`correction de ${o.number}`);
   const at = bizNow();
   const u = currentUser();
   const want = new Map<string, number>();
@@ -90,6 +93,7 @@ export async function correctWalkInSale(o: Order, lines: OrderLine[], discount: 
 /** Annule une réception (erreur de saisie) : stock retiré exactement, quantités reçues des achats remises. */
 export async function cancelReception(r: Reception & { cancelled?: boolean }, reason: string) {
   if (r.cancelled) throw new Error('Réception déjà annulée.');
+  await pointBefore(`annulation de ${r.number}`);
   const pcs = await reverseStock('reception', r.id, `${r.number} annulée (${reason})`);
   for (const pid of r.purchaseIds) {
     const p = get<Purchase>('purchases', pid); if (!p) continue;
@@ -104,6 +108,7 @@ export async function cancelReception(r: Reception & { cancelled?: boolean }, re
 export async function cancelMove(m: StockMove, reason: string) {
   if (m.refType && !['inventory', 'adjust'].includes(m.refType)) throw new Error('Ce mouvement vient d’une vente, d’une livraison ou d’une réception : corrigez ou annulez cette opération à la place.');
   if (all<StockMove>('stockMoves').some((x) => x.refType === 'cancel' && x.refId === m.id)) throw new Error('Ce mouvement est déjà annulé.');
+  await pointBefore('annulation d’un mouvement de stock');
   await addMoves({ variantId: m.variantId, qty: -m.qty, type: 'adjust', refType: 'cancel', refId: m.id, reason: `Annulation du mouvement du ${new Date(m.at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} (${reason})`, at: bizNow() });
   await audit('Mouvement de stock annulé', `${m.qty > 0 ? '+' : ''}${m.qty} (${m.reason ?? m.type}) — ${reason}`, 'stockMoves', m.id);
 }

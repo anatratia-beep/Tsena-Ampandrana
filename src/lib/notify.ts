@@ -13,6 +13,7 @@ import { dueProspects } from './prospects';
 import { reportsDue } from '../pages/BossReport';
 import { currentUser } from './auth';
 import { fmtAr } from './catalog';
+import { allPages, boostDues, boostOwners, deadlineText, pageName } from './boosts';
 
 export type Level = 'urgent' | 'important' | 'info';
 export const SNOOZE_H: Record<Level, number> = { urgent: 1, important: 2, info: 5 };
@@ -33,7 +34,7 @@ export const unsnooze = (id: string) => { const cur = { ...getMeta<Snoozes>('not
 export function useNotifications() {
   const can = useCan();
   const orders = useTable<Order>('orders'); const moves = useTable('cashMoves'); const recs = useTable<Recurring>('recurring');
-  const products = useTable<Product>('products'); const sm = useTable('stockMoves'); const conflicts = useTable<any>('syncConflicts'); const payouts = useTable('payouts'); const prospects = useTable('prospects'); const couriers = useTable<Courier>('couriers'); const settles = useTable('courierSettlements'); const auditRows = useTable<any>('audit');
+  const products = useTable<Product>('products'); const sm = useTable('stockMoves'); const conflicts = useTable<any>('syncConflicts'); const payouts = useTable('payouts'); const prospects = useTable('prospects'); const couriers = useTable<Courier>('couriers'); const settles = useTable('courierSettlements'); const auditRows = useTable<any>('audit'); const readings = useTable('boostReadings'); const boostsT = useTable('boosts');
   const snoozes = useMeta<Snoozes>('notifSnooze', {});
   const reportSent = useMeta<Record<string, string>>('reportSent', {});
   const lastFile = useMeta<string | null>('lastFileBackup', null); const lastCloud = useMeta<string | null>('lastCloudBackup', null);
@@ -82,6 +83,21 @@ export function useNotifications() {
       for (const p of act) { const s = productStock(p.id); if (s <= 0) out0++; else if (s <= (p.alertQty ?? 3)) low++; }
       if (out0 + low) out.push({ id: 'stock', level: 'important', title: `Stock : ${low ? `${low} article(s) presque épuisé(s)` : ''}${low && out0 ? ', ' : ''}${out0 ? `${out0} en rupture` : ''}`, href: '#/stock' });
     }
+    {
+      // Compte boost du jour (les boosts tournent tous les jours) : rappel à ceux qui le font, alerte au gérant / super-admin.
+      const me = currentUser();
+      if (can('boosts.enter') && me) {
+        const mine = allPages().filter((p) => me.roleId === 'role-manager' || can('users.manage') || (me.pageIds ?? []).includes(p.id)).map((p) => p.id);
+        const dues = boostDues(new Date(), mine);
+        const late = dues.filter((d) => d.late), soon = dues.filter((d) => !d.late);
+        if (late.length) out.push({ id: `boost-late:${late.map((d) => d.pageId + d.date).join(',')}`, level: 'urgent', title: `Faites votre compte boost : ${late.length} en retard`, text: late.slice(0, 4).map((d) => `${pageName(d.pageId)} (${new Date(`${d.date}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' })})`).join(', '), href: '#/boosts/suivi' });
+        else if (soon.length) out.push({ id: `boost-soon:${soon[0].date}`, level: 'important', title: `Compte boost à faire avant ${deadlineText(soon[0].date)}`, text: [...new Set(soon.map((d) => pageName(d.pageId)))].slice(0, 5).join(', '), href: '#/boosts/suivi' });
+      }
+      if (can('records.correct')) {
+        const late = boostDues(new Date()).filter((d) => d.late);
+        if (late.length) out.push({ id: `boost-team:${late.map((d) => d.pageId + d.date).join(',')}`, level: 'urgent', title: `Compte boost pas fait à l’heure : ${late.length} page(s)`, text: late.slice(0, 4).map((d) => `${pageName(d.pageId)} — ${boostOwners(d.pageId).map((u) => u.fullName).join(', ') || 'personne désignée'}`).join(' · '), href: '#/boosts/suivi' });
+      }
+    }
     if (can('records.correct')) {
       // Actions importantes (annulation, correction, suppression, restauration…) à vérifier par le super-admin / gérant.
       const todo = auditRows.filter((r) => r.review === 'todo').sort((a, b) => b.at.localeCompare(a.at));
@@ -97,7 +113,7 @@ export function useNotifications() {
     }
     const rank: Record<Level, number> = { urgent: 0, important: 1, info: 2 };
     return out.sort((a, b) => rank[a.level] - rank[b.level]);
-  }, [orders, moves, recs, products, sm, conflicts, payouts, prospects, couriers, settles, auditRows, reportSent, lastFile, lastCloud, minute]);
+  }, [orders, moves, recs, products, sm, conflicts, payouts, prospects, couriers, settles, auditRows, readings, boostsT, reportSent, lastFile, lastCloud, minute]);
   const now = new Date().toISOString();
   return list.map((n) => ({ ...n, until: snoozes[n.id] && snoozes[n.id] > now ? snoozes[n.id] : undefined }));
 }

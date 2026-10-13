@@ -10,6 +10,8 @@ import { getMeta, setMeta, useMeta } from './lib/db';
 import { useApplyAppearance, useCompany } from './lib/settings';
 import { syncNow, useSyncStatus } from './lib/sync';
 import { autoBackups } from './lib/maintenance';
+import { dailyRestorePoint } from './lib/restorePoints';
+import { logMissedBoosts } from './lib/boosts';
 import { EmailResetScreen } from './pages/Auth';
 import { Icon, type IconName } from './ui/icons';
 import { Button, IconButton, Toasts, markMenuNav, navigate, useBackTarget, useRoute } from './ui/kit';
@@ -109,7 +111,7 @@ export function App() {
   }, [user?.id, company.autoLockMinutes, locked]);
 
   // Copies automatiques dans le cloud (quotidienne / hebdomadaire / mensuelle), vérifiées toutes les heures.
-  useEffect(() => { if (!user) return; autoBackups(); const t = setInterval(autoBackups, 3600_000); return () => clearInterval(t); }, [user?.id]);
+  useEffect(() => { if (!user) return; const run = () => { void autoBackups(); void dailyRestorePoint(); void logMissedBoosts(); }; run(); const t = setInterval(run, 3600_000); return () => clearInterval(t); }, [user?.id]);
   const resetGranted = useMeta<{ at: number } | null>('resetGranted', null);
 
   const [installPage, setInstallPage] = useState(wantsInstallPage);

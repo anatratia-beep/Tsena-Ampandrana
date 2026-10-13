@@ -7,6 +7,7 @@
 // appareils hors ligne ne fait qu'un.
 import { all, get, save } from './db';
 import { audit } from './auth';
+import { pointBefore } from './restorePoints';
 import {
   addMoves, attrCategory, normText, productVariants, stockOf,
   type AttrValue, type CatAttr, type Category, type Product, type Variant,
@@ -120,6 +121,7 @@ export interface ArticleInput { sel: Selection; name?: string; cost?: number; re
  * Article existant : prix et coût mis à jour ; si un stock est donné, le stock est remis à cette quantité (inventaire).
  */
 export async function saveArticles(cat: Category, rows: ArticleInput[], reason = 'Saisie') {
+  if (reason.startsWith('Import')) await pointBefore(`import Excel (${cat.name})`);
   let created = 0, updated = 0;
   const products: Partial<Product>[] = [];
   const variants: Partial<Variant>[] = [];
