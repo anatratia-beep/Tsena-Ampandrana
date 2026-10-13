@@ -15,7 +15,7 @@ import { dailyRestorePoint } from './lib/restorePoints';
 import { logMissedBoosts } from './lib/boosts';
 import { EmailResetScreen } from './pages/Auth';
 import { Icon, type IconName } from './ui/icons';
-import { Button, IconButton, Toasts, markMenuNav, navigate, useBackTarget, useRoute } from './ui/kit';
+import { Button, IconButton, Toasts, markMenuNav, navigate, restoreScroll, useBackTarget, useRoute } from './ui/kit';
 import { BrandLogo, FirstSetupScreen, LockScreen, LoginScreen } from './pages/Auth';
 import { DashboardPage } from './pages/Dashboard';
 import { InstallScreen, wantsInstallPage } from './pages/Install';
@@ -156,7 +156,7 @@ function Shell() {
   const [open, setOpen] = useState(false);
   const items = NAV.filter((n) => (!n.perm || n.perm.split('|').some((x) => can(x)) || (n.path === '/depenses' && can('treasury.view'))) && (n.path !== '/mes-livraisons' || !!user?.courierId));
   const current = [...items].sort((a, b) => b.path.length - a.path.length).find((n) => n.path === '/' ? route === '/' : route.startsWith(n.path)) ?? items[0];
-  useEffect(() => { setOpen(false); window.scrollTo(0, 0); }, [route]);
+  useEffect(() => { setOpen(false); restoreScroll(route); }, [route]);
   // Menu ouvert sur téléphone : la page derrière ne défile plus, seul le menu défile.
   useEffect(() => { document.body.classList.toggle('nav-lock', open); return () => document.body.classList.remove('nav-lock'); }, [open]);
   const groups = [...new Set(items.map((i) => i.group))].filter((g) => g !== 'hidden');

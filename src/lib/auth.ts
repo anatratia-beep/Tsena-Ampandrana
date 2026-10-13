@@ -169,6 +169,7 @@ export async function login(username: string, password: string): Promise<User> {
 }
 
 export async function logout() {
+  try { (await import('../ui/kit')).clearKept(); } catch { /* rien */ }
   const u = currentUser();
   if (u) await audit('Déconnexion', `${u.fullName} s'est déconnecté(e)`);
   await setMeta('session', null);

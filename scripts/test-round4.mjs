@@ -161,7 +161,7 @@ for (const [path, name] of [['/commandes', 'commandes'], ['/achats', 'achats'], 
   ok(await o.count() >= 1 && (await o.first().locator('option').allInnerTexts()).includes('Plus ancien d’abord'), `${name} : période + plus récent / plus ancien d’abord`);
 }
 await p.goto('http://localhost:5173/#/articles'); await p.waitForTimeout(400);
-ok(N(await p.locator('main').innerText()).includes('Ajoutés'), 'articles : filtre par date d’ajout');
+ok(N(await p.locator('main').innerText()).includes('Ordre (date d’ajout)'), 'articles : filtre par date d’ajout');
 
 // 6. Boutons Annuler / Supprimer bien visibles
 await p.goto('http://localhost:5173/#/commandes/O1'); await p.waitForTimeout(500);

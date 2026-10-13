@@ -1,7 +1,7 @@
 // Articles : liste, fiche article, variantes (couleur/taille), catégories, ajustements de stock.
 import { useMyScope } from '../lib/scope';
 import { ScopeBar } from '../ui/scope';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { audit, useCan } from '../lib/auth';
 import { get, remove, save, useTable } from '../lib/db';
 import {
@@ -10,8 +10,8 @@ import {
   type Category, type Product, type StockMove, type Variant, searchItems } from '../lib/catalog';
 import { blobToThumb } from '../lib/xlsx';
 import { photoBytes } from '../lib/images';
-import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period';
-import { Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDateTime, navigate, toast, useRoute, MoreMatches, DateSort, type DateOrder } from '../ui/kit';
+import { ListDates, defaultPeriod, inPeriod, type ListOrder, type Period } from '../ui/period';
+import { Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDateTime, navigate, toast, useRoute, MoreMatches, useKeep } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { rootOf } from '../lib/scope';
 import { findDuplicates, resolveDuplicates, usesOf, type DupGroup } from '../lib/duplicates';
@@ -56,22 +56,24 @@ export function ProductsPage() {
 function ProductList() {
   const can = useCan();
   const { products, categories } = useCatalog();
-  const [q, setQ] = useState('');
-  const [cat, setCat] = useState(() => /[?&]cat=([^&]+)/.exec(location.hash)?.[1] ?? '');
-  const [sf, setSf] = useState<StockFilter>('');
-  const [showArchived, setShowArchived] = useState(false);
+  const urlCat = /[?&]cat=([^&]+)/.exec(location.hash)?.[1];
+  const [q, setQ] = useKeep('prod.q', '');
+  const [cat, setCat] = useKeep('prod.cat', urlCat ?? '');
+  useEffect(() => { if (urlCat && urlCat !== cat) setCat(urlCat); }, [urlCat]);
+  const [sf, setSf] = useKeep<StockFilter>('prod.sf', '');
+  const [showArchived, setShowArchived] = useKeep('prod.archived', false);
   const [creating, setCreating] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [lotNew, setLotNew] = useState(false);
   const [catsOpen, setCatsOpen] = useState(false);
   const [simple, setSimple] = useState(false);
-  const [limit, setLimit] = useState(60);
+  const [limit, setLimit] = useKeep('prod.limit', 60);
   const scope = useMyScope();
-  const [allMatches, setAllMatches] = useState(false);
+  const [allMatches, setAllMatches] = useKeep('prod.all', false);
   const [others, setOthers] = useState(0);
   const [dups, setDups] = useState(false);
-  const [order, setOrder] = useState<DateOrder>('');
-  const [added, setAdded] = useState<Period>(defaultPeriod('all'));
+  const [order, setOrder] = useKeep<ListOrder>('prod.order', 'new');
+  const [added, setAdded] = useKeep<Period>('prod.added', defaultPeriod('all'));
 
   const list = useMemo(() => {
     const n = q.trim().toLowerCase();
@@ -96,7 +98,7 @@ function ProductList() {
         if (sf === 'incoming') return incoming > 0;
         return true;
       })
-      .sort((a, b) => order === 'new' ? b.p.createdAt.localeCompare(a.p.createdAt) : order === 'old' ? a.p.createdAt.localeCompare(b.p.createdAt) : a.p.code.localeCompare(b.p.code, 'fr', { numeric: true }));
+      .sort((a, b) => (order === 'new' ? b.p.createdAt.localeCompare(a.p.createdAt) : a.p.createdAt.localeCompare(b.p.createdAt)) || a.p.code.localeCompare(b.p.code, 'fr', { numeric: true }));
   }, [products, q, cat, sf, showArchived, scope.on, allMatches, order, added]);
 
   const dupCount = useMemo(() => findDuplicates().length, [products]);
@@ -122,9 +124,9 @@ function ProductList() {
               {categoryOptions(categories, 'Toutes les catégories').map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
-          <DateSort value={order} onChange={setOrder} />
         </div>
-        <div className="row list-dates-row"><span className="small muted">Ajoutés :</span><PeriodPicker value={added} onChange={setAdded} /></div>
+        <ListDates period={added} onPeriod={setAdded} order={order} onOrder={setOrder} what="Date d’ajout" />
+        {(q || cat || sf || added.key !== 'all') && <div><Button variant="ghost" className="btn-sm" icon="x" onClick={() => { setQ(''); setCat(''); setSf(''); setAdded(defaultPeriod('all')); setLimit(60); }}>Effacer les filtres</Button></div>}
         <MoreMatches n={others} onShow={() => setAllMatches(true)} />
         <div className="row-between">
           <div className="segmented" role="group" aria-label="Filtrer par stock">

@@ -3,6 +3,8 @@
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
   { date: '2026-10-13', items: [
+    'Listes plus compactes : plus de « tri habituel », seulement la période d’ajout et l’ordre (plus récent / plus ancien).',
+    'Retour depuis une fiche : la liste garde sa recherche, ses filtres, sa période et sa position dans la page (bouton « Effacer les filtres » pour repartir de zéro).',
     'Nouveau menu « Notifications » : consulter, reporter (1 h, 3 h, demain), « Ne plus afficher » (revient seulement si un nouveau problème apparaît) ; textes longs coupés avec « voir plus ».',
     'Synchronisation vérifiée : une modification refusée par le cloud (heure d’un téléphone décalée) est fusionnée et renvoyée. Le nom et les infos de la société arrivent sur tous les appareils ; seuls les champs modifiés sont enregistrés.',
     'Copies cloud contrôlées : faites seulement après une synchronisation complète, relues après l’envoi, nombre de fiches noté ; les copies incomplètes sont signalées.',

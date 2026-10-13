@@ -14,7 +14,7 @@ import {
 import { useCompany } from '../lib/settings';
 import { correctWalkInSale, netMoves, refundSuggested, voidOrder } from '../lib/corrections';
 import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, feeState, payDeferredFees, settleCourier, type AccountId } from '../lib/money';
-import { Help, DiscountField, Badge, Button, Confirm, Empty, FilterSelect, IconButton, Modal, MoreMatches, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute, DateSort, type DateOrder } from '../ui/kit';
+import { Help, DiscountField, Badge, Button, Confirm, Empty, FilterSelect, IconButton, Modal, MoreMatches, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute, DateSort, type DateOrder, useKeep } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { ListDates, defaultPeriod, inPeriod, type ListOrder, type Period } from '../ui/period';
 import { Thumb } from './Products';
@@ -62,9 +62,9 @@ function OrderList({ tabKey }: { tabKey?: string }) {
   const orders = useTable<Order>('orders');
   useTable<Zone>('zones');
   const couriers = useTable<Courier>('couriers');
-  const [q, setQ] = useState('');
-  const [courierF, setCourierF] = useState('');
-  const [pageF, setPageF] = useState('');
+  const [q, setQ] = useKeep('orders.q', '');
+  const [courierF, setCourierF] = useKeep('orders.courier', '');
+  const [pageF, setPageF] = useKeep('orders.page', '');
   const [creating, setCreating] = useState(false);
   const [following, setFollowing] = useState(false);
   const [sel, setSel] = useState<string[]>([]);
@@ -74,10 +74,10 @@ function OrderList({ tabKey }: { tabKey?: string }) {
   const tab = TABS.find((t) => t.key === tabKey) ?? TABS.find((t) => !['terminees', 'annulees'].includes(t.key) && orders.some((o) => !isWalkIn(o) && inTab(t, o))) ?? TABS[0];
   const done = ['terminees', 'annulees'].includes(tab.key);
   // Période et ordre : commandes en cours = toutes, plus anciennes d'abord (à traiter) ; terminées = aujourd'hui, récentes d'abord.
-  const [periodOpen, setPeriodOpen] = useState<Period>(defaultPeriod('all'));
-  const [periodDone, setPeriodDone] = useState<Period>(defaultPeriod('today'));
-  const [orderOpen, setOrderOpen] = useState<ListOrder>('old');
-  const [orderDone, setOrderDone] = useState<ListOrder>('new');
+  const [periodOpen, setPeriodOpen] = useKeep<Period>('orders.periodOpen', defaultPeriod('all'));
+  const [periodDone, setPeriodDone] = useKeep<Period>('orders.periodDone', defaultPeriod('today'));
+  const [orderOpen, setOrderOpen] = useKeep<ListOrder>('orders.orderOpen', 'old');
+  const [orderDone, setOrderDone] = useKeep<ListOrder>('orders.orderDone', 'new');
   const period = done ? periodDone : periodOpen, setPeriod = done ? setPeriodDone : setPeriodOpen;
   const order = done ? orderDone : orderOpen, setOrder = done ? setOrderDone : setOrderOpen;
   const regler = tab.key === 'regler';
@@ -119,6 +119,7 @@ function OrderList({ tabKey }: { tabKey?: string }) {
           {pages.length > 1 && <div className="field" style={{ flex: '1 1 160px' }}><FilterSelect label="Page" value={pageF} onChange={setPageF} options={[{ value: '', label: 'Toutes les pages' }, ...pages.map((p) => ({ value: p.id, label: p.name }))]} /></div>}
         </div>
         <ListDates period={period} onPeriod={setPeriod} order={order} onOrder={setOrder} what="Date de la commande" />
+        {(q || courierF || pageF) && <div><Button variant="ghost" className="btn-sm" icon="x" onClick={() => { setQ(''); setCourierF(''); setPageF(''); setSel([]); }}>Effacer les filtres</Button></div>}
         {elsewhere.length > 0 && <p className="small muted" style={{ margin: 0 }}>Aussi trouvé dans : {elsewhere.map(({ t, n }, i) => <span key={t.key}>{i ? ', ' : ''}<button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => switchTab(t.key)}>{t.label} ({n})</button></span>)}</p>}
       </div>
       {regler && list.length > 0 && (

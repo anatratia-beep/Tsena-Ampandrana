@@ -7,7 +7,7 @@ import { get, useTable } from '../lib/db';
 import {
   addMoves, categoryPath, fmtAr, fmtNum, incomingOf, MOVE_LABELS, parseNum, stockOf, useCatalog, variantLabel,
   type Category, type MoveType, type Product, type StockMove, type Variant, photoOf, matchQuery, productText, searchItems } from '../lib/catalog';
-import { Button, FilterSelect, Confirm, Empty, PageHead, TextField, fmtDateTime, navigate, toast, useRoute, MoreMatches } from '../ui/kit';
+import { Button, FilterSelect, Confirm, Empty, PageHead, TextField, fmtDateTime, navigate, toast, useRoute, MoreMatches, useKeep } from '../ui/kit';
 import { ListDates, PeriodPicker, defaultPeriod, inPeriod, type ListOrder, type Period } from '../ui/period';
 import { categoryOptions, Thumb } from './Products';
 import { downloadBlob, writeXlsx } from '../lib/xlsx';
@@ -49,16 +49,16 @@ function StockState() {
   const can = useCan();
   const showCost = can('costs.view');
   const { variants, categories } = useCatalog();
-  const [q, setQ] = useState('');
-  const [cat, setCat] = useState('');
-  const [f, setF] = useState<'' | 'in' | 'out' | 'neg'>('in');
-  const [sort, setSort] = useState<'code' | 'stock' | 'value' | 'new' | 'old'>('code');
-  const [limit, setLimit] = useState(150);
+  const [q, setQ] = useKeep('stock.q', '');
+  const [cat, setCat] = useKeep('stock.cat', '');
+  const [f, setF] = useKeep<'' | 'in' | 'out' | 'neg'>('stock.f', 'in');
+  const [sort, setSort] = useKeep<'stock' | 'value' | 'new' | 'old'>('stock.sort', 'new');
+  const [limit, setLimit] = useKeep('stock.limit', 150);
   const scope = useMyScope();
-  const [allMatches, setAllMatches] = useState(false);
+  const [allMatches, setAllMatches] = useKeep('stock.all', false);
   const [others, setOthers] = useState(0);
   const [detail, setDetail] = useState<string | null>(null);
-  const [added, setAdded] = useState<Period>(defaultPeriod('all'));
+  const [added, setAdded] = useKeep<Period>('stock.added', defaultPeriod('all'));
 
   const rows = useMemo(() => {
     const n = q.trim().toLowerCase();
@@ -72,7 +72,7 @@ function StockState() {
     return sr.list
       .filter((r) => f === 'in' ? r.stock > 0 : f === 'out' ? r.stock === 0 : f === 'neg' ? r.stock < 0 : true)
       .map((r) => ({ ...r, value: Math.max(0, r.stock) * (r.v.costAvg ?? 0) }))
-      .sort((a, b) => sort === 'stock' ? b.stock - a.stock : sort === 'value' ? b.value - a.value : sort === 'new' ? (b.p!.createdAt).localeCompare(a.p!.createdAt) : sort === 'old' ? (a.p!.createdAt).localeCompare(b.p!.createdAt) : a.v.sku.localeCompare(b.v.sku, 'fr', { numeric: true }));
+      .sort((a, b) => (sort === 'stock' ? b.stock - a.stock : sort === 'value' ? b.value - a.value : sort === 'new' ? b.p!.createdAt.localeCompare(a.p!.createdAt) : a.p!.createdAt.localeCompare(b.p!.createdAt)) || a.v.sku.localeCompare(b.v.sku, 'fr', { numeric: true }));
   }, [variants, q, cat, f, sort, scope.on, allMatches, added]);
 
   const allRows = variants.filter((v) => { const p = get<Product>('products', v.productId); return p && p.active !== false && scope.product(p.id) && inCategory(p, cat); });
@@ -108,13 +108,10 @@ function StockState() {
           <div className="field" style={{ flex: '0 1 220px' }}>
             <FilterSelect label="Catégorie" value={cat} onChange={setCat} options={categoryOptions(categories, 'Toutes les catégories')} />
           </div>
-          <div className="field" style={{ flex: '0 1 180px' }}>
-            <select aria-label="Trier" value={sort} onChange={(e) => setSort(e.target.value as any)}>
-              <option value="code">Trier par code</option><option value="stock">Plus grand stock</option>{showCost && <option value="value">Plus grande valeur</option>}<option value="new">Ajoutés récemment d’abord</option><option value="old">Ajoutés il y a longtemps d’abord</option>
-            </select>
-          </div>
         </div>
-        <div className="row list-dates-row"><span className="small muted">Articles ajoutés :</span><PeriodPicker value={added} onChange={setAdded} /></div>
+        <ListDates period={added} onPeriod={setAdded} order={sort} onOrder={setSort} what="Date d’ajout de l’article"
+          extra={[{ value: 'stock', label: 'Plus grand stock d’abord' }, ...(showCost ? [{ value: 'value' as const, label: 'Plus grande valeur d’abord' }] : [])]} />
+        {(q || cat || added.key !== 'all') && <div><Button variant="ghost" className="btn-sm" icon="x" onClick={() => { setQ(''); setCat(''); setAdded(defaultPeriod('all')); }}>Effacer les filtres</Button></div>}
         <div className="row-between">
           <div className="segmented" role="group">
             {([['in', 'En stock'], ['out', 'En rupture'], ['neg', 'Négatifs'], ['', 'Tout']] as const).map(([k, l]) => <button key={k} aria-pressed={f === k} onClick={() => setF(k)}>{l}</button>)}
@@ -156,12 +153,12 @@ function MovesTab() {
   const moves = useTable<StockMove>('stockMoves');
   const users = useTable<User>('users');
   useCatalog();
-  const [period, setPeriod] = useState<Period>(defaultPeriod('today'));
-  const [mOrder, setMOrder] = useState<ListOrder>('new');
-  const [type, setType] = useState('');
-  const [dir, setDir] = useState<'' | 'in' | 'out'>('');
-  const [userId, setUserId] = useState('');
-  const [q, setQ] = useState('');
+  const [period, setPeriod] = useKeep<Period>('moves.period', defaultPeriod('today'));
+  const [mOrder, setMOrder] = useKeep<ListOrder>('moves.order', 'new');
+  const [type, setType] = useKeep('moves.type', '');
+  const [dir, setDir] = useKeep<'' | 'in' | 'out'>('moves.dir', '');
+  const [userId, setUserId] = useKeep('moves.user', '');
+  const [q, setQ] = useKeep('moves.q', '');
   const [limit, setLimit] = useState(150);
   const list = useMemo(() => {
     const n = q.trim().toLowerCase();

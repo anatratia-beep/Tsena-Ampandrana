@@ -5,7 +5,7 @@ import { get, useTable } from '../lib/db';
 import { fmtAr, fmtNum, nextNumber, parseNum, PURCHASE_STATUS, stockOf, todayYmd, useCatalog, variantLabel, type Product, type Purchase, type Variant } from '../lib/catalog';
 import { computeReception, lastRate, MODE_LABEL, purchaseQty, purchaseReceivedQty, transitTotalAr, UNIT_LABEL, validateReception, type Allocation, type Reception, type Supplier, type TransitInvoice } from '../lib/purchases';
 import { PurchasingTabs } from './ImportExport';
-import { Badge, Button, Confirm, Empty, IconButton, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
+import { Badge, Button, Confirm, Empty, IconButton, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute, useKeep } from '../ui/kit';
 import { ListDates, applyDates, defaultPeriod, type ListOrder, type Period } from '../ui/period';
 import { cancelReception } from '../lib/corrections';
 import { Icon } from '../ui/icons';
@@ -25,8 +25,8 @@ export function ReceptionsPage() {
 function ReceptionList() {
   const can = useCan();
   const recs = useTable<Reception>('receptions');
-  const [order, setOrder] = useState<ListOrder>('new');
-  const [period, setPeriod] = useState<Period>(defaultPeriod('all'));
+  const [order, setOrder] = useKeep<ListOrder>('recs.order', 'new');
+  const [period, setPeriod] = useKeep<Period>('recs.period', defaultPeriod('all'));
   const sorted = applyDates([...recs].sort((a, b) => b.number.localeCompare(a.number)), (r) => r.date || r.createdAt, period, order);
   return (
     <>

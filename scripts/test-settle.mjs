@@ -40,6 +40,7 @@ for (const id of ['o1', 'o2', 'o3']) {
 }
 ok((await p.evaluate(() => ['o1', 'o2', 'o3'].every((id) => !window.__tsena.get('orders', id).courierSettledAt))), 'retours confirmés, pas encore réglés');
 await p.goto('http://localhost:5173/#/commandes/regler'); await p.waitForTimeout(400);
+await p.getByRole('button', { name: 'Effacer les filtres' }).click(); await p.waitForTimeout(200); // le filtre livreur est gardé d’un écran à l’autre
 tx = N(await p.locator('main').innerText());
 ok(tx.includes('Fara Un') && tx.includes('Fara Trois') && !tx.includes('Fara Ancienne'), 'onglet « À régler » : les 3 commandes');
 await p.getByLabel('Tout sélectionner').check(); await p.waitForTimeout(150);

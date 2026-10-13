@@ -11,7 +11,7 @@ import {
 } from '../lib/orders';
 import { useCompany } from '../lib/settings';
 import { ListDates, applyDates, defaultPeriod, inPeriod, type ListOrder, type Period } from '../ui/period';
-import { Badge, Choice, Button, DiscountField, Empty, MoreMatches, IconButton, Modal, PageHead, SelectField, TextField, fmtDateTime, toast } from '../ui/kit';
+import { Badge, Choice, Button, DiscountField, Empty, MoreMatches, IconButton, Modal, PageHead, SelectField, TextField, fmtDateTime, toast, useKeep } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { ItemPicker, StockTag } from './Orders';
 import { defaultTarget, printTo, ticketDoc } from '../lib/print';
@@ -46,9 +46,9 @@ export function PosPage() {
   const reserved = useMemo(() => reservedIndex(), [orders]);
   const scope = useMyScope();
   // Ventes du jour : chaque vendeur voit d'abord les siennes (l'admin voit tout).
-  const [allSales, setAllSales] = useState(can('reports.view'));
-  const [salesPeriod, setSalesPeriod] = useState<Period>(defaultPeriod('today'));
-  const [salesOrder, setSalesOrder] = useState<ListOrder>('new');
+  const [allSales, setAllSales] = useKeep('pos.all', can('reports.view'));
+  const [salesPeriod, setSalesPeriod] = useKeep<Period>('pos.period', defaultPeriod('today'));
+  const [salesOrder, setSalesOrder] = useKeep<ListOrder>('pos.order', 'new');
   const me = useMe();
   const minQty = company.wholesaleMinQty ?? 3;
   const step = company.internalRounding ?? 1;

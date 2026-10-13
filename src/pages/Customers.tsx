@@ -7,7 +7,7 @@ import { all, get, save, useTable } from '../lib/db';
 import { fmtAr, fmtNum, matchQuery } from '../lib/catalog';
 import { customerIdFor, customerText, fmtPhone, keptTotal, normPhone, type Customer, type Order, type Zone } from '../lib/orders';
 import { itemsText, WAIT, type Prospect } from '../lib/prospects';
-import { Badge, Button, Empty, Modal, PageHead, SelectField, TextField, navigate, toast, useRoute } from '../ui/kit';
+import { Badge, Button, Empty, Modal, PageHead, SelectField, TextField, navigate, toast, useRoute, useKeep } from '../ui/kit';
 import { ListDates, applyDates, defaultPeriod, type ListOrder, type Period } from '../ui/period';
 import { OrderForm, OrderRow } from './Orders';
 
@@ -29,29 +29,27 @@ export function CustomersPage() {
 function CustomerList() {
   const customers = useTable<Customer>('customers');
   const orders = useTable<Order>('orders');
-  const [q, setQ] = useState('');
-  const [limit, setLimit] = useState(80);
+  const [q, setQ] = useKeep('cust.q', '');
+  const [limit, setLimit] = useKeep('cust.limit', 80);
   const [adding, setAdding] = useState(false);
   const can = useCan();
   const zones = useTable<Zone>('zones');
   const scope = useMyScope();
-  const [order, setOrder] = useState<ListOrder>('new');
-  const [period, setPeriod] = useState<Period>(defaultPeriod('all'));
-  const [basis, setBasis] = useState<'last' | 'added'>('last');
+  const [order, setOrder] = useKeep<ListOrder>('cust.order', 'new');
+  const [period, setPeriod] = useKeep<Period>('cust.period', defaultPeriod('all'));
   const list = useMemo(() => {
     const n = q.trim();
     const rows = customers
       .filter((c) => !scope.on || orders.some((o) => o.customerId === c.id && scope.mine(o)))
       .filter((c) => !n || matchQuery(customerText(c), n)).map((c) => ({ c, s: stats(c, orders) }));
-    return applyDates(rows, (r) => (basis === 'added' ? r.c.createdAt : r.s.last || r.c.createdAt), period, order);
-  }, [customers, orders, q, scope.on, order, period, basis]);
+    return applyDates(rows, (r) => r.c.createdAt, period, order);
+  }, [customers, orders, q, scope.on, order, period]);
   return (
     <>
       <PageHead title="Clients" subtitle={`${customers.length} client(s) — créés automatiquement à chaque commande`} actions={can('orders.create') && <Button icon="plus" onClick={() => setAdding(true)}>Nouveau client</Button>} />
       <ScopeBar scope={scope} mineLabel="Mes clients" text="Vous voyez les clients de vos commandes et ventes." />
       <div className="card row" style={{ alignItems: 'flex-end' }}><div className="field" style={{ flex: '1 1 240px' }}><input aria-label="Rechercher" placeholder="Rechercher : téléphone, nom, nom Facebook, lieu, notes…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-        <div className="field" style={{ flex: '0 1 220px' }}><label htmlFor="c-basis">Date prise en compte</label><select id="c-basis" value={basis} onChange={(e) => setBasis(e.target.value as any)}><option value="last">Dernière commande</option><option value="added">Date d’ajout du client</option></select></div>
-        <ListDates period={period} onPeriod={setPeriod} order={order} onOrder={setOrder} what={basis === 'added' ? 'Date d’ajout' : 'Dernière commande'} /></div>
+        <ListDates period={period} onPeriod={setPeriod} order={order} onOrder={setOrder} what="Date d’ajout" /></div>
       <div className="card card-flush">
         {list.length === 0 ? <Empty icon="users" title="Aucun client" /> : (
           <ul className="list">

@@ -28,8 +28,10 @@ export function defaultPeriod(key: PeriodKey): Period { return { key, ...rangeOf
 export function inPeriod(iso: string | undefined, p: Period) {
   if (!iso) return false;
   if (p.key === 'all') return true;
+  // Période relative (aujourd'hui, hier, cette semaine…) : recalculée à chaque fois, juste même après minuit.
+  const r = p.key === 'custom' || p.key === 'day' ? p : rangeOf(p.key);
   const local = ymd(new Date(iso));
-  return (!p.from || local >= p.from) && (!p.to || local <= p.to);
+  return (!r.from || local >= r.from) && (!r.to || local <= r.to);
 }
 
 const OPTIONS: { key: PeriodKey; label: string }[] = [
@@ -88,14 +90,15 @@ export function PeriodPicker({ value, onChange, allowFuture = true }: { value: P
 // ---------- Filtre de dates des listes (commandes, ventes, achats, réceptions, articles, stock, clients, dépenses) ----------
 export type ListOrder = 'new' | 'old';
 /** Période + ordre (plus récent / plus ancien d'abord) : un seul bloc, identique sur toutes les listes. */
-export function ListDates({ period, onPeriod, order, onOrder, what = 'Date' }: { period: Period; onPeriod: (p: Period) => void; order: ListOrder; onOrder: (o: ListOrder) => void; what?: string }) {
+export function ListDates<O extends string = ListOrder>({ period, onPeriod, order, onOrder, what = 'Date', extra = [] }: { period: Period; onPeriod: (p: Period) => void; order: O; onOrder: (o: O) => void; what?: string; extra?: { value: O; label: string }[] }) {
   return (
     <div className="list-dates">
       <PeriodPicker value={period} onChange={onPeriod} />
       <div className="field"><label htmlFor="l-order">Ordre ({what.toLowerCase()})</label>
-        <select id="l-order" aria-label="Ordre" value={order} onChange={(e) => onOrder(e.target.value as ListOrder)}>
+        <select id="l-order" aria-label="Ordre" value={order} onChange={(e) => onOrder(e.target.value as O)}>
           <option value="new">Plus récent d’abord</option>
           <option value="old">Plus ancien d’abord</option>
+          {extra.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
         </select>
       </div>
     </div>

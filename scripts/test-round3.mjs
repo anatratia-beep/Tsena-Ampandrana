@@ -45,7 +45,7 @@ ok(tx.includes('PH6 ML L') && !tx.includes('BOXHOMME') && !/PH6 L\b/.test(tx), '
 // 3. Tri par date d'ajout
 await p.evaluate(async () => { const t = window.__tsena; await t.save('products', [{ id: 'b1', active: true }]); });
 await p.goto('http://localhost:5173/#/articles'); await p.waitForTimeout(500);
-await p.getByLabel('Tri').first().selectOption('new'); await p.waitForTimeout(300);
+await p.getByLabel('Ordre').first().selectOption('new'); await p.waitForTimeout(300);
 const first = N(await p.locator('main .list-item-title').first().innerText());
 ok(first.includes('PH6 L'), `tri « ajoutés récemment » : l’article du 05/10 en premier (${first})`);
 // 4. Commande avec deux paiements dont « 20.000 »

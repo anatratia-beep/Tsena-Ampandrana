@@ -1,5 +1,5 @@
 // Composants d'interface réutilisables : boutons, champs, fenêtres, notifications, navigation.
-import { useEffect, useId, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Icon, type IconName } from './icons';
 
 // ---- Navigation (adresse après le #, compatible GitHub Pages et hors ligne) ----
@@ -10,9 +10,15 @@ let trail: string[] = [];
 let lastRoute = location.hash.slice(1) || '/';
 let viaMenu = false;
 export const markMenuNav = () => { viaMenu = true; };
+// ---- Position dans la page : retrouvée en revenant à une liste ----
+const scrollAt = new Map<string, number>();
+let scrollRoute = location.hash.slice(1) || '/';
+window.addEventListener('scroll', () => { scrollAt.set(scrollRoute, window.scrollY); }, { passive: true });
+let prevRoutes: string[] = [scrollRoute];
 const section = (r: string) => '/' + (r.split('?')[0].split('/')[1] || '');
 window.addEventListener('hashchange', () => {
   const cur = location.hash.slice(1) || '/';
+  scrollRoute = cur; // la position enregistrée de la liste qu'on quitte n'est plus touchée
   if (viaMenu) trail = [];
   else if (trail[trail.length - 1] === cur) trail.pop();                 // retour arrière
   else if (section(cur) !== section(lastRoute)) trail.push(lastRoute);    // changement d'écran par un lien
@@ -25,6 +31,28 @@ export function useRoute(): string {
   return useSyncExternalStore((cb) => { routeSubs.add(cb); return () => routeSubs.delete(cb); }, () => location.hash.slice(1) || '/');
 }
 export function navigate(path: string) { location.hash = path; }
+
+// ---- Filtres gardés : en revenant d'une fiche (Retour), la liste retrouve sa recherche, ses filtres et sa période ----
+const kept = new Map<string, unknown>();
+/** Comme useState, mais la valeur est gardée en mémoire (clé unique par écran) tant que le logiciel reste ouvert. */
+export function useKeep<T>(key: string, init: T | (() => T)): [T, (v: T | ((prev: T) => T)) => void] {
+  const [v, setV] = useState<T>(() => (kept.has(key) ? (kept.get(key) as T) : typeof init === 'function' ? (init as () => T)() : init));
+  const set = useCallback((x: T | ((prev: T) => T)) => setV((prev) => { const n = typeof x === 'function' ? (x as (p: T) => T)(prev) : x; kept.set(key, n); return n; }), [key]);
+  return [v, set];
+}
+/** Oublie les filtres gardés (déconnexion). */
+export const clearKept = () => kept.clear();
+
+/** À appeler à chaque changement d'écran : remonte en haut, sauf en revenant à une liste déjà vue (même rubrique ou retour arrière). */
+export function restoreScroll(route: string) {
+  const from = prevRoutes[prevRoutes.length - 1];
+  const back = prevRoutes[prevRoutes.length - 2] === route || (from !== route && section(from) === section(route));
+  prevRoutes = [...prevRoutes.slice(-5), route];
+  scrollRoute = route;
+  const y = back ? scrollAt.get(route) ?? 0 : 0;
+  window.scrollTo(0, 0);
+  if (y) { requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y))); setTimeout(() => { if (scrollRoute === route && Math.abs(window.scrollY - y) > 4) window.scrollTo(0, y); }, 250); }
+}
 
 // ---- Notifications ----
 interface Toast { id: number; text: string; kind: 'ok' | 'error' | 'info' }

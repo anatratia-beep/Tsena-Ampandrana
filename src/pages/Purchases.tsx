@@ -7,7 +7,7 @@ import {
   type Product, type Purchase, type PurchaseLine, type PurchaseStatus, type Variant, matchQuery, productText, stockOf, searchItems } from '../lib/catalog';
 import { lastRate, lineTotal, purchaseGoods, purchasePaid, purchaseQty, purchaseReceivedQty, purchaseTotal, purchaseTotalAr, toAr, type Supplier } from '../lib/purchases';
 import { PurchasingTabs } from './ImportExport';
-import { Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDate, navigate, toast, useRoute } from '../ui/kit';
+import { Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDate, navigate, toast, useRoute, useKeep } from '../ui/kit';
 import { ListDates, applyDates, defaultPeriod, type ListOrder, type Period } from '../ui/period';
 import { Icon } from '../ui/icons';
 import { voidPurchase } from '../lib/corrections';
@@ -29,11 +29,11 @@ function PurchaseList() {
   const can = useCan();
   const purchases = useTable<Purchase>('purchases');
   const suppliers = useTable<Supplier>('suppliers');
-  const [tab, setTab] = useState<'open' | 'received' | 'all'>('open');
-  const [q, setQ] = useState('');
+  const [tab, setTab] = useKeep<'open' | 'received' | 'all'>('purch.tab', 'open');
+  const [q, setQ] = useKeep('purch.q', '');
   const [creating, setCreating] = useState(false);
-  const [order, setOrder] = useState<ListOrder>('new');
-  const [period, setPeriod] = useState<Period>(defaultPeriod('all'));
+  const [order, setOrder] = useKeep<ListOrder>('purch.order', 'new');
+  const [period, setPeriod] = useKeep<Period>('purch.period', defaultPeriod('all'));
   const list = useMemo(() => {
     const n = q.trim().toLowerCase();
     return applyDates(purchases

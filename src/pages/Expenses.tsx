@@ -11,7 +11,7 @@ import {
   type AccountId, type CashMove, type FinanceCategory, type Freq, type Recurring, type Rhythm,
 } from '../lib/money';
 import { closedBy } from '../lib/closed';
-import { Help, Badge, Button, FilterSelect, Confirm, Empty, IconButton, Modal, PageHead, Req, SelectField, TextField, Toggle, fmtDate, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
+import { Help, Badge, Button, FilterSelect, Confirm, Empty, IconButton, Modal, PageHead, Req, SelectField, TextField, Toggle, fmtDate, fmtDateTime, navigate, toast, useRoute, useKeep } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { ListDates, PeriodPicker, defaultPeriod, inPeriod, type ListOrder, type Period } from '../ui/period';
 import { SortTable, exportTables, type Col } from '../ui/table';
@@ -255,11 +255,11 @@ function ExpenseList() {
   const can = useCan();
   const moves = useTable<CashMove>('cashMoves');
   const cats = useTable<FinanceCategory>('financeCategories');
-  const [period, setPeriod] = useState<Period>(defaultPeriod('today'));
-  const [order, setOrder] = useState<ListOrder>('new');
-  const [cat, setCat] = useState('');
-  const [type, setType] = useState('');
-  const [q, setQ] = useState('');
+  const [period, setPeriod] = useKeep<Period>('exp.period', defaultPeriod('today'));
+  const [order, setOrder] = useKeep<ListOrder>('exp.order', 'new');
+  const [cat, setCat] = useKeep('exp.cat', '');
+  const [type, setType] = useKeep('exp.type', '');
+  const [q, setQ] = useKeep('exp.q', '');
   const [del, setDel] = useState<CashMove | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
   const [allCats, setAllCats] = useState(false);
