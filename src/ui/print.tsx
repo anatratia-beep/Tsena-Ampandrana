@@ -20,7 +20,7 @@ export function PrintDialog({ docs, onClose }: { docs: DocChoice[]; onClose: () 
   const doc = useMemo(() => choice.build(), [choice]);
   const printer = findPrinter(target);
   const paper = printer?.paper ?? '58';
-  const html = useMemo(() => docHtml(doc, paper, printer && !printer.logo ? undefined : company.logo), [doc, paper, printer, company.logo]);
+  const html = useMemo(() => docHtml(doc, paper, printer && !printer.logo ? null : company.logo ?? ''), [doc, paper, printer, company.logo]);
   const t = targets.find((x) => x.id === target);
 
   async function go() {

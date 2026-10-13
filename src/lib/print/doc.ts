@@ -2,7 +2,8 @@
 // Un document est une suite de blocs indépendants de l'imprimante : la mise en page (32 colonnes
 // pour le 58 mm, 48 pour le 80 mm) est faite au moment d'imprimer.
 import { get } from '../db';
-import { fmtAr, fmtNum, variantLabel, type Product, type Variant } from '../catalog';
+import { fmtAr, fmtNum, variantLabel, type Category, type Product, type Variant } from '../catalog';
+import { variantPage } from '../scope';
 import {
   CHANNELS, courierSplit, exchangeBalance, fmtPhone, isPickupZone, isWalkIn, itemsTotal, keptTotal, orderTotal, PAY_METHODS, paidTotal, remaining, sellingLines,
   type Courier, type Order, type Zone,
@@ -14,7 +15,7 @@ export type Block =
   | { k: 'text'; s: string; align?: 'left' | 'center' | 'right'; bold?: boolean; big?: boolean }
   | { k: 'pair'; l: string; r: string; bold?: boolean; big?: boolean }
   | { k: 'line'; ch?: '-' | '=' }
-  | { k: 'logo' }
+  | { k: 'logo'; src?: string }   // src : logo propre à ce document (ex. logo de la page), sinon celui de la société
   | { k: 'qr'; data: string }
   | { k: 'feed'; n?: number }
   | { k: 'cut' };
@@ -45,13 +46,19 @@ export function wrap(s: string, width: number): string[] {
   return out;
 }
 
-export interface Row { s: string; bold?: boolean; big?: boolean; logo?: boolean; cut?: boolean; qr?: string }
+export interface Row { s: string; bold?: boolean; big?: boolean; logo?: boolean; logoSrc?: string; cut?: boolean; qr?: string }
+
+/**
+ * Logo à dessiner pour une ligne « logo ». `allowed` : null = logos désactivés sur cette imprimante ;
+ * sinon logo par défaut (société). Le logo propre au document (page) passe en premier.
+ */
+export const logoFor = (r: Row, allowed: string | null | undefined) => (allowed === null ? undefined : r.logoSrc || allowed || undefined);
 
 /** Transforme les blocs en lignes de texte de largeur fixe (utilisé pour l'aperçu, l'image et l'imprimante). */
 export function layout(doc: PrintDoc, cols: number): Row[] {
   const rows: Row[] = [];
   for (const b of doc.blocks) {
-    if (b.k === 'logo') rows.push({ s: '', logo: true });
+    if (b.k === 'logo') rows.push({ s: '', logo: true, logoSrc: b.src });
     else if (b.k === 'qr') rows.push({ s: '', qr: b.data });
     else if (b.k === 'cut') rows.push({ s: '', cut: true });
     else if (b.k === 'feed') for (let i = 0; i < (b.n ?? 1); i++) rows.push({ s: '' });
@@ -93,9 +100,9 @@ const L = (ch: '-' | '=' = '-'): Block => ({ k: 'line', ch });
 const dt = (iso?: string) => (iso ? new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
 const ar = (n: number) => fmtAr(n);
 
-function header(c: Company, withLogo = true): Block[] {
+function header(c: Brand, withLogo = true): Block[] {
   const b: Block[] = [];
-  if (withLogo && c.logo) b.push({ k: 'logo' });
+  if (withLogo && c.logo) b.push({ k: 'logo', src: c.pageId ? c.logo : undefined });
   b.push(T(c.name, { align: 'center', bold: true, big: true }));
   if (c.slogan) b.push(T(c.slogan, { align: 'center' }));
   if (c.address) b.push(T(c.address, { align: 'center' }));
@@ -115,8 +122,29 @@ function itemLines(variantId: string, qty: number, price: number, note = ''): Bl
   return [T(itemName(variantId) + note), P(`  ${fmtNum(qty)} x ${fmtNum(price)}`, ar(qty * price))];
 }
 
+// ---------- En-tête au nom de la page ----------
+/** Société, ou page dont le nom (et le logo) figure en tête du ticket. */
+export type Brand = Company & { pageId?: string };
+/** Page principale d'une commande : celle qui pèse le plus en montant (articles vendus ou envoyés). */
+export function orderPage(o: Pick<Order, 'lines'>): string {
+  const sum = new Map<string, number>();
+  for (const l of o.lines) { const p = variantPage(l.variantId); if (p) sum.set(p, (sum.get(p) ?? 0) + Math.max(1, l.qty * l.unitPrice)); }
+  return [...sum.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+}
+/**
+ * Tickets, bons et étiquettes portent le nom de la page de la commande : nom affiché sur le ticket, logo, téléphone
+ * et message de la page ; à défaut, ceux de la société. Adresse, NIF et STAT restent ceux de la société (même boutique).
+ */
+export function brandOf(o: Pick<Order, 'lines'>, c: Company): Brand {
+  const pageId = orderPage(o);
+  const pg = pageId ? get<Category>('categories', pageId) : undefined;
+  if (!pg) return c;
+  return { ...c, pageId, name: pg.ticketName?.trim() || pg.name, slogan: pg.slogan?.trim() || undefined, logo: pg.logo || c.logo, phone: pg.phone?.trim() || c.phone, ticketFooter: pg.ticketFooter?.trim() || c.ticketFooter };
+}
+
 // ---------- Ticket de caisse (vente sur place ou commande) ----------
-export function ticketDoc(o: Order, c: Company, opts: { cashGiven?: number } = {}): PrintDoc {
+export function ticketDoc(o: Order, company: Company, opts: { cashGiven?: number } = {}): PrintDoc {
+  const c = brandOf(o, company);
   const closed = ['delivered', 'partial', 'refused'].includes(o.status);
   const walkIn = isWalkIn(o);
   const zone = get<Zone>('zones', o.zoneId || '');
@@ -175,7 +203,8 @@ export function ticketDoc(o: Order, c: Company, opts: { cashGiven?: number } = {
 }
 
 // ---------- Bon de livraison (remis au livreur avec le colis) ----------
-export function deliveryNoteDoc(o: Order, c: Company): PrintDoc {
+export function deliveryNoteDoc(o: Order, company: Company): PrintDoc {
+  const c = brandOf(o, company);
   const zone = get<Zone>('zones', o.zoneId || '');
   const courier = get<Courier>('couriers', o.courierId || '');
   const b: Block[] = [...header(c, false), L('=')];
@@ -214,7 +243,8 @@ export function deliveryNoteDoc(o: Order, c: Company): PrintDoc {
 
 // ---------- Étiquette du colis (ticket 58 mm collé sur le colis pendant la préparation) ----------
 export const orderUrl = (id: string) => (typeof location !== 'undefined' ? `${location.origin}${location.pathname}#/commandes/${id}` : id);
-export function parcelLabelDoc(o: Order, c: Company): PrintDoc {
+export function parcelLabelDoc(o: Order, company: Company): PrintDoc {
+  const c = brandOf(o, company);
   const zone = get<Zone>('zones', o.zoneId || '');
   const courier = get<Courier>('couriers', o.courierId || '');
   const x = courierSplit(o);

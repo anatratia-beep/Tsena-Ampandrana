@@ -1,6 +1,6 @@
 // Moyens d'impression : Bluetooth, USB, port série (navigateurs Chrome/Edge), fenêtre d'impression
 // du système (tous les appareils) et image à partager (WhatsApp, enregistrer…).
-import { layout, type Paper, type PrintDoc, type Row } from './doc';
+import { layout, logoFor, type Paper, type PrintDoc, type Row } from './doc';
 import { qrMatrix, qrSvg } from '../qr';
 
 const nav = navigator as any;
@@ -111,10 +111,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ---------- Rendu HTML (aperçu et fenêtre d'impression) ----------
 const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
-export function docHtml(doc: PrintDoc, paper: Paper, logo?: string): string {
+export function docHtml(doc: PrintDoc, paper: Paper, logo?: string | null): string {
   const cols = paper === '58' ? 32 : 48;
   return layout(doc, cols).map((r: Row) => {
-    if (r.logo) return logo ? `<div class="tk-logo"><img src="${logo}" alt=""></div>` : '';
+    if (r.logo) { const src = logoFor(r, logo); return src ? `<div class="tk-logo"><img src="${src}" alt=""></div>` : ''; }
     if (r.cut) return '<div class="tk-cut"></div>';
     if (r.qr) return `<div class="tk-qr">${qrSvg(r.qr, 3)}</div>`;
     const cls = [r.bold && 'b', r.big && 'big'].filter(Boolean).join(' ');
@@ -123,7 +123,7 @@ export function docHtml(doc: PrintDoc, paper: Paper, logo?: string): string {
 }
 
 /** Ouvre la fenêtre d'impression de l'appareil (AirPrint sur iPhone, imprimantes installées sur Windows/Mac…). */
-export function systemPrint(doc: PrintDoc, paper: Paper, logo?: string, copies = 1): Promise<void> {
+export function systemPrint(doc: PrintDoc, paper: Paper, logo?: string | null, copies = 1): Promise<void> {
   return new Promise((resolve) => {
     const lay = layout(doc, paper === '58' ? 32 : 48);
     const rows = lay.length + lay.filter((r) => r.qr).length * 7;
@@ -157,17 +157,19 @@ export function systemPrint(doc: PrintDoc, paper: Paper, logo?: string, copies =
 }
 
 // ---------- Image du ticket (à partager) ----------
-export async function docImage(doc: PrintDoc, paper: Paper, logo?: string): Promise<Blob> {
+export async function docImage(doc: PrintDoc, paper: Paper, logo?: string | null): Promise<Blob> {
   const cols = paper === '58' ? 32 : 48;
   const rows = layout(doc, cols);
   const scale = 2, charW = 12, lineH = 26, pad = 24;
   const width = cols * charW + pad * 2;
-  let logoImg: HTMLImageElement | null = null;
-  if (logo && rows.some((r) => r.logo)) { logoImg = new Image(); logoImg.src = logo; try { await logoImg.decode(); } catch { logoImg = null; } }
-  const logoH = logoImg ? Math.min(140, (logoImg.height * Math.min(width * 0.5, logoImg.width)) / logoImg.width) : 0;
+  // Un logo par ligne « logo » (plusieurs étiquettes de pages différentes dans un même document).
+  const imgs = new Map<string, HTMLImageElement | null>();
+  for (const r of rows) { const src = r.logo ? logoFor(r, logo) : undefined; if (src && !imgs.has(src)) { const im = new Image(); im.src = src; try { await im.decode(); imgs.set(src, im); } catch { imgs.set(src, null); } } }
+  const imgOf = (r: Row) => { const src = logoFor(r, logo); return src ? imgs.get(src) ?? null : null; };
+  const hOf = (im: HTMLImageElement | null) => (im ? Math.min(140, (im.height * Math.min(width * 0.5, im.width)) / im.width) : 0);
   const qrPx = 5;
   const qrH = (r: Row) => (qrMatrix(r.qr!).length + 8) * qrPx;
-  const height = pad * 2 + rows.reduce((h, r) => h + (r.qr ? qrH(r) : r.logo ? (logoImg ? logoH + 10 : 0) : r.cut ? 30 : r.big ? lineH * 2 : lineH), 0);
+  const height = pad * 2 + rows.reduce((h, r) => h + (r.qr ? qrH(r) : r.logo ? (imgOf(r) ? hOf(imgOf(r)) + 10 : 0) : r.cut ? 30 : r.big ? lineH * 2 : lineH), 0);
   const canvas = document.createElement('canvas');
   canvas.width = width * scale; canvas.height = height * scale;
   const ctx = canvas.getContext('2d')!;
@@ -177,7 +179,8 @@ export async function docImage(doc: PrintDoc, paper: Paper, logo?: string): Prom
   let y = pad;
   for (const r of rows) {
     if (r.logo) {
-      if (logoImg) { const w = (logoImg.width * logoH) / logoImg.height; ctx.drawImage(logoImg, (width - w) / 2, y, w, logoH); y += logoH + 10; }
+      const im = imgOf(r);
+      if (im) { const lh = hOf(im); const w = (im.width * lh) / im.height; ctx.drawImage(im, (width - w) / 2, y, w, lh); y += lh + 10; }
       continue;
     }
     if (r.qr) {
@@ -196,7 +199,7 @@ export async function docImage(doc: PrintDoc, paper: Paper, logo?: string): Prom
   return new Promise((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('Image impossible'))), 'image/png'));
 }
 
-export async function shareImage(doc: PrintDoc, paper: Paper, logo?: string) {
+export async function shareImage(doc: PrintDoc, paper: Paper, logo?: string | null) {
   const blob = await docImage(doc, paper, logo);
   const name = doc.title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') + '.png';
   const file = new File([blob], name || 'ticket.png', { type: 'image/png' });

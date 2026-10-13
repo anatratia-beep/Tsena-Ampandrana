@@ -1,5 +1,5 @@
 // Langage ESC/POS : celui des imprimantes à tickets (58 mm et 80 mm, Bluetooth ou USB).
-import { layout, type PrintDoc } from './doc';
+import { layout, logoFor, type PrintDoc } from './doc';
 
 export type Charset = 'cp858' | 'wpc1252' | 'ascii';
 export const CHARSETS: Record<Charset, string> = {
@@ -60,17 +60,18 @@ export async function logoRaster(dataUrl: string, dots: number): Promise<number[
   return [GS, 0x76, 0x30, 0x00, bytesPerRow & 0xff, bytesPerRow >> 8, h & 0xff, h >> 8, ...data];
 }
 
-export async function encodeDoc(doc: PrintDoc, o: { cols: number; charset: Charset; cut: boolean; logo?: string; copies?: number }): Promise<Uint8Array> {
+export async function encodeDoc(doc: PrintDoc, o: { cols: number; charset: Charset; cut: boolean; logo?: string | null; copies?: number }): Promise<Uint8Array> {
   const dots = o.cols >= 48 ? 576 : 384;
   const rows = layout(doc, o.cols);
-  let logo: number[] = [];
-  if (o.logo && rows.some((r) => r.logo)) { try { logo = await logoRaster(o.logo, dots); } catch { logo = []; } }
+  // Un logo par ligne « logo » : celui de la page si le document en a un, sinon celui de la société.
+  const rasters = new Map<string, number[]>();
+  for (const r of rows) { const src = r.logo ? logoFor(r, o.logo) : undefined; if (src && !rasters.has(src)) { try { rasters.set(src, await logoRaster(src, dots)); } catch { rasters.set(src, []); } } }
   const one: number[] = [ESC, 0x40]; // initialisation
   const table = o.charset === 'cp858' ? 19 : o.charset === 'wpc1252' ? 16 : 0;
   one.push(ESC, 0x74, table);
   let bold = false, big = false;
   for (const r of rows) {
-    if (r.logo) { if (logo.length) one.push(ESC, 0x61, 1, ...logo, ESC, 0x61, 0); continue; }
+    if (r.logo) { const src = logoFor(r, o.logo); const logo = src ? rasters.get(src) ?? [] : []; if (logo.length) one.push(ESC, 0x61, 1, ...logo, ESC, 0x61, 0); continue; }
     if (r.qr) {
       const data = [...new TextEncoder().encode(r.qr)];
       const len = data.length + 3;

@@ -72,7 +72,7 @@ export const findPrinter = (id: string) => (id === SYSTEM_PRINTER.id ? SYSTEM_PR
 
 /** Imprime sur une imprimante de cet appareil. */
 export async function printOn(p: Printer, doc: PrintDoc, copies = 1) {
-  const logo = p.logo ? company().logo : undefined;
+  const logo = p.logo ? company().logo ?? '' : null; // null : pas de logo sur cette imprimante
   if (p.kind === 'system') return systemPrint(doc, p.paper, logo, copies);
   if (!p.ref) throw new Error(`L’imprimante « ${p.name} » n’est pas encore appairée : ouvrez Paramètres → Imprimantes.`);
   const data = await encodeDoc(doc, { cols: colsOf(p.paper), charset: p.charset, cut: p.cut, logo, copies });
@@ -82,7 +82,7 @@ export async function printOn(p: Printer, doc: PrintDoc, copies = 1) {
 /** Imprime vers un choix (imprimante, poste partagé ou image). Renvoie un message pour l'utilisateur. */
 export async function printTo(targetId: string, doc: PrintDoc, copies = 1): Promise<string> {
   await setMeta('printDefault', targetId);
-  if (targetId === SHARE_TARGET) { await shareImage(doc, '58', company().logo); return 'Image prête'; }
+  if (targetId === SHARE_TARGET) { await shareImage(doc, '58', company().logo ?? ''); return 'Image prête'; }
   if (targetId.startsWith('station:')) {
     const stationId = targetId.slice(8);
     const st = get<PrintStation>('printStations', stationId);

@@ -10,6 +10,7 @@ import {
   makeAttr, saveArticles, shortId, suggestCatCode, suggestCode, usageOf, type Selection,
 } from '../lib/attrs';
 import { downloadBlob } from '../lib/xlsx';
+import { resizeImage } from '../lib/settings';
 import { Help, Button, Confirm, Empty, IconButton, Modal, PageHead, Req, SelectField, TextField, navigate, toast } from '../ui/kit';
 import { Icon } from '../ui/icons';
 
@@ -42,9 +43,12 @@ export function CategoriesPage() {
             return (
               <div key={c.id} className="card stack-s cat-card">
                 <div className="row-between" style={{ alignItems: 'flex-start' }}>
-                  <div style={{ minWidth: 0 }}>
+                  <div className="row" style={{ minWidth: 0, gap: 10, flexWrap: 'nowrap', alignItems: 'center' }}>
+                    {!c.parentId && <span className="page-logo" title={c.logo ? 'Logo de la page' : 'Pas encore de logo'}>{c.logo ? <img src={c.logo} alt="" /> : <Icon name="store" size={18} />}</span>}
+                    <div style={{ minWidth: 0 }}>
                     <h3 style={{ margin: 0 }}>{categoryPath(c.id)}</h3>
-                    <p className="small muted">Code {c.code || '—'} · {n} article(s)</p>
+                    <p className="small muted">Code {c.code || '—'} · {n} article(s){!c.parentId && c.ticketName ? ` · ticket : ${c.ticketName}` : ''}</p>
+                    </div>
                   </div>
                   {editable && <IconButton icon="edit" label="Modifier la page et ses variantes" onClick={() => setEdit(c)} />}
                 </div>
@@ -80,6 +84,12 @@ function CategoryEditor({ cat, onClose }: { cat?: Category; onClose: () => void 
   const [parentId, setParentId] = useState(cat?.parentId ?? '');
   const [attrs, setAttrs] = useState<CatAttr[]>(() => JSON.parse(JSON.stringify(cat?.attrs ?? [])));
   const [preset, setPreset] = useState('');
+  const [logo, setLogo] = useState<string | undefined>(cat?.logo);
+  const [ticketName, setTicketName] = useState(cat?.ticketName ?? '');
+  const [slogan, setSlogan] = useState(cat?.slogan ?? '');
+  const [phone, setPhone] = useState(cat?.phone ?? '');
+  const [footer, setFooter] = useState(cat?.ticketFooter ?? '');
+  const logoRef = useRef<HTMLInputElement>(null);
   const products = useTable<Product>('products').filter((p) => cat && p.categoryId === cat.id);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -103,7 +113,9 @@ function CategoryEditor({ cat, onClose }: { cat?: Category; onClose: () => void 
       if (new Set(codes).size !== codes.length) return setError(`${a.name} : deux valeurs ont le même code court.`);
     }
     setBusy(true);
-    const data = { name: name.trim(), code: c, parentId: parentId || undefined, attrs: attrs.map((a) => ({ ...a, name: a.name.trim(), values: a.values.map((v) => ({ ...v, label: v.label.trim(), code: v.code.trim().toUpperCase() })) })) };
+    const brand = parentId ? { logo: undefined, ticketName: undefined, slogan: undefined, phone: undefined, ticketFooter: undefined }
+      : { logo, ticketName: ticketName.trim() || undefined, slogan: slogan.trim() || undefined, phone: phone.trim() || undefined, ticketFooter: footer.trim() || undefined };
+    const data = { name: name.trim(), code: c, parentId: parentId || undefined, ...brand, attrs: attrs.map((a) => ({ ...a, name: a.name.trim(), values: a.values.map((v) => ({ ...v, label: v.label.trim(), code: v.code.trim().toUpperCase() })) })) };
     try {
       if (cat) { await save('categories', { id: cat.id, ...data }); await audit('Page modifiée', `${data.name} : ${data.attrs.map((a) => `${a.name} (${a.values.length})`).join(', ')}`, 'categories', cat.id); toast('Page enregistrée'); onClose(); }
       else { const [n] = await save('categories', data); await audit('Page créée', data.name, 'categories', n.id); toast('Page créée — vous pouvez maintenant créer ses articles'); onClose(); }
@@ -121,6 +133,26 @@ function CategoryEditor({ cat, onClose }: { cat?: Category; onClose: () => void 
         {cat && products.length > 0 && <div className="notice"><Icon name="alert" /><span>Cette page a déjà <strong>{products.length} article(s)</strong>. Changer un <strong>libellé</strong> change ce qui s’affiche pour ces articles ; changer un <strong>code court</strong> ne renomme pas les articles déjà créés. Une variante ou une valeur utilisée ne peut pas être supprimée : elle se désactive.</span></div>}
         {(parentId || cats.some((x) => x.parentId)) && (
           <SelectField label="Rangée dans (facultatif)" value={parentId} onChange={setParentId} options={[{ value: '', label: 'Aucune — c’est une page' }, ...cats.filter((x) => x.id !== cat?.id && !x.parentId).map((x) => ({ value: x.id, label: x.name }))]} />
+        )}
+        {!parentId && (
+          <div className="card stack-s page-brand" style={{ background: 'var(--surface-2)' }}>
+            <strong>Logo et ticket de la page</strong>
+            <Help>Les tickets de caisse, bons de livraison et étiquettes des ventes de cette page portent son nom, son logo, son téléphone et son message, à la place de ceux de la société. Une commande avec des articles de plusieurs pages prend la page qui pèse le plus dans la commande. Laissez vide pour reprendre ceux de la société.</Help>
+            <div className="row" style={{ alignItems: 'center', gap: 12 }}>
+              <div className="logo-preview">{logo ? <img src={logo} alt="Logo de la page" /> : <Icon name="store" size={28} />}</div>
+              <Button variant="ghost" icon="upload" onClick={() => logoRef.current?.click()}>{logo ? 'Changer le logo' : 'Ajouter le logo de la page'}</Button>
+              {logo && <Button variant="quiet" onClick={() => setLogo(undefined)}>Retirer</Button>}
+              <input ref={logoRef} type="file" accept="image/*" hidden aria-label="Logo de la page" onChange={async (e) => { const f = e.target.files?.[0]; if (f) { try { setLogo(await resizeImage(f)); } catch (err: any) { toast(err.message, 'error'); } } e.target.value = ''; }} />
+            </div>
+            <div className="grid-2">
+              <TextField label="Nom sur le ticket" value={ticketName} onChange={setTicketName} placeholder={name || 'Nom de la page'} hint="Vide = nom de la page." />
+              <TextField label="Téléphone de la page" value={phone} onChange={setPhone} type="tel" inputMode="tel" placeholder="Vide = téléphone de la société" />
+            </div>
+            <div className="grid-2">
+              <TextField label="Slogan (facultatif)" value={slogan} onChange={setSlogan} />
+              <TextField label="Message en bas du ticket" value={footer} onChange={setFooter} placeholder="Vide = message de la société" />
+            </div>
+          </div>
         )}
         {!cat && (
           <div className="stack-s">

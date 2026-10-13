@@ -1182,3 +1182,7 @@ tr.row-error td { background: var(--danger-soft); }
 @media (min-width: 700px) { .recap-table .rc-label { position: sticky; left: 0; background: var(--surface); z-index: 1; } }
 .cap-first { display: inline-block; } .cap-first::first-letter { text-transform: uppercase; }
 .recap-kpis .stat-value { font-size: clamp(1.2rem, 2vw, 1.6rem); overflow-wrap: anywhere; }
+
+/* Logo de chaque page (liste des pages) */
+.page-logo { flex: 0 0 auto; width: 40px; height: 40px; border-radius: 10px; background: var(--surface-2); display: grid; place-items: center; overflow: hidden; color: var(--muted); }
+.page-logo img { width: 100%; height: 100%; object-fit: contain; }

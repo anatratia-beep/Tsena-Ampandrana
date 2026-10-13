@@ -8,7 +8,11 @@ export interface AttrValue { id: string; label: string; code: string; active?: b
 /** Variante définie au niveau de la catégorie (ex. Modèle, Type, Puissance, Taille…). */
 export interface CatAttr { id: string; name: string; required?: boolean; active?: boolean; values: AttrValue[] }
 /** Catégorie = page Facebook. Elle porte ses variantes (sans limite) et un code court (ex. LAMP). */
-export interface Category extends BaseRecord { name: string; parentId?: string; order?: number; code?: string; attrs?: CatAttr[] }
+export interface Category extends BaseRecord {
+  name: string; parentId?: string; order?: number; code?: string; attrs?: CatAttr[];
+  /** Page (catégorie principale) : ce qui figure en tête des tickets de ses ventes. */
+  logo?: string; ticketName?: string; slogan?: string; phone?: string; ticketFooter?: string;
+}
 export interface Product extends BaseRecord {
   code: string;
   name: string;
