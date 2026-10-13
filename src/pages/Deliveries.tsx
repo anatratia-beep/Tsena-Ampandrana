@@ -15,7 +15,7 @@ import { CourierReturn } from './CourierReturn';
 import { useCompany } from '../lib/settings';
 import { deliveryNoteDoc, joinDocs, parcelLabelDoc, routeSheetDoc } from '../lib/print';
 import { PrintButton } from '../ui/print';
-import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, courierBalance, deferredOrders, deliveryNet, feeState, payDeferredFees, settleCourier, type AccountId, type CourierSettlement } from '../lib/money';
+import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, courierBalance, courierRemovalBlockers, removeCourier, deferredOrders, deliveryNet, feeState, payDeferredFees, settleCourier, type AccountId, type CourierSettlement } from '../lib/money';
 
 const TABS = [
   { key: 'livreurs', label: 'Comptes livreurs', perm: 'couriers.view' },
@@ -36,7 +36,7 @@ function useDelivFilters(initial: Period['key'] = 'all') {
 type DF = ReturnType<typeof useDelivFilters>;
 function DelivFilters({ f, dateLabel, searchHint, noPage }: { f: DF; dateLabel: string; searchHint?: string; noPage?: boolean }) {
   const pages = allPages();
-  const couriers = useTable<Courier>('couriers').filter((c) => c.active !== false).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  const couriers = useTable<Courier>('couriers').filter((c) => c.active !== false && !c.removed).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   return (
     <div className="card stack-s deliv-filters">
       <div className="row">
@@ -182,8 +182,9 @@ function Couriers() {
   const [edit, setEdit] = useState<Courier | 'new' | null>(null);
   const [open, setOpen] = useState<Courier | null>(null);
   const [settle, setSettle] = useState<Courier | null>(null);
-  useTable<CourierSettlement>('courierSettlements');
-  const sorted = [...couriers].filter((c) => (!f.courierId || c.id === f.courierId) && (!f.q.trim() || matchQuery(`${c.name} ${c.phone ?? ''} ${c.notes ?? ''}`, f.q))).sort((a, b) => Number(b.active !== false) - Number(a.active !== false) || a.name.localeCompare(b.name));
+  const [del, setDel] = useState<Courier | null>(null);
+  useTable<CourierSettlement>('courierSettlements'); useTable('users');
+  const sorted = [...couriers].filter((c) => !c.removed && (!f.courierId || c.id === f.courierId) && (!f.q.trim() || matchQuery(`${c.name} ${c.phone ?? ''} ${c.notes ?? ''}`, f.q))).sort((a, b) => Number(b.active !== false) - Number(a.active !== false) || a.name.localeCompare(b.name));
   return (
     <>
       <div className="card stack">
@@ -209,7 +210,7 @@ function Couriers() {
                       <td className={`t-num ${a.due > 0 ? '' : a.due < 0 ? 'neg' : ''}`}><strong>{a.due > 0 ? `rend ${fmtAr(a.due)}` : a.due < 0 ? `à lui verser ${fmtAr(-a.due)}` : '—'}</strong></td>
                       <td className={`t-num ${bal < 0 ? 'neg' : ''}`}><strong>{bal > 0 ? `doit ${fmtAr(bal)}` : bal < 0 ? `à lui verser ${fmtAr(-bal)}` : '✓ à jour'}</strong></td>
                       <td className="t-num">{(() => { const d = deferredOrders(c.id); const t = d.reduce((x, o) => x + courierSplit(o).fee, 0); return t ? <Badge tone="danger">{fmtAr(t)} à payer ({d.length})</Badge> : <span className="muted small">aucun</span>; })()}</td>
-                      <td className="t-actions"><div className="row" style={{ gap: 4, flexWrap: 'nowrap', justifyContent: 'flex-end' }}><span onClick={(e) => e.stopPropagation()}><PrintButton variant="quiet" label="Ticket" docs={[{ key: 'liste', label: 'Livraisons à verser', build: () => routeSheetDoc(c, courierBalance(c.id).pending, company, 'LIVRAISONS À VERSER') }]} /></span>{can('couriers.settle') && <Button variant="ghost" className="btn-sm" onClick={(e) => { e.stopPropagation(); navigate('/livraisons/retour'); }}>Régler</Button>}{can('couriers.manage') && <IconButton icon="edit" label="Modifier" onClick={(e) => { e.stopPropagation(); setEdit(c); }} />}</div></td>
+                      <td className="t-actions"><div className="row" style={{ gap: 4, flexWrap: 'nowrap', justifyContent: 'flex-end' }}><span onClick={(e) => e.stopPropagation()}><PrintButton variant="quiet" label="Ticket" docs={[{ key: 'liste', label: 'Livraisons à verser', build: () => routeSheetDoc(c, courierBalance(c.id).pending, company, 'LIVRAISONS À VERSER') }]} /></span>{can('couriers.settle') && <Button variant="ghost" className="btn-sm" onClick={(e) => { e.stopPropagation(); navigate('/livraisons/retour'); }}>Régler</Button>}{can('couriers.manage') && <IconButton icon="edit" label="Modifier" onClick={(e) => { e.stopPropagation(); setEdit(c); }} />}{can('couriers.manage') && <IconButton icon="trash" label={`Supprimer le livreur ${c.name}`} onClick={(e) => { e.stopPropagation(); setDel(c); }} />}</div></td>
                     </tr>
                   );
                 })}
@@ -220,6 +221,7 @@ function Couriers() {
       </div>
       <Help>Solde = argent encaissé auprès des clients − frais de livraison gagnés. « Rend » : le livreur doit cette somme à la boutique. « À lui verser » : la boutique lui doit ses frais (ex. client qui a tout payé par MVola à la boutique). « Solde à verser » : argent encaissé pour la boutique sur toutes les livraisons pas encore versées (sans les frais du livreur), moins les frais à lui reverser, plus le reste des versements précédents. « Ticket » imprime la liste à remettre au livreur. Les règlements se font dans la commande (« Retour du livreur », quand elle passe de En livraison à Terminée) ou, pour plusieurs colis à la fois, dans « Retour livreur » (bouton « Régler »).</Help>
       {edit && <CourierForm courier={edit === 'new' ? undefined : edit} onClose={() => setEdit(null)} />}
+      {del && <DeleteCourier c={del} onClose={() => setDel(null)} />}
       {open && <CourierOrders courier={open} onClose={() => setOpen(null)} />}
       {settle && <SettleModal courier={settle} onClose={() => setSettle(null)} />}
     </>
@@ -352,6 +354,23 @@ function CourierOrders({ courier, onClose }: { courier: Courier; onClose: () => 
         message={<div className="stack-s"><p>{pay === 'all' ? `${deferred.length} livraison(s) : ${fmtAr(deferredSum)} de frais différés.` : `Frais de ${pay.number} : ${fmtAr(courierSplit(pay).fee)}.`}</p>
           <SelectField label="Payé depuis" value={acc} onChange={(v) => setAcc(v as AccountId)} options={ACCOUNT_IDS.map((a) => ({ value: a, label: ACCOUNTS[a] }))} /></div>} />}
     </Modal>
+  );
+}
+
+function DeleteCourier({ c, onClose }: { c: Courier; onClose: () => void }) {
+  const blockers = courierRemovalBlockers(c.id);
+  const users = useTable<{ id: string; username: string; courierId?: string; removed?: boolean } & Record<string, any>>('users').filter((u) => u.courierId === c.id && !u.removed);
+  if (blockers.length) return (
+    <Modal title={`Supprimer ${c.name} ?`} onClose={onClose} footer={<Button onClick={onClose}>Compris</Button>}>
+      <div className="notice notice-danger"><Icon name="alert" /><div className="stack-s"><strong>Impossible pour le moment</strong>{blockers.map((b) => <span key={b} className="small">• {b}</span>)}</div></div>
+    </Modal>
+  );
+  return (
+    <Confirm title={`Supprimer le livreur ${c.name} ?`} danger confirmLabel="Supprimer le livreur" typeToConfirm="SUPPRIMER" onClose={onClose}
+      message={<div className="stack-s"><p>{c.name} disparaîtra des listes et ne pourra plus recevoir de colis. Ses anciennes livraisons et ses règlements gardent son nom dans l’historique et les rapports.</p>
+        {users.length > 0 && <p className="small"><strong>Son accès à l’application ({users.map((u) => u.username).join(', ')}) sera supprimé aussi.</strong></p>}
+        <p className="small muted">Pour une simple pause (congé…), modifiez-le plutôt et décochez « Livreur actif ».</p></div>}
+      onConfirm={async () => { await removeCourier(c); toast(`Livreur ${c.name} supprimé`); }} />
   );
 }
 

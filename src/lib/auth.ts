@@ -18,6 +18,8 @@ export interface User extends BaseRecord {
   pageIds?: string[];
   /** Rôle Livreur : sa fiche livreur (colis, compte). */
   courierId?: string;
+  /** Compte supprimé : plus d'accès, caché des listes ; son nom reste dans l'historique (ventes, versements…). */
+  removed?: boolean; removedAt?: string; removedBy?: string;
 }
 export interface Role extends BaseRecord {
   name: string;
@@ -125,7 +127,19 @@ export function useCan() {
 export const normUsername = (s: string) => s.trim().toLowerCase();
 export function findUser(username: string): User | undefined {
   const n = normUsername(username);
-  return all<User>('users').find((u) => u.username === n);
+  return all<User>('users').find((u) => u.username === n && !u.removed);
+}
+
+/**
+ * Supprimer un compte (vendeur, responsable, livreur…) : il ne peut plus se connecter et disparaît des listes.
+ * Ses ventes, ses versements et le journal gardent son nom. Son identifiant est libéré pour un nouveau compte.
+ */
+export async function removeUser(u: User) {
+  const me = currentUser();
+  if (u.id === SUPERADMIN_ID || u.roleId === SUPERADMIN_ROLE) throw new Error('Le compte super-admin ne peut pas être supprimé.');
+  if (u.id === me?.id) throw new Error('Vous ne pouvez pas supprimer votre propre compte.');
+  await save('users', { id: u.id, active: false, removed: true, removedAt: new Date().toISOString(), removedBy: me?.fullName, username: `${u.username}~supprime-${u.id.slice(0, 6)}` });
+  await audit('Utilisateur supprimé', `${u.fullName} (${u.username}, ${roleOf(u)?.name ?? '?'})`, 'users', u.id);
 }
 
 const LOCK_AFTER = 5;

@@ -9,7 +9,7 @@ import { adjustsKeptTotal, adjustsTotal, computeAdjusts, type Adjust } from './l
 export interface Zone extends BaseRecord { name: string; fee: number; order?: number; active: boolean; pickup?: boolean }
 /** Zone « Sur boutique » : le client vient chercher, pas de frais ni de livreur. */
 export const isPickupZone = (z?: Zone | string) => { const zone = typeof z === 'string' ? get<Zone>('zones', z) : z; return !!zone && (zone.pickup || zone.id === 'zone-retrait'); };
-export interface Courier extends BaseRecord { name: string; phone?: string; zoneIds?: string[]; active: boolean; notes?: string; userId?: string; feeClaimAt?: string }
+export interface Courier extends BaseRecord { name: string; phone?: string; zoneIds?: string[]; active: boolean; notes?: string; userId?: string; feeClaimAt?: string; removed?: boolean; removedAt?: string; removedBy?: string }
 export interface Customer extends BaseRecord { phone?: string; phone2?: string; name?: string; facebook?: string; place?: string; zoneId?: string; notes?: string }
 
 export type OrderStatus = 'new' | 'confirmed' | 'ready' | 'out' | 'delivered' | 'partial' | 'refused' | 'cancelled';

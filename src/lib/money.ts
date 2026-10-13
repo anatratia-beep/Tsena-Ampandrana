@@ -1,7 +1,7 @@
 // Trésorerie : comptes (caisse, mobile money, banque), mouvements, dépenses et revenus, règlements des
 // livreurs, chiffres d'une journée et clôture (« Z de caisse »).
 import { all, applyRemote, bizNow, dataVersion, get, newId, nowIso, remove, save, workDate, type BaseRecord } from './db';
-import { audit, currentUser } from './auth';
+import { audit, currentUser, type User } from './auth';
 import { assertOpenAt } from './closed';
 import { variantCost, type Variant } from './catalog';
 import { adjustsKeptTotal, adjustsTotal } from './lots';
@@ -293,6 +293,31 @@ export async function settleCourier(c: Courier, orderIds: string[], amount: numb
   if (orderIds.length) await save('orders', orderIds.map((id) => ({ id, courierSettledAt: at })));
   await audit('Versement livreur', `${c.name} : ${amount >= 0 ? 'remis ' + amount : 'versé ' + -amount} Ar (${ACCOUNTS[account]}) — attendu ${expected} Ar, ${orderIds.length} livraison(s) cochée(s)`, 'courierSettlements', s.id);
   return s as CourierSettlement;
+}
+
+/** Ce qui empêche de supprimer un livreur : colis encore chez lui, argent pas réglé, frais encore dus. */
+export function courierRemovalBlockers(courierId: string): string[] {
+  const b = courierBalance(courierId);
+  const out: string[] = [];
+  if (b.outOrders) out.push(`${b.outOrders} colis encore en livraison chez lui : faites d’abord le retour du livreur.`);
+  if (Math.round(b.due) > 0) out.push(`Il doit encore ${Math.round(b.due).toLocaleString('fr-FR')} Ar à la boutique : faites d’abord son règlement.`);
+  if (Math.round(b.due) < 0) out.push(`La boutique lui doit encore ${Math.round(-b.due).toLocaleString('fr-FR')} Ar (frais) : payez-le d’abord.`);
+  const waiting = all<Order>('orders').filter((o) => o.courierId === courierId && (o.status === 'confirmed' || o.status === 'ready' || o.status === 'new')).length;
+  if (waiting) out.push(`${waiting} commande(s) en attente lui sont déjà attribuées : changez de livreur d’abord.`);
+  return out;
+}
+/**
+ * Supprimer un livreur : il disparaît des listes et ne peut plus recevoir de colis. Ses anciennes livraisons et ses
+ * règlements gardent son nom. Son compte de connexion (rôle Livreur), s'il en a un, est supprimé aussi.
+ */
+export async function removeCourier(c: Courier) {
+  const blockers = courierRemovalBlockers(c.id);
+  if (blockers.length) throw new Error(blockers.join(' '));
+  const me = currentUser();
+  await save('couriers', { id: c.id, active: false, removed: true, removedAt: new Date().toISOString(), removedBy: me?.fullName });
+  const linked = all<User>('users').filter((u) => u.courierId === c.id && !u.removed);
+  for (const u of linked) await save('users', { id: u.id, active: false, removed: true, removedAt: new Date().toISOString(), removedBy: me?.fullName, username: `${u.username}~supprime-${u.id.slice(0, 6)}` });
+  await audit('Livreur supprimé', `${c.name}${linked.length ? ` (et son accès : ${linked.map((u) => u.username).join(', ')})` : ''}`, 'couriers', c.id);
 }
 
 // ---------- Récapitulatif d'une journée ou d'une semaine ----------

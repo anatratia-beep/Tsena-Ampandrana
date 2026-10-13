@@ -1,6 +1,6 @@
 // Gestion des utilisateurs : seul l'admin crée les comptes et attribue les rôles.
 import { useMemo, useState } from 'react';
-import { audit, normUsername, roleOf, setPassword, SUPERADMIN_ID, useCurrentUser, type Role, type User, useMe } from '../lib/auth';
+import { audit, normUsername, removeUser, roleOf, setPassword, SUPERADMIN_ID, useCurrentUser, type Role, type User, useMe } from '../lib/auth';
 import { hashSecret } from '../lib/crypto';
 import { save, useTable } from '../lib/db';
 import { ADMIN_ROLE, SUPERADMIN_ROLE } from '../lib/permissions';
@@ -10,6 +10,9 @@ import { pageNames, userPages } from '../lib/scope';
 import type { Category } from '../lib/catalog';
 import type { Courier } from '../lib/orders';
 import { COURIER_ROLE } from '../lib/permissions';
+import { sellerDay } from '../lib/handovers';
+import { today } from '../lib/money';
+import { fmtAr } from '../lib/catalog';
 
 /** Mot de passe provisoire facile à dicter : 3 lettres + 4 chiffres. */
 function tempPassword() {
@@ -20,8 +23,9 @@ function tempPassword() {
 
 export function UsersPage() {
   const me = useMe();
-  const users = useTable<User>('users');
+  const users = useTable<User>('users').filter((u) => !u.removed);
   const roles = useTable<Role>('roles');
+  const [del, setDel] = useState<User | null>(null);
   const [q, setQ] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [editing, setEditing] = useState<User | 'new' | null>(null);
@@ -73,6 +77,7 @@ export function UsersPage() {
                   <div className="row" style={{ gap: 0 }}>
                     <IconButton icon="key" label="Nouveau mot de passe" onClick={() => setResetFor(u)} />
                     <IconButton icon="edit" label="Modifier" onClick={() => setEditing(u)} />
+                    {u.id !== me.id && u.roleId !== SUPERADMIN_ROLE && u.id !== SUPERADMIN_ID && <IconButton icon="trash" label={`Supprimer ${u.fullName}`} onClick={() => setDel(u)} />}
                   </div>
                 )}
               </li>
@@ -83,6 +88,8 @@ export function UsersPage() {
 
       {editing && <UserForm user={editing === 'new' ? null : editing} me={me} roles={roles} users={users}
         onClose={() => setEditing(null)} onCreated={(user, pwd) => setShownPwd({ user, pwd })} />}
+
+      {del && <DeleteUser u={del} onClose={() => setDel(null)} />}
 
       {resetFor && <Confirm title="Nouveau mot de passe" confirmLabel="Générer"
         message={<p>Un nouveau mot de passe va être créé pour <strong>{resetFor.fullName}</strong>. L'ancien ne fonctionnera plus.</p>}
@@ -113,6 +120,22 @@ export function UsersPage() {
   );
 }
 
+function DeleteUser({ u, onClose }: { u: User; onClose: () => void }) {
+  useTable('orders'); useTable('cashMoves'); useTable('handovers');
+  const d = sellerDay(u, today());
+  const owes = !d.handover && Math.round(d.toPay) > 0;
+  return (
+    <Confirm title={`Supprimer ${u.fullName} ?`} danger confirmLabel="Supprimer le compte" typeToConfirm="SUPPRIMER" onClose={onClose}
+      message={<div className="stack-s">
+        <p><strong>{u.fullName}</strong> ({roleOf(u)?.name ?? '?'}) ne pourra plus se connecter et disparaîtra des listes. Ses ventes, ses commandes, ses versements et le journal gardent son nom. L’identifiant « {u.username} » redevient libre.</p>
+        {owes && <div className="notice"><Icon name="alert" /><span>Il doit encore remettre <strong>{fmtAr(d.toPay)}</strong> au responsable aujourd’hui (Versements vendeurs).</span></div>}
+        {u.courierId && <p className="small muted">Sa fiche livreur reste dans Livraisons → Livreurs : supprimez-la là-bas si besoin.</p>}
+        <p className="small muted">Pour bloquer l’accès seulement pour un temps, modifiez-le plutôt et décochez « Compte actif ».</p>
+      </div>}
+      onConfirm={async () => { await removeUser(u); toast(`${u.fullName} supprimé`); }} />
+  );
+}
+
 function UserForm({ user, me, roles, users, onClose, onCreated }: { user: User | null; me: User; roles: Role[]; users: User[]; onClose: () => void; onCreated: (u: User, pwd: string) => void }) {
   const [fullName, setFullName] = useState(user?.fullName ?? '');
   const [username, setUsername] = useState(user?.username ?? '');
@@ -123,7 +146,7 @@ function UserForm({ user, me, roles, users, onClose, onCreated }: { user: User |
   const [pageIds, setPageIds] = useState<string[]>(user?.pageIds ?? []);
   const couriers = useTable<Courier>('couriers');
   const isCourier = roleId === COURIER_ROLE;
-  const freeCouriers = couriers.filter((c) => c.id === user?.courierId || !users.some((u) => u.courierId === c.id));
+  const freeCouriers = couriers.filter((c) => !c.removed && (c.id === user?.courierId || !users.some((u) => u.courierId === c.id)));
   const [courierId, setCourierId] = useState(user?.courierId ?? '__new');
   const pages = useTable<Category>('categories').filter((c) => !c.parentId).sort((a, b) => a.name.localeCompare(b.name));
   // Mot de passe : visible et modifiable uniquement par le super-admin et le gérant.

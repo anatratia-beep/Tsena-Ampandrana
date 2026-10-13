@@ -32,7 +32,7 @@ export function RolesPage() {
 
       <div className="grid-2">
         {ordered.map((r) => {
-          const count = users.filter((u) => u.roleId === r.id).length;
+          const count = users.filter((u) => u.roleId === r.id && !u.removed).length;
           return (
             <div key={r.id} className="card stack-s">
               <div className="row-between" style={{ minHeight: 44 }}>
