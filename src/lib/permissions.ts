@@ -32,6 +32,7 @@ export const PERMISSIONS: PermissionDef[] = [
   { group: 'Rapports', key: 'reports.view', label: 'Voir les rapports complets' },
   { group: 'Administration', key: 'users.manage', label: 'Créer les utilisateurs et donner les accès' },
   { group: 'Administration', key: 'settings.company', label: 'Modifier la société (nom, logo, couleur)' },
+  { group: 'Administration', key: 'records.correct', label: 'Corriger les erreurs : annuler ou corriger une vente terminée, une réception, un mouvement de stock (super-admin, gérant)' },
   { group: 'Administration', key: 'audit.view', label: "Consulter le journal d'activité" },
   { group: 'Administration', key: 'backup.manage', label: 'Faire et télécharger des sauvegardes' },
   { group: 'Administration', key: 'system.admin', label: 'Restaurer, réinitialiser, réparer (super-admin)' },

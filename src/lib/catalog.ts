@@ -301,6 +301,31 @@ export function matchQuery(text: string, q: string) {
   const t = normText(text);
   return words.every((w) => t.includes(w));
 }
+/**
+ * Correspondance exacte : chaque mot cherché est un mot entier du texte (« PH6 » trouve « PH6 », « LAMP-PH6-B22 »,
+ * mais pas « PH60 » ni « PH61 »). Les mots de lettres seules (« lampe ») restent cherchés en début de mot.
+ */
+export function matchExact(text: string, q: string) {
+  const words = normText(q).split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const t = normText(text);
+  return words.every((w) => {
+    const esc = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return /\d/.test(w) ? new RegExp(`(^|[^a-z0-9])${esc}($|[^a-z0-9])`).test(t) : new RegExp(`(^|[^a-z0-9])${esc}`).test(t);
+  });
+}
+/**
+ * Recherche avec priorité aux résultats exacts : si des éléments correspondent exactement (« PH6 »), seuls eux sont
+ * gardés ; les résultats approchants (« PH60 », « PH61 »…) sont comptés dans `others`, à afficher sur demande.
+ */
+export function searchItems<T>(items: T[], textOf: (x: T) => string, q: string, showOthers = false): { list: T[]; others: number } {
+  if (!q.trim()) return { list: items, others: 0 };
+  const loose = items.filter((x) => matchQuery(textOf(x), q));
+  const exact = loose.filter((x) => matchExact(textOf(x), q));
+  if (!exact.length || exact.length === loose.length) return { list: loose, others: 0 };
+  return showOthers ? { list: [...exact, ...loose.filter((x) => !exact.includes(x))], others: 0 } : { list: exact, others: loose.length - exact.length };
+}
+
 /** Texte de recherche d'un article : code, nom, valeurs des variantes (libellés et codes), codes des variantes. */
 export function productText(p: Product) {
   const parts = [p.code, p.name];

@@ -305,3 +305,9 @@ export function timeAgo(iso?: string) {
   if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
   return `le ${fmtDate(iso)}`;
 }
+
+/** Résultats approchants cachés (ex. « PH60 », « PH61 » quand on cherche « PH6 ») : bouton pour les afficher aussi. */
+export function MoreMatches({ n, onShow }: { n: number; onShow: () => void }) {
+  if (!n) return null;
+  return <p className="small muted more-matches">Résultats exacts seulement. <button type="button" className="link-btn" onClick={onShow}>Voir aussi {n} résultat(s) approchant(s)</button></p>;
+}

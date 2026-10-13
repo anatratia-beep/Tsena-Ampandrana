@@ -4,7 +4,7 @@ import { ScopeBar } from '../ui/scope';
 import { useMemo, useState } from 'react';
 import { audit, currentUser, useCan } from '../lib/auth';
 import { bizNow, get, newId, save, useTable } from '../lib/db';
-import { fmtAr, fmtNum, nextNumber, parseNum, productVariants, useCatalog, variantLabel, type Product, type Variant , photoOf, matchQuery, productText} from '../lib/catalog';
+import { fmtAr, fmtNum, nextNumber, parseNum, productVariants, useCatalog, variantLabel, type Product, type Variant , photoOf, matchQuery, matchExact, searchItems, productText} from '../lib/catalog';
 import {
   addPayment, availableOf, backToPrepare, cancelOrder, cancelDeliveryToShop, CHANNELS, completeAtShop, confirmOrder, dispatchOrder, exchangeBalance, findCustomer, fmtPhone,
   canReassign, customerIdFor, choiceQty, hasPendingChoice, needsSettlement, reassignCourier, isOutsideHours, isPickupZone, isWalkIn, orderLabel, handOverAtShop, itemsTotal, keptTotal, linePrice, markReady, normPhone, ORDER_STATUS, orderTotal, paidTotal, PAY_METHODS, recordReturn, remaining,
@@ -12,8 +12,9 @@ import {
   type Courier, type Customer, type Order, type OrderLine, type OrderStatus, type PayMethod, type Payment, type Zone, orderText, customerText, findCustomerBy,
 } from '../lib/orders';
 import { useCompany } from '../lib/settings';
+import { correctWalkInSale, netMoves, refundSuggested, voidOrder } from '../lib/corrections';
 import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, feeState, payDeferredFees, settleCourier, type AccountId } from '../lib/money';
-import { Help, DiscountField, Badge, Button, Confirm, Empty, FilterSelect, IconButton, Modal, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
+import { Help, DiscountField, Badge, Button, Confirm, Empty, FilterSelect, IconButton, Modal, MoreMatches, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period';
 import { Thumb } from './Products';
@@ -76,7 +77,9 @@ function OrderList({ tabKey }: { tabKey?: string }) {
   const regler = tab.key === 'regler';
   const pages = allPages().filter((p) => !scope.on || scope.pages.includes(p.id));
   // Filtres de l'onglet : livreur, page, recherche (et période pour les commandes terminées / annulées).
-  const base = (o: Order) => !isWalkIn(o) && scope.mine(o) && (!courierF || o.courierId === courierF) && (!pageF || hasPage(o, pageF)) && (!q.trim() || matchQuery(orderText(o), q));
+  // Recherche : priorité aux correspondances exactes (« PH6 » ne ramène pas « PH60 ») quand il y en a.
+  const exactOnly = useMemo(() => !!q.trim() && orders.some((o) => !isWalkIn(o) && matchExact(orderText(o), q)), [orders, q]);
+  const base = (o: Order) => !isWalkIn(o) && scope.mine(o) && (!courierF || o.courierId === courierF) && (!pageF || hasPage(o, pageF)) && (!q.trim() || (exactOnly ? matchExact(orderText(o), q) : matchQuery(orderText(o), q)));
   const list = useMemo(() => orders
     .filter((o) => base(o) && inTab(tab, o))
     .filter((o) => !done || q.trim() || inPeriod(o.createdAt, period))
@@ -434,8 +437,11 @@ export function ItemPicker({ excludeOrderId, onClose, onAdd, onAddLines, noChoic
   const [want, setWant] = useState<Record<string, boolean>>({});
   const scope = useMyScope();
   const n = q.trim().toLowerCase();
-  const found = products.filter((p) => p.active !== false && scope.product(p.id) && (isLot(p) ? !!onAddLines && lotOpen(p) : true) && (!n || matchQuery(productText(p), n))).sort((a, b) => a.code.localeCompare(b.code, 'fr', { numeric: true })).slice(0, 40);
-  const family = prod?.attrs ? [prod, ...siblingsOf(prod)] : prod ? [prod] : [];
+  const [allMatches, setAllMatches] = useState(false);
+  const searched = searchItems(products.filter((p) => p.active !== false && scope.product(p.id) && (isLot(p) ? !!onAddLines && lotOpen(p) : true)), productText, n, allMatches);
+  const found = searched.list.sort((a, b) => a.code.localeCompare(b.code, 'fr', { numeric: true })).slice(0, 40);
+  // Articles voisins proposés en choix : même modèle seulement (autres tailles / couleurs), et qui répondent à la recherche.
+  const family = prod?.attrs ? [prod, ...siblingsOf(prod).filter((x) => !n || (matchExact(productText(prod), n) ? matchExact(productText(x), n) : matchQuery(productText(x), n)))] : prod ? [prod] : [];
   const variants = family.flatMap((p) => productVariants(p.id).filter((v) => v.active !== false));
   const cellLabel = (v: Variant) => { const p = get<Product>('products', v.productId); return p?.attrs ? (p.id === prod?.id ? `${p.name} (choisi)` : p.name) : variantLabel(v); };
   const picked = variants.flatMap((v) => [
@@ -450,7 +456,8 @@ export function ItemPicker({ excludeOrderId, onClose, onAdd, onAddLines, noChoic
       {!prod ? (
         <div className="stack">
           <ScopeBar scope={scope} />
-          <div className="field"><input autoFocus aria-label="Rechercher un article" placeholder="Rechercher un code ou un nom" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+          <div className="field"><input autoFocus aria-label="Rechercher un article" placeholder="Rechercher un code ou un nom" value={q} onChange={(e) => { setQ(e.target.value); setAllMatches(false); }} /></div>
+          <MoreMatches n={searched.others} onShow={() => setAllMatches(true)} />
           <ul className="list card" style={{ padding: 0 }}>
             {found.map((p) => {
               const avail = isLot(p) ? lotAvailable(p, (vid) => availableOf(vid, reserved)) : productVariants(p.id).reduce((s, v) => s + Math.max(0, availableOf(v.id, reserved)), 0);
@@ -559,6 +566,8 @@ function OrderDetail({ id }: { id: string }) {
           {((!closed && o.status !== 'cancelled') || rest !== 0) && o.status !== 'cancelled' && can('orders.create') && <Button variant="ghost" icon="plus" onClick={() => setModal('pay')}>{rest < 0 ? 'Rendre l’argent au client' : 'Paiement reçu'}</Button>}
           {closed && o.status !== 'refused' && can('returns.manage') && <Button variant="ghost" icon="refresh" onClick={() => setModal('exchange')}>Retour / échange</Button>}
           {!closed && o.status !== 'cancelled' && can('orders.create') && <Button variant="quiet" onClick={() => setModal('cancel')}>Annuler</Button>}
+          {closed && isWalkIn(o) && can('records.correct') && <Button variant="ghost" icon="edit" onClick={() => setModal('correct')}>Corriger la vente</Button>}
+          {closed && can('records.correct') && <Button variant="quiet" onClick={() => setModal('void')}>Annuler la vente (erreur)</Button>}
         </div>
       </div>
 
@@ -649,6 +658,8 @@ function OrderDetail({ id }: { id: string }) {
       {modal === 'reassign' && <ReassignModal order={o} onClose={() => setModal('')} />}
       {editPay && <EditPaymentModal order={o} payment={editPay} onClose={() => setEditPay(null)} />}
       {modal === 'cancel' && <CancelModal order={o} onClose={() => setModal('')} />}
+      {modal === 'void' && <VoidModal order={o} onClose={() => setModal('')} />}
+      {modal === 'correct' && <CorrectSaleModal order={o} onClose={() => setModal('')} />}
     </>
   );
 }
@@ -829,6 +840,74 @@ function CancelModal({ order: o, onClose }: { order: Order; onClose: () => void 
       message={<div className="stack"><p>{o.status === 'out' ? 'Les articles partis avec le livreur seront remis en stock.' : 'La commande ne réservera plus de stock.'}</p>
         <SelectField label="Motif" value={reason} onChange={setReason} options={['Client injoignable', 'Client a annulé', 'Article indisponible', 'Erreur de saisie', 'Doublon', 'Autre'].map((r) => ({ value: r, label: r }))} /></div>}
       onConfirm={async () => { await cancelOrder(o, reason); toast('Commande annulée'); }} />
+  );
+}
+
+/** Annuler une vente ou commande déjà terminée (erreur de saisie) : stock remis exactement, argent rendu si besoin. */
+function VoidModal({ order: o, onClose }: { order: Order; onClose: () => void }) {
+  const [reason, setReason] = useState('Erreur de saisie');
+  const [other, setOther] = useState('');
+  const suggested = refundSuggested(o);
+  const [refund, setRefund] = useState(suggested > 0);
+  const [amount, setAmount] = useState(String(suggested));
+  const [method, setMethod] = useState<PayMethod>((o.payments || []).find((p) => p.amount > 0)?.method ?? 'cash');
+  const net = netMoves('order', o.id);
+  const pcs = [...net.values()].reduce((s, q) => s + Math.abs(q), 0);
+  const why = reason === 'Autre' ? other.trim() : reason;
+  return (
+    <Confirm title={`Annuler ${o.number}`} danger confirmLabel="Annuler la vente" onClose={onClose}
+      message={<div className="stack">
+        <p>Correction d’une erreur : la vente disparaît du chiffre d’affaires de son jour et <strong>{pcs} pièce(s) reviennent exactement en stock</strong>. Tout est noté dans l’historique (qui, quand, pourquoi) et signalé au gérant.</p>
+        <SelectField label="Motif" value={reason} onChange={setReason} options={['Erreur de saisie', 'Vente en double', 'Client a rendu les articles', 'Mauvais article', 'Autre'].map((r) => ({ value: r, label: r }))} />
+        {reason === 'Autre' && <TextField label="Précisez" value={other} onChange={setOther} required />}
+        {suggested > 0 && <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={refund} onChange={(e) => setRefund(e.target.checked)} /> L’argent reçu ({fmtAr(suggested)}) est rendu au client / sort de la caisse</label>}
+        {refund && <div className="grid-2"><TextField label="Montant rendu (Ar)" value={amount} onChange={setAmount} inputMode="numeric" /><SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} /></div>}
+      </div>}
+      onConfirm={async () => { if (!why) throw new Error('Indiquez le motif.'); await voidOrder(o, why, refund ? { amount: parseNum(amount) || 0, method } : undefined); toast(`${o.number} annulée : stock remis`); }} />
+  );
+}
+
+/** Corriger une vente sur place : quantités, prix, articles retirés ; le stock suit exactement. */
+function CorrectSaleModal({ order: o, onClose }: { order: Order; onClose: () => void }) {
+  const [rows, setRows] = useState(() => o.lines.map((l) => ({ ...l, qtyS: String(l.qty), priceS: String(l.unitPrice) })));
+  const [discount, setDiscount] = useState(String(o.discount || 0));
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const kept = rows.map((r) => ({ ...r, qty: parseNum(r.qtyS) ?? 0, unitPrice: parseNum(r.priceS) ?? 0 })).filter((r) => r.qty > 0);
+  const total = Math.max(0, kept.reduce((s, l) => s + l.qty * l.unitPrice, 0) - (parseNum(discount) || 0));
+  const paidNow = (o.payments || []).reduce((s, p) => s + p.amount, 0);
+  const diff = total - paidNow; // + : le client doit encore ; − : à lui rendre
+  const [settle, setSettle] = useState(true);
+  const [method, setMethod] = useState<PayMethod>((o.payments || []).find((p) => p.amount > 0)?.method ?? 'cash');
+  const submit = async () => {
+    setError(null);
+    if (!reason.trim()) return setError('Indiquez la raison de la correction.');
+    setBusy(true);
+    try {
+      await correctWalkInSale(o, kept.map(({ qtyS, priceS, ...l }) => ({ ...l, priceManual: true })), parseNum(discount) || 0, reason.trim(), settle && Math.round(diff) ? { amount: diff, method } : undefined);
+      toast(`${o.number} corrigée : stock mis à jour`); onClose();
+    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <Modal title={`Corriger ${o.number}`} wide onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>Fermer</Button><Button busy={busy} onClick={submit}>Enregistrer la correction</Button></>}>
+      <div className="stack">
+        <p className="small muted">Mettez 0 pour retirer un article. Le stock est remis exactement selon la vente corrigée ; l’ancienne et la nouvelle version restent dans l’historique.</p>
+        <div className="table-wrap"><table className="table">
+          <thead><tr><th>Article</th><th>Quantité</th><th>Prix unitaire (Ar)</th><th className="t-num">Montant</th></tr></thead>
+          <tbody>{rows.map((r, i) => { const v = get<Variant>('variants', r.variantId); const p = v && get<Product>('products', v.productId); return (
+            <tr key={r.id}><td><strong>{p?.name ?? '?'}</strong><div className="small muted">{v?.sku}</div></td>
+              <td><input className="cell-input" inputMode="numeric" aria-label={`Quantité ${v?.sku}`} value={r.qtyS} onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, qtyS: e.target.value } : x)))} /></td>
+              <td><input className="cell-input" inputMode="numeric" aria-label={`Prix ${v?.sku}`} value={r.priceS} onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, priceS: e.target.value } : x)))} /></td>
+              <td className="t-num">{fmtAr((parseNum(r.qtyS) ?? 0) * (parseNum(r.priceS) ?? 0))}</td></tr>); })}</tbody>
+        </table></div>
+        <div className="grid-2"><TextField label="Remise (Ar)" value={discount} onChange={setDiscount} inputMode="numeric" /><TextField label="Raison de la correction" required value={reason} onChange={setReason} placeholder="ex. mauvaise quantité saisie" /></div>
+        <p>Nouveau total : <strong>{fmtAr(total)}</strong> · déjà payé : {fmtAr(paidNow)}{Math.round(diff) ? <> · <strong className={diff < 0 ? 'neg' : ''}>{diff < 0 ? `à rendre ${fmtAr(-diff)}` : `reste à payer ${fmtAr(diff)}`}</strong></> : ' · rien à régler'}</p>
+        {Math.round(diff) !== 0 && <div className="row" style={{ gap: 10, alignItems: 'center' }}><label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={settle} onChange={(e) => setSettle(e.target.checked)} /> Enregistrer {diff < 0 ? 'l’argent rendu' : 'le paiement'} maintenant</label>
+          {settle && <SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />}</div>}
+        {error && <div className="notice notice-danger"><Icon name="alert" /><span>{error}</span></div>}
+      </div>
+    </Modal>
   );
 }
 

@@ -7,11 +7,10 @@ import { get, remove, save, useTable } from '../lib/db';
 import {
   ADJUST_REASONS, addMoves, categoryPath, createProduct, fmtAr, fmtNum, incomingOf, makeSku, MOVE_LABELS, normSize, parseNum,
   productIncoming, productStock, productVariants, sizeRank, stockOf, useCatalog, variantLabel, matchQuery, productText, attrSummary, articleUsage, deleteArticle, repairArticle, variantUsed,
-  type Category, type Product, type StockMove, type Variant,
-} from '../lib/catalog';
+  type Category, type Product, type StockMove, type Variant, searchItems } from '../lib/catalog';
 import { blobToThumb } from '../lib/xlsx';
 import { photoBytes } from '../lib/images';
-import { Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
+import { Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDateTime, navigate, toast, useRoute, MoreMatches } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { rootOf } from '../lib/scope';
 import { ArticleBuilder, AttrBadges } from './Categories';
@@ -66,6 +65,8 @@ function ProductList() {
   const [simple, setSimple] = useState(false);
   const [limit, setLimit] = useState(60);
   const scope = useMyScope();
+  const [allMatches, setAllMatches] = useState(false);
+  const [others, setOthers] = useState(0);
 
   const list = useMemo(() => {
     const n = q.trim().toLowerCase();
@@ -75,11 +76,12 @@ function ProductList() {
       while (c) { if (c.id === cat) return true; c = c.parentId ? get<Category>('categories', c.parentId) : undefined; }
       return false;
     };
-    return products
+    const sr = searchItems(products
       .filter((p) => showArchived || p.active !== false)
       .filter((p) => scope.product(p.id))
-      .filter(inCat)
-      .filter((p) => !n || matchQuery(productText(p), n))
+      .filter(inCat), productText, n, allMatches);
+    queueMicrotask(() => setOthers(sr.others));
+    return sr.list
       .map((p) => ({ p, stock: isLot(p) ? lotAvailable(p, stockOf) : productStock(p.id), incoming: isLot(p) ? 0 : productIncoming(p.id) }))
       .filter(({ p, stock, incoming }) => {
         if (sf === 'in') return stock > 0;
@@ -89,7 +91,7 @@ function ProductList() {
         return true;
       })
       .sort((a, b) => a.p.code.localeCompare(b.p.code, 'fr', { numeric: true }));
-  }, [products, q, cat, sf, showArchived, scope.on]);
+  }, [products, q, cat, sf, showArchived, scope.on, allMatches]);
 
   return (
     <>
@@ -103,7 +105,7 @@ function ProductList() {
       <div className="card stack">
         <div className="row">
           <div className="field" style={{ flex: '1 1 240px' }}>
-            <input aria-label="Rechercher" placeholder="Rechercher un code, un nom…" value={q} onChange={(e) => { setQ(e.target.value); setLimit(60); }} />
+            <input aria-label="Rechercher" placeholder="Rechercher un code, un nom…" value={q} onChange={(e) => { setQ(e.target.value); setLimit(60); setAllMatches(false); }} />
           </div>
           <div className="field" style={{ flex: '0 1 240px' }}>
             <select aria-label="Catégorie" value={cat} onChange={(e) => setCat(e.target.value)}>
@@ -111,6 +113,7 @@ function ProductList() {
             </select>
           </div>
         </div>
+        <MoreMatches n={others} onShow={() => setAllMatches(true)} />
         <div className="row-between">
           <div className="segmented" role="group" aria-label="Filtrer par stock">
             {([['', 'Tous'], ['in', 'En stock'], ['low', 'Stock bas'], ['out', 'En rupture'], ['incoming', 'En arrivage']] as const).map(([k, l]) => (

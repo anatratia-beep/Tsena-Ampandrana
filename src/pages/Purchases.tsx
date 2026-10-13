@@ -4,7 +4,7 @@ import { audit, useCan } from '../lib/auth';
 import { get, newId, remove, save, useTable } from '../lib/db';
 import {
   categoryPath, fmtAr, fmtNum, nextNumber, parseNum, productVariants, PURCHASE_STATUS, todayYmd, useCatalog, variantLabel,
-  type Product, type Purchase, type PurchaseLine, type PurchaseStatus, type Variant, matchQuery, productText, stockOf } from '../lib/catalog';
+  type Product, type Purchase, type PurchaseLine, type PurchaseStatus, type Variant, matchQuery, productText, stockOf, searchItems } from '../lib/catalog';
 import { lastRate, lineTotal, purchaseGoods, purchasePaid, purchaseQty, purchaseReceivedQty, purchaseTotal, purchaseTotalAr, toAr, type Supplier } from '../lib/purchases';
 import { PurchasingTabs } from './ImportExport';
 import { Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDate, navigate, toast, useRoute } from '../ui/kit';
@@ -414,7 +414,7 @@ function LinePicker({ currency, onClose, onAdd }: { currency: 'RMB' | 'MGA'; onC
   const [price, setPrice] = useState('');
   const [creating, setCreating] = useState(false);
   const n = q.trim().toLowerCase();
-  const found = products.filter((p) => p.active !== false && p.kind !== 'lot' && (!n || matchQuery(productText(p), n))).slice(0, 30);
+  const found = searchItems(products.filter((p) => p.active !== false && p.kind !== 'lot'), productText, n, true).list.slice(0, 30);
   const variants = prod ? productVariants(prod.id) : [];
   const chosen = variants.filter((v) => parseNum(qty[v.id] ?? '')! > 0);
   return (

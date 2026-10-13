@@ -267,7 +267,12 @@ export const isAttrArticle = (p?: Product) => !!(p?.attrs && attrCategory(p.cate
 export function siblingsOf(p: Product): Product[] {
   if (!p.attrs) return [];
   const keys = Object.keys(p.attrs);
+  // Un article à une seule variante (ex. modèle K9) n'a pas de voisins : les autres modèles ne sont pas des « choix ».
+  if (keys.length < 2) return [];
+  // La première variante de la page (le modèle, ex. PH6) reste la même : seules les autres changent (taille, couleur…).
+  const order = (attrCategory(p.categoryId)?.attrs ?? []).map((a) => a.id).filter((id) => keys.includes(id));
+  const model = order[0] ?? keys[0];
   return all<Product>('products').filter((x) => x.id !== p.id && x.active !== false && x.categoryId === p.categoryId && x.attrs
-    && keys.length === Object.keys(x.attrs).length && keys.filter((k) => x.attrs![k] !== p.attrs![k]).length === 1)
+    && keys.length === Object.keys(x.attrs).length && x.attrs[model] === p.attrs![model] && keys.filter((k) => x.attrs![k] !== p.attrs![k]).length === 1)
     .sort((a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true }));
 }

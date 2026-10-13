@@ -4,13 +4,13 @@ import { useCan, useMe, type User } from '../lib/auth';
 import { rootOf, useMyScope } from '../lib/scope';
 import { ScopeBar } from '../ui/scope';
 import { get, getMeta, newId, useTable } from '../lib/db';
-import { fmtAr, fmtNum, parseNum, productVariants, todayYmd, useCatalog, variantLabel, type Product, type Variant, matchQuery, productText, attrSummary, findProductByCode, findVariantBySku, type Category} from '../lib/catalog';
+import { fmtAr, fmtNum, parseNum, productVariants, todayYmd, useCatalog, variantLabel, type Product, type Variant, matchQuery, searchItems, productText, attrSummary, findProductByCode, findVariantBySku, type Category} from '../lib/catalog';
 import {
   availableOf, createWalkInSale, internalPrice, isOutsideHours, isWalkIn, linePrice, orderLabel, PAY_METHODS, paidTotal, keptTotal, priceOrder, removeLine, reservedIndex, useWholesale,
   type Order, type OrderLine, type PayMethod, discountAr, stockShortages,
 } from '../lib/orders';
 import { useCompany } from '../lib/settings';
-import { Badge, Choice, Button, DiscountField, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDateTime, toast } from '../ui/kit';
+import { Badge, Choice, Button, DiscountField, Empty, MoreMatches, IconButton, Modal, PageHead, SelectField, TextField, fmtDateTime, toast } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { ItemPicker, StockTag } from './Orders';
 import { defaultTarget, printTo, ticketDoc } from '../lib/print';
@@ -60,11 +60,12 @@ export function PosPage() {
   const count = priced.reduce((s, l) => s + l.qty, 0);
 
   const n = q.trim().toLowerCase();
-  const found = useMemo(() => products
-    .filter((p) => p.active !== false && scope.product(p.id) && (!isLot(p) || lotOpen(p)) && (!cat || rootOf(p.categoryId) === cat) && (!n || matchQuery(productText(p), n)))
+  const [allMatches, setAllMatches] = useState(false);
+  const searched = useMemo(() => searchItems(products.filter((p) => p.active !== false && scope.product(p.id) && (!isLot(p) || lotOpen(p)) && (!cat || rootOf(p.categoryId) === cat)), productText, n, allMatches), [products, n, scope.on, cat, allMatches]);
+  const found = useMemo(() => searched.list
     .map((p) => ({ p, avail: isLot(p) ? lotAvailable(p, (vid) => availableOf(vid, reserved)) : productVariants(p.id).reduce((s, v) => s + Math.max(0, availableOf(v.id, reserved)), 0) }))
     .sort((a, b) => Number(b.avail > 0) - Number(a.avail > 0) || a.p.code.localeCompare(b.p.code, 'fr', { numeric: true }))
-    .slice(0, 60), [products, n, reserved, scope.on, cat]);
+    .slice(0, 60), [searched, reserved]);
   const pages = cats.filter((c) => !c.parentId && products.some((p) => p.active !== false && rootOf(p.categoryId) === c.id)).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   /** Lecteur de code-barres ou saisie du code + Entrée : l'article est ajouté directement au panier. */
   function onEnter() {
@@ -110,7 +111,7 @@ export function PosPage() {
       <div className="pos-layout">
         <section className="pos-catalog card stack-s">
           <div className="row-between"><h2>Ajouter un article</h2><Button variant="ghost" className="btn-sm" icon="search" onClick={() => setBrowse(true)}>Parcourir le catalogue</Button></div>
-          <div className="field"><input aria-label="Rechercher un article" placeholder="Rechercher ou scanner un code (Entrée pour ajouter)…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onEnter(); } }} autoFocus /></div>
+          <div className="field"><input aria-label="Rechercher un article" placeholder="Rechercher ou scanner un code (Entrée pour ajouter)…" value={q} onChange={(e) => { setQ(e.target.value); setAllMatches(false); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onEnter(); } }} autoFocus /></div>
           {n && pages.length > 1 && <Choice label="Page" hideLabel value={cat} onChange={setCat} max={5} options={[{ value: '', label: pages.length + 1 > 5 ? 'Toutes les pages' : 'Toutes' }, ...pages.map((c) => ({ value: c.id, label: c.name }))]} />}
           {n && (found.length === 0 ? <p className="small muted">Aucun article trouvé.</p> : (
             <ul className="list pos-results">
@@ -121,6 +122,7 @@ export function PosPage() {
                   <div className="list-item-side"><strong className="num">{fmtAr(Number.isFinite(tilePrice(p) as number) ? tilePrice(p) : undefined)}</strong><span className={`stock-pill ${avail <= 0 ? 'is-out' : ''}`}>{avail} {isLot(p) ? 'lot(s)' : 'en stock'}</span></div>
                 </button></li>
               ))}
+              {searched.others > 0 && <li style={{ padding: '4px 14px' }}><MoreMatches n={searched.others} onShow={() => setAllMatches(true)} /></li>}
               {found.length > 8 && <li className="small muted" style={{ padding: '8px 14px' }}>+ {found.length - 8} autre(s) : précisez la recherche ou parcourez le catalogue.</li>}
             </ul>
           ))}

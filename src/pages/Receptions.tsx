@@ -5,7 +5,8 @@ import { get, useTable } from '../lib/db';
 import { fmtAr, fmtNum, nextNumber, parseNum, PURCHASE_STATUS, stockOf, todayYmd, useCatalog, variantLabel, type Product, type Purchase, type Variant } from '../lib/catalog';
 import { computeReception, lastRate, MODE_LABEL, purchaseQty, purchaseReceivedQty, transitTotalAr, UNIT_LABEL, validateReception, type Allocation, type Reception, type Supplier, type TransitInvoice } from '../lib/purchases';
 import { PurchasingTabs } from './ImportExport';
-import { Badge, Button, Confirm, Empty, IconButton, PageHead, SelectField, TextField, fmtDate, navigate, toast, useRoute } from '../ui/kit';
+import { Badge, Button, Confirm, Empty, IconButton, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
+import { cancelReception } from '../lib/corrections';
 import { Icon } from '../ui/icons';
 import { Thumb } from './Products';
 
@@ -223,6 +224,17 @@ function NewReception({ preselect }: { preselect?: string }) {
   );
 }
 
+function CancelReceptionButton({ r }: { r: Reception }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  return (<>
+    <Button variant="quiet" onClick={() => setOpen(true)}>Annuler la réception (erreur)</Button>
+    {open && <Confirm title={`Annuler ${r.number}`} danger confirmLabel="Annuler la réception" onClose={() => setOpen(false)}
+      message={<div className="stack-s"><p>Les {r.items.reduce((s, i) => s + i.qty, 0)} pièce(s) entrées par cette réception sont retirées exactement du stock, et les quantités reçues des achats sont remises. Tout reste dans l’historique.</p><TextField label="Raison" value={reason} onChange={setReason} required /></div>}
+      onConfirm={async () => { if (!reason.trim()) throw new Error('Indiquez la raison.'); await cancelReception(r, reason.trim()); toast('Réception annulée : stock corrigé'); }} />}
+  </>);
+}
+
 function ReceptionDetail({ id }: { id: string }) {
   const can = useCan();
   useCatalog();
@@ -232,11 +244,14 @@ function ReceptionDetail({ id }: { id: string }) {
   const showCost = can('costs.view');
   const inv = r.invoice;
   const qty = r.items.reduce((s, i) => s + i.qty, 0);
+  const rc = r as Reception & { cancelled?: boolean; cancelledAt?: string; cancelledBy?: string; cancelReason?: string };
   return (
     <>
       <div className="row"><Button variant="quiet" icon="chevronRight" className="back-btn" onClick={() => navigate('/receptions')}>Réceptions</Button></div>
       <div className="card stack">
-        <div className="row" style={{ gap: 8 }}><h1 style={{ fontSize: '1.6rem' }}>{r.number}</h1><Badge tone="ok">Entrée en stock</Badge></div>
+        <div className="row" style={{ gap: 8 }}><h1 style={{ fontSize: '1.6rem' }}>{r.number}</h1>{rc.cancelled ? <Badge tone="danger">Annulée</Badge> : <Badge tone="ok">Entrée en stock</Badge>}
+          {!rc.cancelled && can('records.correct') && <CancelReceptionButton r={r} />}</div>
+        {rc.cancelled && <div className="notice notice-danger"><Icon name="alert" /><span>Réception annulée le {fmtDateTime(rc.cancelledAt)} par {rc.cancelledBy} : {rc.cancelReason}. Les pièces ont été retirées du stock.</span></div>}
         <p className="muted">{fmtDate(r.date)}{r.userName ? ` · par ${r.userName}` : ''} · {r.purchaseIds.map((pid) => { const p = get<Purchase>('purchases', pid); return p ? <a key={pid} href={`#/achats/${pid}`} style={{ marginRight: 8 }}>{p.number}</a> : null; })}</p>
         <div className="kv-row">
           <div><span className="small muted">Pièces reçues</span><strong className="num">{fmtNum(qty)}</strong></div>

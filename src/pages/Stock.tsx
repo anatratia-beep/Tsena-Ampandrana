@@ -6,12 +6,12 @@ import { audit, useCan, type User } from '../lib/auth';
 import { get, useTable } from '../lib/db';
 import {
   addMoves, categoryPath, fmtAr, fmtNum, incomingOf, MOVE_LABELS, parseNum, stockOf, useCatalog, variantLabel,
-  type Category, type MoveType, type Product, type StockMove, type Variant, photoOf, matchQuery, productText,
-} from '../lib/catalog';
-import { Button, FilterSelect, Confirm, Empty, PageHead, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
+  type Category, type MoveType, type Product, type StockMove, type Variant, photoOf, matchQuery, productText, searchItems } from '../lib/catalog';
+import { Button, FilterSelect, Confirm, Empty, PageHead, TextField, fmtDateTime, navigate, toast, useRoute, MoreMatches } from '../ui/kit';
 import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period';
 import { categoryOptions, Thumb } from './Products';
 import { downloadBlob, writeXlsx } from '../lib/xlsx';
+import { cancelMove } from '../lib/corrections';
 
 const TABS = [
   { key: 'etat', label: 'État du stock', perm: '' },
@@ -54,19 +54,22 @@ function StockState() {
   const [sort, setSort] = useState<'code' | 'stock' | 'value'>('code');
   const [limit, setLimit] = useState(150);
   const scope = useMyScope();
+  const [allMatches, setAllMatches] = useState(false);
+  const [others, setOthers] = useState(0);
 
   const rows = useMemo(() => {
     const n = q.trim().toLowerCase();
-    return variants
+    const sr = searchItems(variants
       .map((v) => ({ v, p: get<Product>('products', v.productId), stock: stockOf(v.id), incoming: incomingOf(v.id) }))
       .filter((r) => r.p && r.p.active !== false && r.v.active !== false)
       .filter((r) => scope.product(r.p!.id))
-      .filter((r) => inCategory(r.p, cat))
-      .filter((r) => !n || matchQuery(`${r.v.sku} ${productText(r.p!)}`, n))
+      .filter((r) => inCategory(r.p, cat)), (r) => `${r.v.sku} ${productText(r.p!)}`, n, allMatches);
+    queueMicrotask(() => setOthers(sr.others));
+    return sr.list
       .filter((r) => f === 'in' ? r.stock > 0 : f === 'out' ? r.stock === 0 : f === 'neg' ? r.stock < 0 : true)
       .map((r) => ({ ...r, value: Math.max(0, r.stock) * (r.v.costAvg ?? 0) }))
       .sort((a, b) => sort === 'stock' ? b.stock - a.stock : sort === 'value' ? b.value - a.value : a.v.sku.localeCompare(b.v.sku, 'fr', { numeric: true }));
-  }, [variants, q, cat, f, sort, scope.on]);
+  }, [variants, q, cat, f, sort, scope.on, allMatches]);
 
   const allRows = variants.filter((v) => { const p = get<Product>('products', v.productId); return p && p.active !== false && scope.product(p.id) && inCategory(p, cat); });
   const totals = allRows.reduce((t, v) => {
@@ -97,7 +100,7 @@ function StockState() {
       </div>
       <div className="card stack">
         <div className="row">
-          <div className="field" style={{ flex: '1 1 220px' }}><input aria-label="Rechercher" placeholder="Rechercher un code ou un article" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+          <div className="field" style={{ flex: '1 1 220px' }}><input aria-label="Rechercher" placeholder="Rechercher un code ou un article" value={q} onChange={(e) => { setQ(e.target.value); setAllMatches(false); }} /></div>
           <div className="field" style={{ flex: '0 1 220px' }}>
             <FilterSelect label="Catégorie" value={cat} onChange={setCat} options={categoryOptions(categories, 'Toutes les catégories')} />
           </div>
@@ -113,6 +116,7 @@ function StockState() {
           </div>
           <Button variant="ghost" icon="download" onClick={exportXlsx}>Exporter en Excel</Button>
         </div>
+        <MoreMatches n={others} onShow={() => setAllMatches(true)} />
       </div>
       <div className="card card-flush">
         {rows.length === 0 ? <Empty icon="store" title="Aucune variante ne correspond" /> : (
@@ -161,6 +165,9 @@ function MovesTab() {
       .filter((m) => { if (!n) return true; const v = get<Variant>('variants', m.variantId); const p = v && get<Product>('products', v.productId); return `${v?.sku} ${p?.name} ${m.reason}`.toLowerCase().includes(n); })
       .sort((a, b) => b.at.localeCompare(a.at));
   }, [moves, period, type, dir, userId, q]);
+  const [undo, setUndo] = useState<StockMove | null>(null);
+  const [undoWhy, setUndoWhy] = useState('');
+  const cancelledIds = useMemo(() => new Set(moves.filter((m) => m.refType === 'cancel' && m.refId).map((m) => m.refId!)), [moves]);
   const tin = list.filter((m) => m.qty > 0).reduce((s, m) => s + m.qty, 0);
   const tout = list.filter((m) => m.qty < 0).reduce((s, m) => s - m.qty, 0);
 
@@ -188,7 +195,7 @@ function MovesTab() {
         {list.length === 0 ? <Empty icon="list" title="Aucun mouvement sur cette période" /> : (
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>Date</th><th>Article</th><th>Type</th><th className="t-num">Qté</th>{can('costs.view') && <th className="t-num">Coût unit.</th>}<th>Détail</th><th>Par</th></tr></thead>
+              <thead><tr><th>Date</th><th>Article</th><th>Type</th><th className="t-num">Qté</th>{can('costs.view') && <th className="t-num">Coût unit.</th>}<th>Détail</th><th>Par</th>{can('records.correct') && <th></th>}</tr></thead>
               <tbody>
                 {list.slice(0, limit).map((m) => {
                   const v = get<Variant>('variants', m.variantId); const p = v && get<Product>('products', v.productId);
@@ -201,6 +208,7 @@ function MovesTab() {
                       {can('costs.view') && <td className="t-num">{m.unitCost ? fmtAr(m.unitCost) : '—'}</td>}
                       <td className="small">{m.reason}</td>
                       <td className="small muted">{m.userName}</td>
+                      {can('records.correct') && <td>{(!m.refType || m.refType === 'inventory' || m.refType === 'adjust') ? (cancelledIds.has(m.id) ? <span className="small muted">annulé</span> : <Button variant="quiet" className="btn-sm" onClick={() => setUndo(m)}>Annuler</Button>) : null}</td>}
                     </tr>
                   );
                 })}
@@ -210,6 +218,9 @@ function MovesTab() {
         )}
       </div>
       {list.length > limit && <Button variant="ghost" onClick={() => setLimit(limit + 300)}>Afficher plus</Button>}
+      {undo && <Confirm title="Annuler ce mouvement de stock" danger confirmLabel="Annuler le mouvement" onClose={() => { setUndo(null); setUndoWhy(''); }}
+        message={<div className="stack-s"><p>Un mouvement inverse ({undo.qty > 0 ? '−' : '+'}{Math.abs(undo.qty)}) remet le stock comme avant. Les deux restent dans l’historique.</p><TextField label="Raison" value={undoWhy} onChange={setUndoWhy} required /></div>}
+        onConfirm={async () => { if (!undoWhy.trim()) throw new Error('Indiquez la raison.'); await cancelMove(undo, undoWhy.trim()); toast('Mouvement annulé'); }} />}
     </>
   );
 }

@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { audit, useCan } from '../lib/auth';
 import { get, newId, save } from '../lib/db';
-import { categoryPath, fmtAr, matchQuery, parseNum, productText, productVariants, stockOf, useCatalog, variantLabel, photoOf, type Product } from '../lib/catalog';
+import { categoryPath, fmtAr, matchQuery, parseNum, productText, productVariants, stockOf, useCatalog, variantLabel, photoOf, type Product, searchItems } from '../lib/catalog';
 import { availableOf, type OrderLine } from '../lib/orders';
 import {
   adjustKept, adjustLabel, isLot, itemChoices, itemVariant, lotAvailable, lotCost, lotLines, lotRegular, lotStatus, productTiers,
@@ -49,7 +49,7 @@ export function LotForm({ lot, onClose, onSaved }: { lot?: Product; onClose: () 
   const [q, setQ] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const found = q.trim().length >= 1 ? products.filter((p) => p.active !== false && !isLot(p) && matchQuery(productText(p), q)).slice(0, 8) : [];
+  const found = q.trim().length >= 1 ? searchItems(products.filter((p) => p.active !== false && !isLot(p)), productText, q, true).list.slice(0, 8) : [];
   const draft = { kind: 'lot', priceRetail: parseNum(price), lot: { items } } as Product;
   const regular = lotRegular(draft);
   const cost = lotCost(draft);

@@ -1,7 +1,7 @@
 // Commandes clients, livraisons, livreurs, zones : règles de calcul et actions.
 import { all, applyRemote, bizNow, get, newId, save, type BaseRecord } from './db';
 import { audit, currentUser } from './auth';
-import { addMoves, nextNumber, stockOf, variantLabel, type Product, type Variant } from './catalog';
+import { addMoves, nextNumber, stockOf, variantLabel, type Product, type StockMove, type Variant } from './catalog';
 import { DEFAULT_COMPANY, type Company } from './settings';
 import { assertOpenNow } from './closed';
 import { adjustsKeptTotal, adjustsTotal, computeAdjusts, type Adjust } from './lots';
@@ -398,9 +398,12 @@ export async function reassignCourier(o: Order, newCourierId: string, reason?: s
 }
 
 export async function cancelOrder(o: Order, reason: string) {
-  if (o.status === 'out') {
-    await addMoves(o.lines.map((l) => ({ variantId: l.variantId, qty: l.qty, type: 'delivery_return' as const, refType: 'order', refId: o.id, reason: `${o.number} annulée — retour en boutique` })));
-  }
+  // Stock remis exactement : on annule le solde de tous les mouvements déjà faits pour cette commande
+  // (sortie au livreur, retours partiels, retrait en boutique…), pas seulement le cas « en livraison ».
+  const net = new Map<string, number>();
+  for (const m of all<StockMove>('stockMoves')) if (m.refType === 'order' && m.refId === o.id) net.set(m.variantId, (net.get(m.variantId) ?? 0) + m.qty);
+  const back = [...net.entries()].filter(([, q]) => q);
+  if (back.length) await addMoves(back.map(([variantId, q]) => ({ variantId, qty: -q, type: (o.status === 'out' ? 'delivery_return' : 'return') as StockMove['type'], refType: 'order', refId: o.id, reason: `${o.number} annulée — retour en boutique`, at: bizNow() })));
   await setStatus(o, 'cancelled', { notes: [o.notes, `Annulée : ${reason}`].filter(Boolean).join('\n') });
 }
 
