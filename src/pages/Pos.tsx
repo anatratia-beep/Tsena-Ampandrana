@@ -11,6 +11,7 @@ import {
 } from '../lib/orders';
 import { useCompany } from '../lib/settings';
 import { ListDates, applyDates, defaultPeriod, inPeriod, type ListOrder, type Period } from '../ui/period';
+import { PayLines, type PayLine } from '../ui/payments';
 import { Badge, Choice, Button, DiscountField, Empty, MoreMatches, IconButton, Modal, PageHead, SelectField, TextField, fmtDateTime, toast, useKeep } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { ItemPicker, StockTag } from './Orders';
@@ -235,34 +236,21 @@ export function PosPage() {
 
 /** Encaissement : un ou plusieurs moyens de paiement, calcul de la monnaie à rendre. */
 function PayDialog({ total, onClose, onPaid }: { total: number; onClose: () => void; onPaid: (p: { amount: number; method: PayMethod; ref?: string }[], cashGiven?: number) => Promise<void> }) {
-  const [pays, setPays] = useState<{ method: PayMethod; amount: string; ref: string }[]>([{ method: 'cash', amount: String(total), ref: '' }]);
+  const [pays, setPays] = useState<PayLine[]>([{ method: 'cash', amount: String(total), ref: '' }]);
   const [given, setGiven] = useState('');
   const [busy, setBusy] = useState(false);
   const sum = pays.reduce((s, p) => s + (parseAr(p.amount) || 0), 0);
   const cash = pays.filter((p) => p.method === 'cash').reduce((s, p) => s + (parseAr(p.amount) || 0), 0);
   const change = given ? (parseAr(given) || 0) - cash : 0;
   const missing = total - sum;
-  const set = (i: number, patch: Partial<{ method: PayMethod; amount: string; ref: string }>) => setPays(pays.map((p, j) => (j === i ? { ...p, ...patch } : p)));
   return (
     <Modal title={`Encaisser ${fmtAr(total)}`} onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} disabled={sum <= 0 || sum > total} onClick={async () => {
         setBusy(true);
-        try { await onPaid(pays.map((p) => ({ amount: parseAr(p.amount) || 0, method: p.method, ref: p.ref.trim() || undefined })), parseAr(given) || undefined); } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
+        try { await onPaid(pays.filter((p) => (parseAr(p.amount) || 0) > 0).map((p) => ({ amount: parseAr(p.amount) || 0, method: p.method, ref: p.ref.trim() || undefined })), parseAr(given) || undefined); } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
       }}>{missing > 0 ? `Valider (reste ${fmtAr(missing)})` : 'Valider la vente'}</Button></>}>
       <div className="stack">
-        {pays.map((p, i) => (
-          <div key={i} className="card stack-s" style={{ background: 'var(--surface-2)' }}>
-            <div className="segmented" role="group" aria-label="Moyen de paiement">
-              {(Object.keys(PAY_METHODS) as PayMethod[]).map((m) => <button key={m} type="button" aria-pressed={p.method === m} onClick={() => set(i, { method: m })}>{PAY_METHODS[m]}</button>)}
-            </div>
-            <div className="row" style={{ alignItems: 'flex-end' }}>
-              <div style={{ flex: 1 }}><TextField label="Montant (Ar)" value={p.amount} onChange={(v) => set(i, { amount: v })} inputMode="numeric" /></div>
-              {p.method !== 'cash' && <div style={{ flex: 1 }}><TextField label="Référence" value={p.ref} onChange={(v) => set(i, { ref: v })} /></div>}
-              {pays.length > 1 && <IconButton icon="x" label="Retirer" onClick={() => setPays(pays.filter((_, j) => j !== i))} />}
-            </div>
-          </div>
-        ))}
-        {missing > 0 && <Button variant="ghost" icon="plus" onClick={() => setPays([...pays, { method: 'mvola', amount: String(missing), ref: '' }])}>Ajouter un autre moyen ({fmtAr(missing)} restants)</Button>}
+        <PayLines lines={pays} onChange={setPays} total={total} />
         {sum > total && <div className="notice notice-danger"><Icon name="alert" /><span>Le total des paiements dépasse le montant de la vente.</span></div>}
         {cash > 0 && (
           <div className="row" style={{ alignItems: 'flex-end' }}>

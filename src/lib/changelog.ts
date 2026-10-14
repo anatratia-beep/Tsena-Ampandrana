@@ -2,6 +2,9 @@
 // La plus récente en premier. `date` : AAAA-MM-JJ.
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
+  { date: '2026-10-14', items: [
+    'Paiement en 2 tranches : ex. 10 000 Ar payés 5 000 Ar en espèces + 5 000 Ar en mobile money (vente sur place, paiement reçu sur une commande, création de commande). La 2e tranche se complète toute seule ; chaque tranche apparaît sur le ticket et dans les versements.',
+  ] },
   { date: '2026-10-13', items: [
     'Listes plus compactes : plus de « tri habituel », seulement la période d’ajout et l’ordre (plus récent / plus ancien).',
     'Retour depuis une fiche : la liste garde sa recherche, ses filtres, sa période et sa position dans la page (bouton « Effacer les filtres » pour repartir de zéro).',

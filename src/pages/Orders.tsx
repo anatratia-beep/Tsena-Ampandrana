@@ -16,6 +16,7 @@ import { correctWalkInSale, netMoves, refundSuggested, voidOrder } from '../lib/
 import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, feeState, payDeferredFees, settleCourier, type AccountId } from '../lib/money';
 import { Help, DiscountField, Badge, Button, Confirm, Empty, FilterSelect, IconButton, Modal, MoreMatches, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute, DateSort, type DateOrder, useKeep } from '../ui/kit';
 import { Icon } from '../ui/icons';
+import { PayLines, payLinesSum, splitInTwo, type PayLine } from '../ui/payments';
 import { ListDates, defaultPeriod, inPeriod, type ListOrder, type Period } from '../ui/period';
 import { Thumb } from './Products';
 import { siblingsOf } from '../lib/attrs';
@@ -398,6 +399,7 @@ export function OrderForm({ order, exchangeOf, onClose, onSaved, prefill: pre }:
             <div className="row" style={{ gap: 6 }}>
               <button type="button" className="chip" onClick={() => setPrepay(String(Math.max(0, total - draft.deliveryFee)))}>Articles payés</button>
               {draft.deliveryFee > 0 && <button type="button" className="chip" onClick={() => setPrepay(String(Math.max(0, total)))}>Tout payé (articles + frais)</button>}
+              {total > 0 && <button type="button" className="chip" onClick={() => setPays(splitInTwo(Math.max(0, total)).map((l) => ({ amount: l.amount, method: l.method, ref: '' })))}>En 2 tranches (espèces + mobile money)</button>}
               {prepaid > 0 && <button type="button" className="chip" onClick={() => setPays([{ amount: '', method: 'mvola', ref: '' }])}>Rien payé</button>}
             </div>
             {pays.map((x, i) => (
@@ -408,6 +410,7 @@ export function OrderForm({ order, exchangeOf, onClose, onSaved, prefill: pre }:
                 {pays.length > 1 && <div><Button variant="quiet" onClick={() => setPays(pays.filter((_, j) => j !== i))}>Retirer ce paiement</Button></div>}
               </div>
             ))}
+            {pays.length > 1 && prepaid > 0 && <p className="small" style={{ margin: 0 }}>Total reçu : <strong>{fmtAr(prepaid)}</strong> ({pays.filter((x) => parseAr(x.amount)).map((x) => `${fmtAr(parseAr(x.amount) || 0)} ${PAY_METHODS[x.method]}`).join(' + ')}){total - prepaid > 0 ? <> · le livreur encaissera <strong>{fmtAr(total - prepaid)}</strong></> : null}</p>}
             <div><Button variant="ghost" className="btn-sm" icon="plus" onClick={() => setPays([...pays, { amount: '', method: pays.some((x) => x.method === 'cash') ? 'mvola' : 'cash', ref: '' }])}>Ajouter un autre moyen de paiement</Button></div>
           </div>
         )}
@@ -827,21 +830,20 @@ function EditPaymentModal({ order: o, payment: p, onClose }: { order: Order; pay
 
 function PayModal({ order: o, onClose }: { order: Order; onClose: () => void }) {
   const refund = remaining(o) < 0;
-  const [amount, setAmount] = useState(String(Math.abs(remaining(o))));
-  const [method, setMethod] = useState<PayMethod>(refund ? 'cash' : 'mvola');
-  const [ref, setRef] = useState('');
+  const due = Math.abs(remaining(o));
+  const [lines, setLines] = useState<PayLine[]>([{ method: refund ? 'cash' : 'mvola', amount: String(due), ref: '' }]);
   const [by, setBy] = useState<'shop' | 'courier'>('shop');
+  const sum = payLinesSum(lines);
   return (
     <Modal title={refund ? `Argent rendu au client — ${o.number}` : `Paiement reçu — ${o.number}`} onClose={onClose}
-      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={!parseAr(amount)} onClick={async () => {
-        await addPayment(o, { amount: refund ? -parseAr(amount)! : parseAr(amount)!, method, ref: ref.trim() || undefined, receivedBy: by, courierId: by === 'courier' ? o.courierId : undefined });
-        toast(refund ? 'Remboursement enregistré' : 'Paiement enregistré'); onClose();
+      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={!sum} onClick={async () => {
+        for (const l of lines) { const n = parseAr(l.amount) || 0; if (n > 0) await addPayment(o = get<Order>('orders', o.id) ?? o, { amount: refund ? -n : n, method: l.method, ref: l.ref.trim() || undefined, receivedBy: by, courierId: by === 'courier' ? o.courierId : undefined }); }
+        toast(refund ? 'Remboursement enregistré' : lines.filter((l) => parseAr(l.amount)).length > 1 ? 'Paiement en plusieurs tranches enregistré' : 'Paiement enregistré'); onClose();
       }}>Enregistrer</Button></>}>
       <div className="stack">
         {refund && <p className="small">Le client a trop payé (ex. échange contre un article moins cher) : ce montant sort de la caisse ou du compte choisi.</p>}
-        <TextField label="Montant (Ar)" required value={amount} onChange={setAmount} inputMode="numeric" />
-        <SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />
-        {method !== 'cash' && <TextField label="Référence de la transaction" value={ref} onChange={setRef} />}
+        {!refund && <p className="small muted">Reste à payer : <strong>{fmtAr(due)}</strong>. Le client peut payer en plusieurs tranches (ex. une partie en espèces, le reste en mobile money).</p>}
+        <PayLines lines={lines} onChange={setLines} total={due} mode="select" />
         {o.courierId && <SelectField label="Reçu par" value={by} onChange={(v) => setBy(v as any)} options={[{ value: 'shop', label: 'La boutique' }, { value: 'courier', label: 'Le livreur' }]} />}
       </div>
     </Modal>
