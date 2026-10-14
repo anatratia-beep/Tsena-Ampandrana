@@ -3,6 +3,7 @@
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
   { date: '2026-10-14', items: [
+    'Récap global : nombre de produits vendus par page (ex. NETVISION : 20 produits vendus), sous chaque total, dans la carte « Produits vendus », sur chaque ligne, et dans l’Excel et le PDF. Les articles revenus (retours, refus) sont déduits.',
     'Paiement en 2 tranches : ex. 10 000 Ar payés 5 000 Ar en espèces + 5 000 Ar en mobile money (vente sur place, paiement reçu sur une commande, création de commande). La 2e tranche se complète toute seule ; chaque tranche apparaît sur le ticket et dans les versements.',
   ] },
   { date: '2026-10-13', items: [

@@ -36,6 +36,8 @@ ok(tx.includes('Versé au patron') && tx.includes('25 000 Ar'), 'versé au patro
 ok(tx.includes('Poignet précieux') && tx.includes('Intimity style'), 'CA par page en colonnes');
 ok(tx.includes('Dressing girl') && !tx.includes('Sous-cat'), 'toutes les pages en colonnes, même sans vente (pas les sous-catégories)');
 ok(tx.includes('Meilleure page'), 'meilleure page indiquée');
+if (process.env.DBG) console.log(tx.slice(tx.indexOf('Total 2026'), tx.indexOf('Total 2026') + 600)); ok(/Produits vendus[\s\S]*4 produits\s*7 produits\s*11 produits/.test(tx), 'produits vendus par page : Poignet précieux 7, Intimity style 4, total 11');
+ok(/Produits vendus\s*11\s*Poignet précieux : 7 · Intimity style : 4/.test(tx), 'carte « Produits vendus » : 11, détail par page');
 await p.locator('tr.row-link', { hasText: /août 2026/i }).click(); await p.waitForTimeout(500);
 tx = N(await p.locator('main').innerText());
 if (process.env.DBG) console.log(tx.slice(tx.indexOf('Récap par semaine'), tx.indexOf('Récap par semaine') + 900)); ok(tx.includes('Récap par semaine') && tx.includes('Semaine du 03/08 au 08/08') && tx.includes('Retour : Mois') && !tx.includes('Total juillet'), 'détail d’août par semaine + retour');

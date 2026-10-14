@@ -1,5 +1,5 @@
 // Récap global (comme le cahier « Recette et Dépense » : récap journalier, hebdomadaire, mensuel), automatique :
-// pour chaque jour / semaine / mois / année d'une période : CA par page, CA total, dépenses, reste (CA − dépenses),
+// pour chaque jour / semaine / mois / année d'une période : CA et produits vendus par page, CA total, dépenses, reste (CA − dépenses),
 // versé au patron, boost, coût des articles vendus, bénéfice net, valeur du stock en fin de période.
 // Les lignes sont regroupées avec un sous-total (jours → semaine, semaines → mois, mois → année).
 import { all, get } from './db';
@@ -19,7 +19,7 @@ const pad = (n: number) => String(n).padStart(2, '0');
 
 export interface RecapRow {
   key: string; from: string; to: string; label: string; sub?: string; group: string; groupLabel: string;
-  pages: Record<string, number>; pageCost: Record<string, number>; pageBoost: Record<string, number>; revenue: number; orders: number; expenses: number; rest: number; paid: number; boost: number; cost: number; net: number; stock: number;
+  pages: Record<string, number>; pageCost: Record<string, number>; pageBoost: Record<string, number>; pageQty: Record<string, number>; qty: number; revenue: number; orders: number; expenses: number; rest: number; paid: number; boost: number; cost: number; net: number; stock: number;
 }
 export interface Recap { gran: Gran; from: string; to: string; rows: RecapRow[]; pages: { id: string; name: string }[]; groups: { key: string; label: string; rows: RecapRow[]; total: RecapRow }[]; total: RecapRow }
 
@@ -58,12 +58,13 @@ export function firstActivity(): string {
   return min || dayOf(new Date().toISOString());
 }
 
-const emptyRow = (key: string, from: string, to: string, label: string, group = '', groupLabel = ''): RecapRow => ({ key, from, to, label, group, groupLabel, pages: {}, pageCost: {}, pageBoost: {}, revenue: 0, orders: 0, expenses: 0, rest: 0, paid: 0, boost: 0, cost: 0, net: 0, stock: 0 });
+const emptyRow = (key: string, from: string, to: string, label: string, group = '', groupLabel = ''): RecapRow => ({ key, from, to, label, group, groupLabel, pages: {}, pageCost: {}, pageBoost: {}, pageQty: {}, qty: 0, revenue: 0, orders: 0, expenses: 0, rest: 0, paid: 0, boost: 0, cost: 0, net: 0, stock: 0 });
 function addInto(t: RecapRow, r: RecapRow) {
   for (const [k, v] of Object.entries(r.pages)) t.pages[k] = (t.pages[k] ?? 0) + v;
   for (const [k, v] of Object.entries(r.pageCost)) t.pageCost[k] = (t.pageCost[k] ?? 0) + v;
   for (const [k, v] of Object.entries(r.pageBoost)) t.pageBoost[k] = (t.pageBoost[k] ?? 0) + v;
-  t.revenue += r.revenue; t.orders += r.orders; t.expenses += r.expenses; t.rest += r.rest; t.paid += r.paid; t.boost += r.boost; t.cost += r.cost; t.net += r.net;
+  for (const [k, v] of Object.entries(r.pageQty)) t.pageQty[k] = (t.pageQty[k] ?? 0) + v;
+  t.qty += r.qty; t.revenue += r.revenue; t.orders += r.orders; t.expenses += r.expenses; t.rest += r.rest; t.paid += r.paid; t.boost += r.boost; t.cost += r.cost; t.net += r.net;
 }
 
 export function globalRecap(from: string, to: string, gran: Gran): Recap {
@@ -82,6 +83,8 @@ export function globalRecap(from: string, to: string, gran: Gran): Recap {
     const r = row(l.day); if (!r) continue;
     const p = rootOf(l.categoryId) || '_'; pageIds.add(p);
     r.pages[p] = (r.pages[p] ?? 0) + l.amount; r.pageCost[p] = (r.pageCost[p] ?? 0) + l.cost; r.revenue += l.amount; r.cost += l.cost;
+    // Produits vendus (pièces) : ventes − articles revenus (retours, refus), par page.
+    r.pageQty[p] = (r.pageQty[p] ?? 0) + l.qty; r.qty += l.qty;
     if (l.kind === 'sale') { const s = seenOrders.get(r.key) ?? new Set(); s.add(l.order.id); seenOrders.set(r.key, s); }
   }
   for (const [k, s] of seenOrders) rows.get(k)!.orders = s.size;
