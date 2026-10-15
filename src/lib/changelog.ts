@@ -3,6 +3,7 @@
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
   { date: '2026-10-15', items: [
+    'Boutique en ligne : chaque page a son site (ex. /netvision, /talo). Les commandes des clients arrivent ici toutes seules, numérotées WEB-0001…, canal « Site web », statut « Enregistrée » ; elles réservent le stock comme une commande saisie. Une notification urgente rappelle d’appeler le client pour confirmer.',
     'Situation par page corrigée : Total commandes − annulé − reporté = Ventes ; Ventes = espèces + MVola + Orange + Airtel + reste à payer. Une livraison reportée passe à sa nouvelle date ; un échange pris compte dans les ventes, un échange non pris est retiré.',
     'Vendeur : il ne voit que ses pages partout (accueil, commandes, ventes, clients, caisse du jour), jamais le total de tous les vendeurs.',
     'Accueil : « Situation par page » — total des ventes, espèces, MVola, Orange Money, Airtel Money, reste à payer, annulé, échange et livraisons reportées, par page et au total.',
