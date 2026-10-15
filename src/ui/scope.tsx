@@ -4,7 +4,7 @@ import { Icon } from './icons';
 
 export function ScopeBar({ scope, mineLabel = 'Mes pages', text }: { scope: ReturnType<typeof useMyScope>; mineLabel?: string; text?: string }) {
   if (!scope.has) return null;
-  if (scope.strict) return <div className="scope-bar"><Icon name="tag" /><span className="small">{text ?? 'Vous voyez seulement vos pages'} : <strong>{scope.names}</strong></span></div>;
+  if (scope.locked) return <div className="scope-bar"><Icon name="tag" /><span className="small">{text ?? 'Vous voyez seulement vos pages'} : <strong>{scope.names}</strong></span></div>;
   return (
     <div className="scope-bar">
       <Icon name="tag" />

@@ -128,7 +128,7 @@ function OrderList({ tabKey }: { tabKey?: string }) {
     <>
       <PageHead title="Commandes" subtitle="Commandes Facebook, téléphone et autres, jusqu’à la livraison et au règlement du livreur."
         actions={can('orders.create') && <><Button variant="ghost" icon="users" onClick={() => setFollowing(true)}>Client à suivre</Button><Button icon="plus" onClick={() => setCreating(true)}>Nouvelle commande</Button></>} />
-      <ScopeBar scope={scope} mineLabel="Mes commandes" text={scope.strict ? 'Vous voyez seulement les commandes de vos pages' : "Vous voyez les commandes que vous avez enregistrées. Les livraisons du jour restent visibles par tous dans Livraisons."} />
+      <ScopeBar scope={scope} mineLabel="Mes commandes" text={scope.locked ? 'Vous voyez seulement les commandes de vos pages (toutes les livraisons sont dans « Livraisons »)' : "Vous voyez les commandes que vous avez enregistrées. Les livraisons du jour restent visibles par tous dans Livraisons."} />
       <div className="tabs" role="tablist">
         {(() => { const n = prospects.filter((x) => x.status === 'open' && scope.mine({ createdBy: x.ownerId, createdByName: x.ownerName }) && bucketOf(x) !== 'later').length; return <button role="tab" aria-selected={tabKey === 'suivre'} onClick={() => switchTab('suivre')}>À suivre{n ? <span className="tab-count tab-count-hot">{n}</span> : null}</button>; })()}
         {TABS.map((t) => {

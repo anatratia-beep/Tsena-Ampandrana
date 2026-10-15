@@ -39,7 +39,7 @@ export function CourierReturn() {
   const all = period.key === 'all';
   // Vendeur limité à ses pages : seulement les colis de ses pages.
   const scope = useMyScope();
-  const inP = (o: Order) => (all || inPeriod(o.dispatchedAt || o.createdAt, period)) && scope.mine(o);
+  const inP = (o: Order) => (all || inPeriod(o.dispatchedAt || o.createdAt, period)) && (!scope.strict || scope.mine(o));
   const count = (c: Courier) => courierBalance(c.id).pending.filter(inP).length;
   const withWork = couriers.filter((c) => count(c) || (all && !scope.strict && courierBalance(c.id).carry));
   const [cid, setCid] = useState('');

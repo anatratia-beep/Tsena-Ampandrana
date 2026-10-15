@@ -83,7 +83,7 @@ function ToDeliver() {
   const [dispatch, setDispatch] = useState(false);
   const f = useDelivFilters('all');
   const scope = useMyScope();
-  const ready = orders.filter((o) => o.status === 'ready' && !isPickupZone(o.zoneId) && scope.mine(o) && passes(o, f, o.createdAt));
+  const ready = orders.filter((o) => o.status === 'ready' && !isPickupZone(o.zoneId) && (!scope.strict || scope.mine(o)) && passes(o, f, o.createdAt));
   const preparing = orders.filter((o) => ['new', 'confirmed'].includes(o.status) && o.channel !== 'shop').length;
   const groups = useMemo(() => {
     const m = new Map<string, Order[]>();
@@ -136,7 +136,7 @@ function OutNow() {
   const [move, setMove] = useState<Order | null>(null);
   const f = useDelivFilters('all');
   const scope = useMyScope();
-  const out = orders.filter((o) => o.status === 'out' && scope.mine(o) && passes(o, f, o.dispatchedAt));
+  const out = orders.filter((o) => o.status === 'out' && (!scope.strict || scope.mine(o)) && passes(o, f, o.dispatchedAt));
   const byCourier = new Map<string, Order[]>();
   for (const o of out) { const k = o.courierId || ''; if (!byCourier.has(k)) byCourier.set(k, []); byCourier.get(k)!.push(o); }
   return (

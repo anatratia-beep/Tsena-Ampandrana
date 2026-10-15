@@ -26,6 +26,14 @@ export function isPageSeller(u?: User): boolean {
   if (!u || !userPages(u).length) return false;
   return !['users.manage', 'handover.receive', 'reports.view', 'treasury.view'].some((p) => can(u, p));
 }
+/**
+ * Responsable avec des pages attribuées : dans les commandes (et ventes, clients), il ne voit que les pages qu'il tient ;
+ * dans « Livraisons », il voit tout (c'est lui qui remet les colis aux livreurs). Accueil et caisse : tout.
+ */
+export function isPageManager(u?: User): boolean {
+  if (!u || !userPages(u).length) return false;
+  return can(u, 'handover.receive') && !['users.manage', 'reports.view', 'treasury.view'].some((p) => can(u, p));
+}
 /** Pages d'une commande (articles vendus et repris). */
 export function orderPagesOf(o: { lines: { variantId: string }[]; returnLines?: { variantId: string }[] }): Set<string> {
   const s = new Set<string>();
@@ -46,11 +54,14 @@ export function useMyScope() {
   const [all, setAll] = useState(false);
   const has = pages.length > 0;
   const strict = isPageSeller(me);
-  const on = has && (strict || !all);
+  const manager = isPageManager(me);
+  /** Commandes limitées aux pages : vendeur limité ou responsable (pas de « Tout voir »). */
+  const locked = strict || manager;
+  const on = has && (locked || !all);
   const set = new Set(pages);
   const byMe = (o: { createdBy?: string; createdByName?: string }) => o.createdBy === me.id || (!o.createdBy && o.createdByName === me.fullName);
   return {
-    me, pages, has, on, all: strict ? false : all, setAll: strict ? () => {} : setAll, strict, names: pageNames(pages),
+    me, pages, has, on, all: locked ? false : all, setAll: locked ? () => {} : setAll, strict, manager, locked, names: pageNames(pages),
     product: (productId?: string) => !on || set.has(productPage(productId)),
     variant: (variantId: string) => !on || set.has(variantPage(variantId)),
     page: (pageId?: string) => !on || set.has(pageId || ''),
@@ -60,7 +71,7 @@ export function useMyScope() {
      */
     mine: (o: { createdBy?: string; createdByName?: string; lines?: { variantId: string }[]; returnLines?: { variantId: string }[] }) => {
       if (!on) return true;
-      if (strict && o.lines) { for (const p of orderPagesOf(o as any)) if (set.has(p)) return true; }
+      if (locked && o.lines) { for (const p of orderPagesOf(o as any)) if (set.has(p)) return true; }
       return byMe(o);
     },
   };

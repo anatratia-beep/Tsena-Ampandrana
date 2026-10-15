@@ -3,6 +3,7 @@
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
   { date: '2026-10-15', items: [
+    'Responsable : dans « Commandes », seulement les pages qu’il tient ; dans « Livraisons », toutes les commandes à remettre au livreur, toutes pages.',
     'Seul le responsable remet les commandes au livreur (et change de livreur) ; il voit toutes les pages. Le vendeur ne voit que les livraisons de ses pages.',
     'Menu « Livraisons » de retour pour le responsable (il assigne les livreurs) et pour le vendeur (seulement les livraisons de ses pages, sans les comptes de tous les livreurs).',
     'Boutique en ligne : chaque page a son site (https://anatratia-beep.github.io/Tsena-Ampandrana/boutique/?page=netvision, ?page=talo…). Les commandes des clients arrivent ici toutes seules, numérotées WEB-0001…, canal « Site web », statut « Enregistrée » ; elles réservent le stock comme une commande saisie. Une notification urgente rappelle d’appeler le client pour confirmer.',
