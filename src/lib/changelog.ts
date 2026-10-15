@@ -3,6 +3,7 @@
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
   { date: '2026-10-15', items: [
+    'Accueil : « Situation par page » plus lisible, montants plus petits sur une seule ligne.',
     'Paiements : le responsable, le gérant et l’admin peuvent corriger un paiement (crayon) : moyen (ex. Orange Money → MVola), montant, référence, et « reçu par » la boutique ou le livreur. L’ancienne valeur reste visible.',
     'Référence MVola / Orange / Airtel ajoutable plus tard : « Ajouter la référence » sous un paiement sans référence, une fois vérifiée par le responsable.',
     'Retour du livreur : si le client a payé par Mobile Money sur le numéro de la boutique au lieu des espèces, touchez « Payé en Mobile Money… » sur le colis : le livreur ne doit pas cet argent et ses frais lui sont reversés.',
