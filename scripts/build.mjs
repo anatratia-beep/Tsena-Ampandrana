@@ -59,7 +59,8 @@ function walk(dir) {
     return statSync(p).isDirectory() ? walk(p) : [p];
   });
 }
-const files = walk(dist).map((p) => './' + relative(dist, p)).filter((p) => p !== './sw.js');
+// La boutique en ligne (dist/boutique, pour les clients) ne fait pas partie de l'application : pas dans le cache hors ligne.
+const files = walk(dist).map((p) => './' + relative(dist, p)).filter((p) => p !== './sw.js' && !p.startsWith('./boutique/') && p !== './404.html');
 const hash = createHash('sha256');
 for (const f of files) hash.update(readFileSync(join(dist, f)));
 const version = pkg.version + '-' + hash.digest('hex').slice(0, 10);

@@ -361,7 +361,7 @@ export function OrderForm({ order, exchangeOf, onClose, onSaved, prefill: pre }:
           if (c.zoneId) onZone(c.zoneId); if (c.place) setPlace(c.place);
         }} />}
         <div className="grid-2">
-          <SelectField label="Commande reçue par" value={channel} onChange={onChannel} options={Object.entries(CHANNELS).filter(([k]) => k !== 'shop').map(([value, label]) => ({ value, label }))} />
+          <SelectField label="Commande reçue par" value={channel} onChange={onChannel} options={Object.entries(CHANNELS).filter(([k]) => k !== 'shop' && (k !== 'web' || channel === 'web')).map(([value, label]) => ({ value, label }))} />
           <div />
           <div className="stack-s">
             <TextField label={walkIn ? 'Contact du client (facultatif)' : 'Contact du client'} required={!walkIn} value={phone} onChange={onPhone} type="tel" inputMode="tel" autoFocus={!order} placeholder="034 00 000 00" />
