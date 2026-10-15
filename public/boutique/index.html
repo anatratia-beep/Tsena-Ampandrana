@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cut">
+  <title>Boutique</title>
+  <meta name="description" content="Commandez en ligne, livraison à Antananarivo et en province, paiement à la réception.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Boutique">
+  <meta property="og:description" content="Commandez en ligne, livraison à Antananarivo et en province, paiement à la réception.">
+  <meta name="theme-color" content="#241F35">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..600&family=Jost:wght@300..600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js"></script>
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#collection">Aller à la collection</a>
+  <header class="bar" id="bar">
+    <a class="brand" id="brand" href="./"><span class="seal" id="seal" aria-hidden="true"></span><span class="brand-name" id="brandName"></span></a>
+    <nav class="bar-links" aria-label="Navigation">
+      <a href="#collection">Collection</a>
+      <a href="#livraison">Livraison</a>
+    </nav>
+    <button class="bag-btn" id="bagBtn" type="button" aria-controls="drawer" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8h12l-1 12H7L6 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>
+      <span>Panier</span><span class="bag-count" id="bagCount" hidden>0</span>
+    </button>
+  </header>
+
+  <main id="main" aria-live="polite">
+    <div class="loading" id="loading"><span class="loading-mark"></span><p>Ouverture de la boutique…</p></div>
+  </main>
+
+  <footer class="foot" id="foot"></footer>
+
+  <dialog class="sheet" id="sheet" aria-labelledby="sheetTitle"></dialog>
+
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="drawer" id="drawer" aria-label="Panier" aria-hidden="true" inert></aside>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
