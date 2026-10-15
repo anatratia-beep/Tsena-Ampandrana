@@ -127,6 +127,7 @@ function ToDeliver() {
 }
 
 function OutNow() {
+  const canDispatch = useCan()('orders.dispatch');
   const company = useCompany();
   const orders = useTable<Order>('orders');
   const couriers = useTable<Courier>('couriers');
@@ -163,7 +164,7 @@ function OutNow() {
                     <p className="small muted">{get<Zone>('zones', o.zoneId || '')?.name}{o.place ? ` — ${o.place}` : ''} · à encaisser <strong>{fmtAr(courierSplit(o).toCollect)}</strong>{courierSplit(o).toCollect === 0 ? ' (déjà payé)' : ''} · frais livreur {fmtAr(courierSplit(o).fee)}{courierSplit(o).feeOwed ? ` (payés par Mobile Money : à lui reverser)` : ''}</p>
                   </a>
                   <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
-                    <Button variant="quiet" onClick={() => setMove(o)}>Changer de livreur</Button>
+                    {canDispatch && <Button variant="quiet" onClick={() => setMove(o)}>Changer de livreur</Button>}
                     <Button variant={hasPendingChoice(o) ? 'primary' : 'ghost'} onClick={() => setRet(o)}>{hasPendingChoice(o) ? 'Préciser le choix' : 'Retour'}</Button>
                   </div>
                 </li>

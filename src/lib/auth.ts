@@ -89,6 +89,9 @@ export async function seedAccounts() {
     const r = get<Role>('roles', id);
     if (r && !(r.migrations ?? []).includes('deliveries-menu-back')) await save('roles', { id, permissions: [...new Set([...r.permissions, ...add])], migrations: [...(r.migrations ?? []), 'deliveries-menu-back'] });
   }
+  // Mise à jour unique : seul le responsable remet les commandes au livreur ; le vendeur ne le peut plus.
+  const sel = get<Role>('roles', 'role-seller');
+  if (sel && !(sel.migrations ?? []).includes('dispatch-manager-only')) await save('roles', { id: sel.id, permissions: sel.permissions.filter((p) => p !== 'orders.dispatch'), migrations: [...(sel.migrations ?? []), 'dispatch-manager-only'] });
 }
 
 // ---- Session ----

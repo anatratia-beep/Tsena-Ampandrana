@@ -12,7 +12,7 @@ await p.getByLabel("Nom d'utilisateur").fill('super-adm'); await p.locator('inpu
 await p.getByRole('button', { name: 'Plus tard' }).click(); await p.waitForTimeout(400);
 const roles = await p.evaluate(() => ({ seller: window.__tsena.get('roles', 'role-seller'), manager: window.__tsena.get('roles', 'role-manager') }));
 ok(roles.manager?.name === 'Responsable' && roles.manager.permissions.includes('orders.dispatch') && roles.manager.permissions.includes('handover.receive'), 'rôle Responsable : assigne les livreurs et reçoit les versements');
-ok(roles.seller.permissions.includes('orders.dispatch') && roles.seller.permissions.includes('handover.self'), 'rôle Vendeur : remet les colis au livreur, voit sa feuille');
+ok(!roles.seller.permissions.includes('orders.dispatch') && roles.seller.permissions.includes('handover.self'), 'rôle Vendeur : ne remet pas les colis au livreur (le responsable le fait), voit sa feuille');
 await p.evaluate(async () => {
   const t = window.__tsena; const now = new Date().toISOString(); const hash = t.get('users', 'user-superadmin').passwordHash;
   await t.save('categories', [{ id: 'pp', name: 'Poignet précieux' }, { id: 'is', name: 'Intimity style' }]);
