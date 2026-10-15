@@ -27,6 +27,7 @@ await p.evaluate(async () => {
     { id: 'S3', number: 'V-3', kind: 'order', channel: 'shop', phone: '', status: 'delivered', lines: L('vn', 2, 10000), payments: [pay(12000, 'orange')], discount: 0, deliveryFee: 0, createdAt: now, dispatchedAt: now, returnedAt: now },
     { id: 'C4', number: 'C-4', kind: 'order', channel: 'facebook', phone: '0340000004', name: 'Annule', status: 'cancelled', statusDates: { cancelled: now }, lines: [{ id: 'x', variantId: 'vn', qty: 3, unitPrice: 10000 }], payments: [], discount: 0, deliveryFee: 0, createdAt: now },
     { id: 'E5', number: 'E-5', kind: 'exchange', channel: 'facebook', phone: '0340000005', name: 'Echange', status: 'new', lines: [{ id: 'y', variantId: 'vn', qty: 1, unitPrice: 10000 }], payments: [], discount: 0, deliveryFee: 0, createdAt: now },
+    { id: 'C8', number: 'C-8', kind: 'order', channel: 'facebook', phone: '0340000008', name: 'Reporte', status: 'ready', reports: [{ at: now, to: '2099-01-01', reason: 'Client absent' }], wantedDate: '2099-01-01', lines: [{ id: 'r8', variantId: 'vn', qty: 1, unitPrice: 10000 }], payments: [], discount: 0, deliveryFee: 0, createdAt: now },
     { id: 'C7', number: 'C-7', kind: 'order', channel: 'facebook', phone: '0340000007', name: 'Box client', status: 'new', lines: [{ id: 'z', variantId: 'vb', qty: 1, unitPrice: 20000 }], payments: [], discount: 0, deliveryFee: 0, createdAt: now },
   ]);
   await t.save('stockMoves', [{ variantId: 'vn', qty: -1, type: 'sale', refType: 'order', refId: 'S1', at: now }, { variantId: 'vb', qty: -1, type: 'sale', refType: 'order', refId: 'S2', at: now }, { variantId: 'vn', qty: -2, type: 'sale', refType: 'order', refId: 'S3', at: now }]);
@@ -39,9 +40,9 @@ const stock = (v) => p.evaluate((id) => window.__tsena.all('stockMoves').filter(
 await p.goto('http://localhost:5173/#/'); await p.waitForTimeout(900);
 let tx = N(await p.locator('.situation-card').innerText());
 ok(tx.includes('Situation par page') && tx.includes('NETVISION') && tx.includes('BOXER'), 'gérant : situation de toutes les pages');
-ok(tx.includes('Espèces 5 000 Ar') && tx.includes('MVola 5 000 Ar') && tx.includes('Orange Money 12 000 Ar') && tx.includes('Airtel Money 20 000 Ar'), 'totaux espèces / MVola / Orange / Airtel');
-ok(tx.includes('Reste à payer 8 000 Ar') && tx.includes('Annulé 30 000 Ar') && tx.includes('Échange 10 000 Ar'), 'reste à payer 8 000, annulé 30 000, échange 10 000');
-ok(tx.includes('Total ventes 70 000 Ar') && tx.includes('NETVISION 50 000 Ar'), 'total des ventes 70 000 (NETVISION 50 000 dont colis en livraison + BOXER 20 000)');
+ok(tx.includes('Total commandes 110 000 Ar') && tx.includes('− Annulé 30 000 Ar') && tx.includes('− Reporté 10 000 Ar') && tx.includes('= Ventes 70 000 Ar'), 'total commandes 110 000 − annulé 30 000 − reporté 10 000 = ventes 70 000');
+ok(tx.includes('Espèces 5 000 Ar') && tx.includes('MVola 5 000 Ar') && tx.includes('Orange Money 12 000 Ar') && tx.includes('Airtel Money 20 000 Ar') && tx.includes('Reste à payer 28 000 Ar'), 'ventes = espèces 5 000 + MVola 5 000 + Orange 12 000 + Airtel 20 000 + reste 28 000');
+ok(!tx.includes('Échange 10 000'), 'échange pas encore pris par le client : pas compté');
 // 2. À reporter : 3 fois au plus, puis annulation
 for (let i = 1; i <= 3; i++) {
   if (i > 1) await p.evaluate(async () => { const t = window.__tsena; await t.save('orders', { id: 'C6', status: 'out', courierId: 'k1', dispatchedAt: new Date().toISOString() }); await t.save('stockMoves', { variantId: 'vn', qty: -2, type: 'dispatch', refType: 'order', refId: 'C6', at: new Date().toISOString() }); });
@@ -64,8 +65,8 @@ await p.goto('http://localhost:5173/#/'); await p.waitForTimeout(900);
 tx = N(await p.locator('main').innerText());
 const sit = N(await p.locator('.situation-card').innerText());
 ok(sit.includes('Situation de mes pages') && sit.includes('NETVISION') && !sit.includes('BOXER'), 'vendeur : situation de sa page seulement');
-ok(sit.includes('Total ventes 30 000 Ar') && !sit.includes('Airtel Money 20 000'), 'vendeur : pas le total de tous les vendeurs (30 000, pas 50 000)');
-ok(sit.includes('Livraisons reportées 3'), 'reports comptés dans la situation');
+ok(sit.includes('= Ventes 30 000 Ar') && !sit.includes('Airtel Money 20 000'), 'vendeur : ventes de sa page seulement (30 000), pas le total de tous');
+ok(sit.includes('− Annulé 50 000 Ar') && sit.includes('− Reporté 10 000 Ar') && sit.includes('Total commandes 90 000 Ar'), 'commande annulée après 3 reports : seulement dans « annulé » ; total 90 000');
 await p.goto('http://localhost:5173/#/commandes/enregistrees'); await p.waitForTimeout(500);
 tx = N(await p.locator('main').innerText());
 ok(tx.includes('Echange') && !tx.includes('Box client') && await p.locator('.scope-bar button').count() === 0, 'commandes : seulement celles de sa page, pas de bouton « Tout »');

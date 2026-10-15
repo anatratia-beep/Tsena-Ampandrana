@@ -329,35 +329,36 @@ function SituationCard({ from: f, to: t }: { from?: string; to?: string }) {
   const from = f ?? own.from ?? '2000-01-01', to = t ?? own.to ?? todayYmd();
   const sit = useMemo(() => situation(from, to, scope.strict ? scope.pages : undefined), [from, to, scope.strict, scope.pages.join(), ords]);
   const T = sit.total;
-  const cols: { k: string; l: string; v: (r: PageSit) => number; money?: boolean; n?: (r: PageSit) => number; cls?: string }[] = [
-    { k: 'sales', l: 'Total ventes', v: (r) => r.sales, money: true, n: (r) => r.qty },
+  const cols: { k: string; l: string; v: (r: PageSit) => number; money?: boolean; n?: (r: PageSit) => number; cls?: string; strong?: boolean; minus?: boolean }[] = [
+    { k: 'gross', l: 'Total commandes', v: (r) => r.gross, money: true },
+    { k: 'cancel', l: 'Annulé', v: (r) => r.cancelled, money: true, n: (r) => r.cancelledN, minus: true },
+    { k: 'rep', l: 'Reporté', v: (r) => r.reported, money: true, n: (r) => r.reportedN, minus: true },
+    { k: 'sales', l: 'Ventes', v: (r) => r.sales, money: true, strong: true },
     { k: 'cash', l: 'Espèces', v: (r) => r.pay.cash, money: true },
     { k: 'mvola', l: 'MVola', v: (r) => r.pay.mvola, money: true },
     { k: 'orange', l: 'Orange Money', v: (r) => r.pay.orange, money: true },
     { k: 'airtel', l: 'Airtel Money', v: (r) => r.pay.airtel, money: true },
     { k: 'rest', l: 'Reste à payer', v: (r) => r.rest, money: true, n: (r) => r.restN, cls: 'neg' },
-    { k: 'cancel', l: 'Annulé', v: (r) => r.cancelled, money: true, n: (r) => r.cancelledN },
-    { k: 'exch', l: 'Échange', v: (r) => r.exchange, money: true, n: (r) => r.exchangeN },
-    { k: 'rep', l: 'Reportées', v: (r) => r.reported },
+    { k: 'exch', l: 'dont échange', v: (r) => r.exchange, money: true, n: (r) => r.exchangeN },
   ];
   const sub = (c: (typeof cols)[number], r: PageSit) => c.k === 'sales' ? `${fmtNum(r.qty)} produit(s)` : c.n ? `${c.n(r)} commande(s)` : '';
-  const cell = (c: (typeof cols)[number], r: PageSit) => { const v = c.v(r); return <td key={c.k} className={`t-num ${v && c.cls ? c.cls : ''}`}>{v ? (c.money ? fmtAr(v) : fmtNum(v)) : <span className="muted">—</span>}{v && sub(c, r) ? <div className="small muted">{sub(c, r)}</div> : null}</td>; };
+  const cell = (c: (typeof cols)[number], r: PageSit) => { const v = c.v(r); return <td key={c.k} className={`t-num ${v && c.cls ? c.cls : ''} ${c.strong ? 'sit-strong' : ''}`}>{v ? <>{c.minus ? '− ' : ''}{c.money ? fmtAr(v) : fmtNum(v)}</> : <span className="muted">—</span>}{v && sub(c, r) ? <div className="small muted">{sub(c, r)}</div> : null}</td>; };
   return (
     <div className="card card-flush situation-card">
       <div className="card-pad stack-s">
         <div className="row-between"><h2>{scope.strict ? 'Situation de mes pages' : 'Situation par page'}</h2>{!f && <PeriodPicker value={own} onChange={setOwn} />}</div>
         <div className="stat-grid sit-kpis">
-          <div className="card stat stat-strong"><span className="small muted">Total ventes</span><strong className="stat-value num">{fmtAr(T.sales)}</strong><span className="small muted">{fmtNum(T.qty)} produit(s) · {T.orders} vente(s)</span></div>
+          <div className="card stat"><span className="small muted">Total commandes</span><strong className="stat-value num">{fmtAr(T.gross)}</strong><span className="small muted">ventes + annulé + reporté</span></div>
+          <a className="card stat" href="#/commandes/annulees" style={{ textDecoration: 'none', color: 'inherit' }}><span className="small muted">− Annulé</span><strong className="stat-value num">{fmtAr(T.cancelled)}</strong><span className="small muted">{T.cancelledN} commande(s)</span></a>
+          <a className="card stat" href="#/commandes/attente" style={{ textDecoration: 'none', color: 'inherit' }}><span className="small muted">− Reporté</span><strong className="stat-value num">{fmtAr(T.reported)}</strong><span className="small muted">{T.reportedN} commande(s), passées à leur nouvelle date</span></a>
+          <div className="card stat stat-strong"><span className="small muted">= Ventes</span><strong className="stat-value num">{fmtAr(T.sales)}</strong><span className="small muted">{fmtNum(T.qty)} produit(s) · {T.orders} vente(s){T.exchange ? ` · dont échange ${fmtAr(T.exchange)}` : ''}</span></div>
           <div className="card stat"><span className="small muted">Espèces</span><strong className="stat-value num">{fmtAr(T.pay.cash)}</strong></div>
           <div className="card stat"><span className="small muted">MVola</span><strong className="stat-value num">{fmtAr(T.pay.mvola)}</strong></div>
           <div className="card stat"><span className="small muted">Orange Money</span><strong className="stat-value num">{fmtAr(T.pay.orange)}</strong></div>
           <div className="card stat"><span className="small muted">Airtel Money</span><strong className="stat-value num">{fmtAr(T.pay.airtel)}</strong></div>
           <a className="card stat" href="#/commandes/terminees" style={{ textDecoration: 'none', color: 'inherit' }}><span className="small muted">Reste à payer</span><strong className={`stat-value num ${T.rest ? 'neg' : ''}`}>{fmtAr(T.rest)}</strong><span className="small muted">{T.restN} commande(s)</span></a>
-          <a className="card stat" href="#/commandes/annulees" style={{ textDecoration: 'none', color: 'inherit' }}><span className="small muted">Annulé</span><strong className="stat-value num">{fmtAr(T.cancelled)}</strong><span className="small muted">{T.cancelledN} commande(s)</span></a>
-          <div className="card stat"><span className="small muted">Échange</span><strong className="stat-value num">{fmtAr(T.exchange)}</strong><span className="small muted">{T.exchangeN} échange(s)</span></div>
-          <a className="card stat" href="#/commandes/attente" style={{ textDecoration: 'none', color: 'inherit' }}><span className="small muted">Livraisons reportées</span><strong className="stat-value num">{fmtNum(T.reported)}</strong></a>
         </div>
-        <p className="small muted" style={{ margin: 0 }}>Argent reçu sur la période (boutique et livreurs) par moyen de paiement. Une commande avec des articles de plusieurs pages est répartie selon la valeur de chaque page.</p>
+        <p className="small muted" style={{ margin: 0 }}>Total commandes − annulé − reporté = <strong>ventes</strong> ; ventes = espèces + MVola + Orange Money + Airtel Money + reste à payer. Une livraison reportée passe à sa nouvelle date ; un échange pris par le client compte dans les ventes, un échange non pris est retiré. Une commande avec des articles de plusieurs pages est répartie selon la valeur de chaque page.</p>
       </div>
       {sit.rows.length === 0 ? <p className="card-pad small muted">Aucune activité sur cette période.</p> : (
         <div className="table-wrap"><table className="table table-grid sit-table">

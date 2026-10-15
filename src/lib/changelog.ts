@@ -3,6 +3,7 @@
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
   { date: '2026-10-15', items: [
+    'Situation par page corrigée : Total commandes − annulé − reporté = Ventes ; Ventes = espèces + MVola + Orange + Airtel + reste à payer. Une livraison reportée passe à sa nouvelle date ; un échange pris compte dans les ventes, un échange non pris est retiré.',
     'Vendeur : il ne voit que ses pages partout (accueil, commandes, ventes, clients, caisse du jour), jamais le total de tous les vendeurs.',
     'Accueil : « Situation par page » — total des ventes, espèces, MVola, Orange Money, Airtel Money, reste à payer, annulé, échange et livraisons reportées, par page et au total.',
     'Livraison « À reporter » : le client demande un autre jour (date et raison notées) ; le colis revient en boutique. Au plus 3 reports, ensuite la commande est annulée.',

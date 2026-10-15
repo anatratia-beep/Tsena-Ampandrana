@@ -1227,3 +1227,4 @@ a.bell { text-decoration: none; }
 /* Situation par page (accueil) */
 .sit-kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .sit-table td, .sit-table th { white-space: nowrap; }
+.sit-table td.sit-strong { font-weight: 700; }
