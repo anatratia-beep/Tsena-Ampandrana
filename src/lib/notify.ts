@@ -13,6 +13,8 @@ import type { Courier } from './orders';
 import { unpaidWeeks } from './payouts';
 import { dueProspects } from './prospects';
 import { reportsDue } from '../pages/BossReport';
+import { sentReport } from './dayReport';
+import { userPages } from './scope';
 import { currentUser } from './auth';
 import { fmtAr } from './catalog';
 import { allPages, boostDues, boostOwners, deadlineText, pageName } from './boosts';
@@ -55,7 +57,7 @@ export const hiddenNotifs = () => getMeta<Hidden>('notifHidden', {});
 export function useNotifications() {
   const can = useCan();
   const orders = useTable<Order>('orders'); const moves = useTable('cashMoves'); const recs = useTable<Recurring>('recurring');
-  const products = useTable<Product>('products'); const sm = useTable('stockMoves'); const conflicts = useTable<any>('syncConflicts'); const payouts = useTable('payouts'); const prospects = useTable('prospects'); const couriers = useTable<Courier>('couriers'); const settles = useTable('courierSettlements'); const auditRows = useTable<any>('audit'); const readings = useTable('boostReadings'); const boostsT = useTable('boosts');
+  const products = useTable<Product>('products'); const sm = useTable('stockMoves'); const conflicts = useTable<any>('syncConflicts'); const payouts = useTable('payouts'); const prospects = useTable('prospects'); const couriers = useTable<Courier>('couriers'); const settles = useTable('courierSettlements'); const auditRows = useTable<any>('audit'); const readings = useTable('boostReadings'); const boostsT = useTable('boosts'); const dayReps = useTable('dayReports');
   const snoozes = useMeta<Snoozes>('notifSnooze', {});
   const hidden = useMeta<Hidden>('notifHidden', {});
   const reportSent = useMeta<Record<string, string>>('reportSent', {});
@@ -100,6 +102,12 @@ export function useNotifications() {
       // Rapports au patron à envoyer : du jour (le soir), de la semaine (lundi), du mois (le 1er), de l'année (1er janvier).
       for (const d of reportsDue()) if (!reportSent[d.key]) out.push({ id: 'rapport:' + d.key, level: d.kind === 'day' ? 'info' : 'important', title: `Rapport ${d.kind === 'day' ? 'du jour' : d.kind === 'week' ? 'de la semaine' : d.kind === 'month' ? 'du mois' : "de l'année"} à envoyer au patron`, text: d.label, href: `#/rapports/patron?p=${d.kind}&a=${d.anchor}` });
     }
+    {
+      // Rapport du jour de chaque vendeur (ses pages) à envoyer au patron en fin de journée.
+      const me = currentUser();
+      if (me && can('orders.create') && !can('reports.view') && userPages(me).length && new Date().getHours() >= 17 && !sentReport(me.id, today()))
+        out.push({ id: `mon-rapport:${today()}`, level: 'important', title: 'Envoyez votre rapport du jour au patron', text: 'Ventes, argent reçu, articles vendus et stock de vos pages', href: '#/mon-rapport' });
+    }
     if (can('payout.validate')) {
       const w = unpaidWeeks(today(), mondayOf);
       if (w.length) out.push({ id: 'versement', level: 'important', title: `${w.length} semaine(s) terminée(s) pas encore versée(s) au patron`, text: `Dernière : ${fmtAr(w[0].expected)} à verser`, href: '#/recapitulatif' });
@@ -140,7 +148,7 @@ export function useNotifications() {
     }
     const rank: Record<Level, number> = { urgent: 0, important: 1, info: 2 };
     return out.sort((a, b) => rank[a.level] - rank[b.level]);
-  }, [orders, moves, recs, products, sm, conflicts, payouts, prospects, couriers, settles, auditRows, readings, boostsT, reportSent, lastFile, lastCloud, minute]);
+  }, [orders, moves, recs, products, sm, conflicts, payouts, prospects, couriers, settles, auditRows, readings, boostsT, dayReps, reportSent, lastFile, lastCloud, minute]);
   const now = new Date().toISOString();
   return list.filter((n) => !hidden[notifSig(n)]).map((n) => ({ ...n, until: snoozes[n.id] && snoozes[n.id] > now ? snoozes[n.id] : undefined }));
 }

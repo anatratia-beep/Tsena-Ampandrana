@@ -39,6 +39,7 @@ import { HandoversPage } from './pages/Handovers';
 import { CategoriesPage } from './pages/Categories';
 import { MyDeliveriesPage } from './pages/MyDeliveries';
 import { ExpensesPage } from './pages/Expenses';
+import { MyDayReportPage } from './pages/DayReport';
 import { NotifBar, NotifBell, NotificationsPage, useNotifCount } from './ui/notifications';
 function NavNotifCount() { const n = useNotifCount(); return n ? <span className="nav-count">{n}</span> : null; }
 
@@ -52,6 +53,7 @@ const NAV: NavItem[] = [
   { path: '/commandes', label: 'Commandes clients', icon: 'list', perm: 'orders.create', group: 'Ventes', page: () => <OrdersPage />, mobile: true },
   { path: '/mes-livraisons', label: 'Mes livraisons', icon: 'truck', perm: 'courier.self', group: 'Ventes', page: () => <MyDeliveriesPage />, mobile: true },
   { path: '/livraisons', label: 'Livraisons et livreurs', short: 'Livraisons', icon: 'truck', perm: 'deliveries.menu', group: 'Ventes', page: () => <DeliveriesPage />, mobile: true },
+  { path: '/mon-rapport', label: 'Mon rapport du jour', icon: 'chart', perm: 'orders.create|pos.sell', group: 'Ventes', page: () => <MyDayReportPage /> },
   { path: '/clients', label: 'Clients', icon: 'users', perm: 'orders.create', group: 'Ventes', page: () => <CustomersPage /> },
   { path: '/depenses', label: 'Dépenses', icon: 'wallet', perm: 'expenses.manage', group: 'Argent', page: () => <ExpensesPage /> },
   { path: '/caisse-du-jour', label: 'Caisse du jour', icon: 'wallet', perm: 'cashday.use', group: 'Argent', page: () => <DayCashPage /> },

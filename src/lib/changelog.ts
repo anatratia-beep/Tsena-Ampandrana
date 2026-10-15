@@ -3,6 +3,8 @@
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
   { date: '2026-10-15', items: [
+    'Nouveau menu « Mon rapport du jour » : chaque vendeur envoie au patron, en fin de journée, le rapport de ses pages (ventes, espèces, MVola, Orange, Airtel, reste à payer, annulé, reporté, articles vendus, commandes en cours, stock restant, remarques) par WhatsApp ou en PDF. Rappel à partir de 17 h.',
+    'Rapports → « Rapports des vendeurs » : le patron voit chaque jour qui a envoyé son rapport, son contenu, et les chiffres actuels de ceux qui ne l’ont pas encore fait.',
     'Accueil : « Situation par page » plus lisible, montants plus petits sur une seule ligne.',
     'Paiements : le responsable, le gérant et l’admin peuvent corriger un paiement (crayon) : moyen (ex. Orange Money → MVola), montant, référence, et « reçu par » la boutique ou le livreur. L’ancienne valeur reste visible.',
     'Référence MVola / Orange / Airtel ajoutable plus tard : « Ajouter la référence » sous un paiement sans référence, une fois vérifiée par le responsable.',
