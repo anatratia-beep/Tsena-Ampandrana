@@ -9,7 +9,9 @@ import { adjustsKeptTotal, adjustsTotal, computeAdjusts, type Adjust } from './l
 export interface Zone extends BaseRecord { name: string; fee: number; order?: number; active: boolean; pickup?: boolean }
 /** Zone « Sur boutique » : le client vient chercher, pas de frais ni de livreur. */
 export const isPickupZone = (z?: Zone | string) => { const zone = typeof z === 'string' ? get<Zone>('zones', z) : z; return !!zone && (zone.pickup || zone.id === 'zone-retrait'); };
-export interface Courier extends BaseRecord { name: string; phone?: string; zoneIds?: string[]; active: boolean; notes?: string; userId?: string; feeClaimAt?: string; removed?: boolean; removedAt?: string; removedBy?: string }
+export interface Courier extends BaseRecord { name: string; phone?: string; zoneIds?: string[]; active: boolean; notes?: string; userId?: string; feeClaimAt?: string; removed?: boolean; removedAt?: string; removedBy?: string;
+  /** Livreur salarié : les frais de livraison payés par le client vont à la caisse de la boutique, pas au livreur. */
+  feeToShop?: boolean }
 export interface Customer extends BaseRecord { phone?: string; phone2?: string; name?: string; facebook?: string; place?: string; zoneId?: string; notes?: string }
 
 export type OrderStatus = 'new' | 'confirmed' | 'ready' | 'out' | 'delivered' | 'partial' | 'refused' | 'cancelled';
@@ -197,11 +199,15 @@ export function remaining(o: Order) {
  * - feeKept   : frais qu'il encaisse auprès du client et garde ;
  * - feeOwed   : frais déjà payés à la boutique (ex. tout payé par Mobile Money) → à lui reverser en espèces ;
  * - clientPays: total réellement payé par le client au livreur (articles + frais), pour information.
+ * - shopFee   : frais qui reviennent à la caisse (livreur « frais pour la boutique ») : compris dans toCollect.
  * Exemple : articles 50 000, frais 3 000, Mobile Money 20 000 → le livreur encaisse 30 000 pour la boutique + 3 000 de frais.
  */
 export function courierSplit(o: Order) {
   const closed = ['delivered', 'partial', 'refused'].includes(o.status);
-  const fee = closed ? (o.feeCharged ?? o.deliveryFee ?? 0) : (o.deliveryFee || 0);
+  const charged = closed ? (o.feeCharged ?? o.deliveryFee ?? 0) : (o.deliveryFee || 0);
+  // Livreur dont les frais vont à la caisse : il remet tout (articles + frais) à la boutique, rien ne lui revient.
+  const shopFee = o.courierId && get<Courier>('couriers', o.courierId)?.feeToShop ? charged : 0;
+  const fee = charged - shopFee;
   const shopPaid = (o.payments || []).filter((p) => p.receivedBy === 'shop').reduce((s, p) => s + p.amount, 0);
   const got = (o.payments || []).filter((p) => p.receivedBy === 'courier' && p.courierId === o.courierId).reduce((s, p) => s + p.amount, 0);
   const itemsDue = Math.max(0, (o.kind === 'exchange' ? exchangeBalance(o) : orderTotal(o)) - fee);
@@ -210,7 +216,7 @@ export function courierSplit(o: Order) {
   const feeKept = Math.min(clientPays, feeFromClient);
   const toCollect = clientPays - feeKept;
   const feeOwed = fee - feeKept;
-  return { clientPays, toCollect, fee, feeKept, feeOwed, net: toCollect - feeOwed, closed };
+  return { clientPays, toCollect, fee, feeKept, feeOwed, net: toCollect - feeOwed, closed, shopFee };
 }
 /** Commande revenue du livreur (retour confirmé) mais pas encore réglée avec lui. */
 export const needsSettlement = (o: Order) => ['delivered', 'partial', 'refused'].includes(o.status) && !!o.courierId && !!o.dispatchedAt && !o.courierSettledAt && !isPickupZone(o.zoneId) && !isWalkIn(o);

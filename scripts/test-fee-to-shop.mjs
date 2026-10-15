@@ -1,0 +1,42 @@
+// Livreur « frais pour la caisse » : il remet tout (articles + frais), rien ne lui revient.
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const p = await (await b.newContext({ viewport: { width: 1280, height: 900 }, timezoneId: 'Indian/Antananarivo' })).newPage();
+const N = (t) => t.replace(/[  ]/g, ' ');
+let fail = 0; const ok = (c, m) => { console.log((c ? 'OK   ' : 'FAIL ') + m); if (!c) fail++; };
+p.on('pageerror', (e) => { console.log('ERR', e.message); fail++; });
+await p.goto('http://localhost:5173/'); await p.waitForTimeout(600);
+await p.getByLabel("Nom d'utilisateur").fill('super-adm'); await p.locator('input[type=password]').fill('anosy'); await p.keyboard.press('Enter');
+await p.getByRole('button', { name: 'Plus tard' }).click(); await p.waitForTimeout(400);
+await p.evaluate(async () => {
+  const t = window.__tsena; const now = new Date().toISOString();
+  await t.save('categories', [{ id: 'pg1', name: 'Pyjamas' }]);
+  await t.save('products', [{ id: 'p1', code: 'PJ', name: 'Pyjama', categoryId: 'pg1', priceRetail: 20000, active: true }]);
+  await t.save('variants', [{ id: 'v1', productId: 'p1', sku: 'PJ', active: true }]);
+  await t.save('stockMoves', [{ variantId: 'v1', qty: 20, type: 'initial', at: now }]);
+  await t.save('couriers', [{ id: 'k1', name: 'Toky', active: true }]);
+  const o = (id, num, extra = {}) => ({ id, number: num, kind: 'order', channel: 'facebook', phone: '03411100' + id.slice(1).padStart(2, '0'), name: 'Client ' + id, zoneId: 'zone-centre', place: 'Analakely', courierId: 'k1', status: 'out', dispatchedAt: now, lines: [{ id: 'l' + id, variantId: 'v1', qty: 1, unitPrice: 20000 }], payments: [], discount: 0, deliveryFee: 3000, createdAt: now, ...extra });
+  await t.save('orders', [o('o1', 'C-1'), o('o2', 'C-2', { payments: [{ id: 'm', at: now, amount: 23000, method: 'mvola', receivedBy: 'shop', ref: 'X' }] })]);
+});
+// Réglage du livreur
+await p.goto('http://localhost:5173/#/livraisons/livreurs'); await p.waitForTimeout(500);
+await p.getByRole('row', { name: /Toky/ }).getByRole('button', { name: 'Modifier' }).click(); await p.waitForTimeout(200);
+const dlg = p.getByRole('dialog');
+if (!(await dlg.count())) console.log(N(await p.locator('main').innerText()).slice(0, 800));
+await dlg.getByText('Frais de livraison pour la caisse').click();
+await dlg.getByRole('button', { name: 'Enregistrer' }).click(); await p.waitForTimeout(300);
+ok((await p.evaluate(() => window.__tsena.get('couriers', 'k1'))).feeToShop === true, 'réglage « frais pour la caisse » enregistré');
+ok(N(await p.locator('main').innerText()).includes('frais → caisse'), 'livreur marqué « frais → caisse »');
+await p.goto('http://localhost:5173/#/commandes/o1'); await p.waitForTimeout(400);
+ok(N(await p.locator('main').innerText()).includes('23 000 Ar pour la boutique (dont frais de livraison 3 000 Ar, pour la caisse)'), 'commande : le livreur encaisse 23 000 Ar, frais compris, pour la caisse');
+await p.goto('http://localhost:5173/#/livraisons/retour'); await p.waitForTimeout(500);
+let tx = N(await p.locator('main').innerText());
+ok(/Attendu du livreur maintenant\s*23 000 Ar/.test(tx), 'retour : attendu 23 000 Ar (articles + frais), rien à reverser pour la commande payée par MVola');
+if (!/Attendu du livreur maintenant\s*23 000 Ar/.test(tx)) console.log(tx.slice(0, 2500));
+await p.getByRole('button', { name: /Valider le retour de Toky/ }).click(); await p.waitForTimeout(200);
+await p.getByRole('dialog').getByRole('button', { name: 'Valider' }).click(); await p.waitForTimeout(600);
+const s = await p.evaluate(() => window.__tsena.all('courierSettlements'));
+ok(s.length === 1 && s[0].amount === 23000, `versement de Toky : 23 000 Ar en caisse (${s.map((x) => x.amount)})`);
+await p.goto('http://localhost:5173/#/notifications'); await p.waitForTimeout(400);
+ok(!N(await p.locator('main').innerText()).includes('Frais de livraison à payer à Toky'), 'aucun frais dû à Toky');
+console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);

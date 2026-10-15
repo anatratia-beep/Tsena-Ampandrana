@@ -216,7 +216,7 @@ function OutNow() {
                 <li key={o.id} className="list-item">
                   <a className="list-item-main" href={`#/commandes/${o.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
                     <span className="list-item-title">{orderLabel(o)} <span className="muted small">{o.number}</span>{hasPendingChoice(o) && <> <Badge tone="danger">Choix à préciser ({choiceQty(o)})</Badge></>}</span>
-                    <p className="small muted">{get<Zone>('zones', o.zoneId || '')?.name}{o.place ? ` — ${o.place}` : ''} · à encaisser <strong>{fmtAr(courierSplit(o).toCollect)}</strong>{courierSplit(o).toCollect === 0 ? ' (déjà payé)' : ''} · frais livreur {fmtAr(courierSplit(o).fee)}{courierSplit(o).feeOwed ? ` (payés par Mobile Money : à lui reverser)` : ''}</p>
+                    <p className="small muted">{get<Zone>('zones', o.zoneId || '')?.name}{o.place ? ` — ${o.place}` : ''} · à encaisser <strong>{fmtAr(courierSplit(o).toCollect)}</strong>{courierSplit(o).toCollect === 0 ? ' (déjà payé)' : ''} · {courierSplit(o).shopFee ? <>frais {fmtAr(courierSplit(o).shopFee)} pour la caisse (compris)</> : <>frais livreur {fmtAr(courierSplit(o).fee)}</>}{courierSplit(o).feeOwed ? ` (payés par Mobile Money : à lui reverser)` : ''}</p>
                   </a>
                   <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
                     {canDispatch && <Button variant="quiet" onClick={() => setMove(o)}>Changer de livreur</Button>}
@@ -265,7 +265,7 @@ function Couriers() {
                   const bal = courierBalance(c.id).due;
                   return (
                     <tr key={c.id} style={{ opacity: c.active === false ? .55 : 1 }} className="row-link" onClick={() => setOpen(c)}>
-                      <td><strong>{c.name}</strong><div className="small muted">{[fmtPhone(c.phone), (c.zoneIds || []).map((z) => zones.find((x) => x.id === z)?.name).filter(Boolean).join(', ')].filter(Boolean).join(' · ')}</div></td>
+                      <td><strong>{c.name}</strong>{c.feeToShop && <> <Badge tone="neutral">frais → caisse</Badge></>}<div className="small muted">{[fmtPhone(c.phone), (c.zoneIds || []).map((z) => zones.find((x) => x.id === z)?.name).filter(Boolean).join(', ')].filter(Boolean).join(' · ')}</div></td>
                       <td className="t-num">{a.out || '—'}</td>
                       <td className="t-num">{a.deliveries || '—'}</td>
                       <td className="t-num">{fmtAr(a.collected)}</td>
@@ -444,11 +444,12 @@ function CourierForm({ courier, onClose }: { courier?: Courier; onClose: () => v
   const [zoneIds, setZoneIds] = useState<string[]>(courier?.zoneIds ?? []);
   const [active, setActive] = useState(courier?.active !== false);
   const [notes, setNotes] = useState(courier?.notes ?? '');
+  const [feeToShop, setFeeToShop] = useState(!!courier?.feeToShop);
   return (
     <Modal title={courier ? 'Modifier le livreur' : 'Nouveau livreur'} onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={!name.trim()} onClick={async () => {
-        await save('couriers', { id: courier?.id, name: name.trim(), phone: phone.trim() || undefined, zoneIds, active, notes: notes.trim() || undefined });
-        await audit(courier ? 'Livreur modifié' : 'Livreur ajouté', name.trim());
+        await save('couriers', { id: courier?.id, name: name.trim(), phone: phone.trim() || undefined, zoneIds, active, notes: notes.trim() || undefined, feeToShop });
+        await audit(courier ? 'Livreur modifié' : 'Livreur ajouté', `${name.trim()}${feeToShop !== !!courier?.feeToShop ? (feeToShop ? ' — frais de livraison pour la caisse' : ' — frais de livraison pour le livreur') : ''}`);
         toast('Livreur enregistré'); onClose();
       }}>Enregistrer</Button></>}>
       <div className="stack">
@@ -458,6 +459,8 @@ function CourierForm({ courier, onClose }: { courier?: Courier; onClose: () => v
           <MultiPick label="Axes habituels" values={zoneIds} onChange={setZoneIds} empty="Aucun axe" options={zones.map((z) => ({ value: z.id, label: z.name }))} />
         </div>
         <TextField label="Notes" value={notes} onChange={setNotes} />
+        <Toggle checked={feeToShop} onChange={setFeeToShop} label="Frais de livraison pour la caisse (le livreur ne les garde pas)" />
+        {feeToShop && <p className="small muted" style={{ margin: 0 }}>Le livreur remet à la boutique tout ce que le client a payé, frais compris : les frais entrent dans la caisse et la boutique ne lui doit aucun frais.</p>}
         {courier && <Toggle checked={active} onChange={setActive} label="Livreur actif" />}
       </div>
     </Modal>

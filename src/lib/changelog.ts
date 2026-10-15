@@ -3,6 +3,7 @@
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
   { date: '2026-10-15', items: [
+    'Livreur « frais de livraison pour la caisse » (fiche du livreur → Modifier) : il remet tout ce que le client a payé, frais compris ; les frais entrent dans la caisse et ne lui sont jamais dus. Activé pour Toky.',
     'Nouveau menu « Mon rapport du jour » : chaque vendeur envoie au patron, en fin de journée, le rapport de ses pages (ventes, espèces, MVola, Orange, Airtel, reste à payer, annulé, reporté, articles vendus, commandes en cours, stock restant, remarques) par WhatsApp ou en PDF. Rappel à partir de 17 h.',
     'Rapports → « Rapports des vendeurs » : le patron voit chaque jour qui a envoyé son rapport, son contenu, et les chiffres actuels de ceux qui ne l’ont pas encore fait.',
     'Accueil : « Situation par page » plus lisible, montants plus petits sur une seule ligne.',

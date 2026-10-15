@@ -451,7 +451,7 @@ export function OrderForm({ order, exchangeOf, onClose, onSaved, prefill: pre }:
           {prepaid ? <div><span>Déjà payé</span><strong className="num">− {fmtAr(prepaid)}</strong></div> : null}
           {prepaid ? <div className="summary-total"><span>Reste à payer par le client</span><strong className="num">{fmtAr(Math.max(0, total - prepaid))}</strong></div> : null}
           {draft.deliveryFee > 0 && !exchangeOf && (() => { const x = courierSplit({ ...draft, payments: prepaid ? [{ id: 'x', at: '', amount: prepaid, method: prepayMethod, receivedBy: 'shop' }] : [] } as Order); return (
-            <div className="small muted" style={{ display: 'block' }}>Le livreur encaissera <strong>{fmtAr(x.toCollect)}</strong> pour la boutique{x.feeKept ? <> + ses frais {fmtAr(x.feeKept)}</> : null}{x.feeOwed ? <> ; frais {fmtAr(x.feeOwed)} déjà payés, à lui reverser en espèces</> : null}.</div>
+            <div className="small muted" style={{ display: 'block' }}>Le livreur encaissera <strong>{fmtAr(x.toCollect)}</strong> pour la boutique{x.shopFee ? <> (dont frais de livraison {fmtAr(x.shopFee)}, pour la caisse)</> : null}{x.feeKept ? <> + ses frais {fmtAr(x.feeKept)}</> : null}{x.feeOwed ? <> ; frais {fmtAr(x.feeOwed)} déjà payés, à lui reverser en espèces</> : null}.</div>
           ); })()}
         </div>
         {error && <div className="notice notice-danger"><Icon name="alert" /><span>{error}</span></div>}
@@ -672,7 +672,7 @@ function OrderDetail({ id }: { id: string }) {
           <div><span>Payé</span><strong className="num">{fmtAr(paidTotal(o))}</strong></div>
           {o.status !== 'cancelled' && <div className="summary-total"><span>{rest >= 0 ? 'Reste à encaisser' : 'Trop perçu / à rendre'}</span><strong className={`num ${rest > 0 ? '' : rest < 0 ? 'neg' : 'pos'}`}>{fmtAr(Math.abs(rest))}</strong></div>}
           {!isWalkIn(o) && !isPickupZone(o.zoneId) && !['cancelled', 'delivered', 'partial', 'refused'].includes(o.status) && (() => { const x = courierSplit(o); return (
-            <p className="small muted" style={{ margin: 0 }}>Le livreur encaisse <strong>{fmtAr(x.toCollect)}</strong> pour la boutique{x.feeKept ? ` + ses frais ${fmtAr(x.feeKept)}` : ''}{x.feeOwed ? ` ; frais ${fmtAr(x.feeOwed)} déjà payés : à lui reverser` : ''}.</p>
+            <p className="small muted" style={{ margin: 0 }}>Le livreur encaisse <strong>{fmtAr(x.toCollect)}</strong> pour la boutique{x.shopFee ? ` (dont frais de livraison ${fmtAr(x.shopFee)}, pour la caisse)` : ''}{x.feeKept ? ` + ses frais ${fmtAr(x.feeKept)}` : ''}{x.feeOwed ? ` ; frais ${fmtAr(x.feeOwed)} déjà payés : à lui reverser` : ''}.</p>
           ); })()}
         </div>
       </div>
