@@ -14,7 +14,7 @@ import { unpaidWeeks } from './payouts';
 import { dueProspects } from './prospects';
 import { reportsDue } from '../pages/BossReport';
 import { sentReport } from './dayReport';
-import { userPages } from './scope';
+import { isPageSeller, orderPagesOf, productPage, userPages } from './scope';
 import { currentUser } from './auth';
 import { fmtAr } from './catalog';
 import { allPages, boostDues, boostOwners, deadlineText, pageName } from './boosts';
@@ -66,6 +66,11 @@ export function useNotifications() {
   const minute = Math.floor(Date.now() / 60000);
   const list = useMemo(() => {
     const out: Notif[] = [];
+    // Vendeur (ou responsable) avec des pages attribuées : seulement les notifications de ses pages.
+    const me0 = currentUser();
+    const myPages = new Set(userPages(me0));
+    const limited = myPages.size > 0 && !can('users.manage') && !can('reports.view');
+    const onMyPages = (o: Order) => !limited || [...orderPagesOf(o)].some((pg) => myPages.has(pg));
     if (can('expenses.manage')) {
       // Une seule notification par charge fixe (la plus ancienne échéance non payée), même s'il y en a plusieurs.
       const byRec = new Map<string, ReturnType<typeof dueRecurring>>();
@@ -85,12 +90,12 @@ export function useNotifications() {
       }
     }
     if (can('deliveries.manage')) {
-      const ch = orders.filter((o) => hasPendingChoice(o));
+      const ch = orders.filter((o) => hasPendingChoice(o) && (!isPageSeller(me0) || onMyPages(o)));
       if (ch.length) out.push({ id: 'choix', level: 'urgent', title: `${ch.length} livraison(s) avec un choix à préciser`, text: ch.slice(0, 4).map((o) => o.number).join(', '), href: can('deliveries.menu') ? '#/livraisons/retour' : '#/commandes/livraison' });
     }
     if (can('orders.create')) {
       // Commandes reçues du site web : le client attend l'appel de confirmation.
-      const web = orders.filter((o) => o.channel === 'web' && o.status === 'new');
+      const web = orders.filter((o) => o.channel === 'web' && o.status === 'new' && onMyPages(o));
       if (web.length) out.push({ id: `web:${web.map((o) => o.number).join(',')}`, level: 'urgent', title: `${web.length} commande(s) du site web à confirmer par appel`, text: web.slice(0, 4).map((o) => `${o.number} — ${o.name || o.phone}`).join(', '), href: '#/commandes/enregistrees' });
     }
     if (can('orders.create')) {
@@ -113,16 +118,16 @@ export function useNotifications() {
       if (w.length) out.push({ id: 'versement', level: 'important', title: `${w.length} semaine(s) terminée(s) pas encore versée(s) au patron`, text: `Dernière : ${fmtAr(w[0].expected)} à verser`, href: '#/recapitulatif' });
     }
     if (can('catalog.view')) {
-      const act = products.filter((p) => p.active !== false && p.kind !== 'lot');
+      const act = products.filter((p) => p.active !== false && p.kind !== 'lot' && (!limited || myPages.has(productPage(p.id))));
       let out0 = 0, low = 0;
       for (const p of act) { const s = productStock(p.id); if (s <= 0) out0++; else if (s <= (p.alertQty ?? 3)) low++; }
-      if (out0 + low) out.push({ id: 'stock', level: 'important', title: `Stock : ${low ? `${low} article(s) presque épuisé(s)` : ''}${low && out0 ? ', ' : ''}${out0 ? `${out0} en rupture` : ''}`, href: '#/stock' });
+      if (out0 + low) out.push({ id: 'stock', level: 'important', title: `Stock${limited ? ' de vos pages' : ''} : ${low ? `${low} article(s) presque épuisé(s)` : ''}${low && out0 ? ', ' : ''}${out0 ? `${out0} en rupture` : ''}`, href: '#/stock' });
     }
     {
       // Compte boost du jour (les boosts tournent tous les jours) : rappel à ceux qui le font, alerte au gérant / super-admin.
       const me = currentUser();
       if (can('boosts.enter') && me) {
-        const mine = allPages().filter((p) => me.roleId === 'role-manager' || can('users.manage') || (me.pageIds ?? []).includes(p.id)).map((p) => p.id);
+        const mine = allPages().filter((p) => (limited ? myPages.has(p.id) : me.roleId === 'role-manager' || can('users.manage') || (me.pageIds ?? []).includes(p.id))).map((p) => p.id);
         const dues = boostDues(new Date(), mine);
         const late = dues.filter((d) => d.late), soon = dues.filter((d) => !d.late);
         if (late.length) out.push({ id: `boost-late:${late.map((d) => d.pageId + d.date).join(',')}`, level: 'urgent', title: `Faites votre compte boost : ${late.length} en retard`, text: late.slice(0, 4).map((d) => `${pageName(d.pageId)} (${new Date(`${d.date}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' })})`).join(', '), href: '#/boosts/suivi' });

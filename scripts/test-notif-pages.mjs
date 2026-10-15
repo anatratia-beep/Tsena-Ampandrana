@@ -1,0 +1,31 @@
+// Le vendeur ne reçoit que les notifications de ses pages (commandes web, choix à préciser, stock, compte boost).
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const p = await (await b.newContext({ viewport: { width: 1280, height: 900 }, timezoneId: 'Indian/Antananarivo' })).newPage();
+const N = (t) => t.replace(/[  ]/g, ' ');
+let fail = 0; const ok = (c, m) => { console.log((c ? 'OK   ' : 'FAIL ') + m); if (!c) fail++; };
+p.on('pageerror', (e) => { console.log('ERR', e.message); fail++; });
+await p.goto('http://localhost:5173/'); await p.waitForTimeout(600);
+await p.getByLabel("Nom d'utilisateur").fill('super-adm'); await p.locator('input[type=password]').fill('anosy'); await p.keyboard.press('Enter');
+await p.getByRole('button', { name: 'Plus tard' }).click(); await p.waitForTimeout(400);
+await p.evaluate(async () => {
+  const t = window.__tsena; const now = new Date().toISOString(); const hash = t.get('users', 'user-superadmin').passwordHash;
+  await t.save('categories', [{ id: 'pg1', name: 'Pyjama' }, { id: 'pg2', name: 'Talon' }]);
+  await t.save('products', [{ id: 'p1', code: 'PJ', name: 'Pyjama', categoryId: 'pg1', priceRetail: 20000, active: true }, { id: 'p2', code: 'TA', name: 'Talon', categoryId: 'pg2', priceRetail: 50000, active: true }, { id: 'p3', code: 'TA2', name: 'Talon 2', categoryId: 'pg2', priceRetail: 50000, active: true }]);
+  await t.save('variants', [{ id: 'v1', productId: 'p1', sku: 'PJ', active: true }, { id: 'v2', productId: 'p2', sku: 'TA', active: true }, { id: 'v3', productId: 'p3', sku: 'TA2', active: true }]);
+  await t.save('stockMoves', [{ variantId: 'v1', qty: 20, type: 'initial', at: now }, { variantId: 'v2', qty: 1, type: 'initial', at: now }]);
+  await t.save('users', [{ id: 'u1', username: 'aina', fullName: 'Aina', roleId: 'role-seller', active: true, passwordHash: hash, mustChangePassword: false, pageIds: ['pg1'] }]);
+  const o = (id, num, vid, extra) => ({ id, number: num, kind: 'order', phone: '03411100' + id.slice(1), name: 'Client ' + id, lines: [{ id: 'l' + id, variantId: vid, qty: 1, unitPrice: 20000 }], payments: [], discount: 0, deliveryFee: 0, createdAt: now, ...extra });
+  await t.save('orders', [o('o1', 'WEB-0001', 'v2', { channel: 'web', status: 'new' }), o('o2', 'WEB-0002', 'v1', { channel: 'web', status: 'new' })]);
+});
+const notifs = async () => { await p.goto('http://localhost:5173/#/notifications'); await p.waitForTimeout(500); return N(await p.locator('main').innerText()); };
+let tx = await notifs();
+ok(tx.includes('2 commande(s) du site web') && /Stock : 1 article\(s\) presque épuisé\(s\), 1 en rupture/.test(tx), 'admin : toutes les pages');
+await p.goto('http://localhost:5173/#/compte'); await p.waitForTimeout(400);
+await p.locator('main').getByRole('button', { name: 'Se déconnecter' }).click(); await p.waitForTimeout(400);
+await p.getByLabel("Nom d'utilisateur").fill('aina'); await p.locator('input[type=password]').fill('anosy'); await p.keyboard.press('Enter'); await p.waitForTimeout(600);
+tx = await notifs();
+ok(tx.includes('1 commande(s) du site web') && tx.includes('WEB-0002') && !tx.includes('WEB-0001'), 'vendeur : seulement la commande web de sa page');
+ok(!/Stock/.test(tx), 'vendeur : pas d’alerte de stock des autres pages');
+if (/Stock/.test(tx)) console.log(tx);
+console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
