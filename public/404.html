@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Redirection…</title>
+<script>
+// Adresse courte d'une boutique (…/boutique/netvision) : renvoyée vers …/boutique/?page=netvision.
+(function () {
+  var p = location.pathname, i = p.toLowerCase().lastIndexOf('/boutique/');
+  if (i >= 0) {
+    var code = p.slice(i + 10).split('/')[0];
+    location.replace(p.slice(0, i + 10) + (code ? '?page=' + code : '') + location.hash);
+  } else {
+    location.replace(p.split('/').slice(0, 2).join('/') + '/');
+  }
+})();
+</script></head><body></body></html>

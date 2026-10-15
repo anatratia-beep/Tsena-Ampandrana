@@ -47,6 +47,7 @@ self.addEventListener('fetch', (event) => {
 
   if (url.origin !== self.location.origin) return; // cloud (Supabase) : jamais mis en cache
   if (url.pathname.endsWith('/version.json')) return;
+  if (url.pathname.includes('/boutique/')) return; // boutique en ligne des clients : jamais servie par l'application
 
   // Pages : la version en ligne d'abord (évite une page périmée après une mise à jour), sinon celle du cache.
   if (req.mode === 'navigate') {
