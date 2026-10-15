@@ -8,13 +8,14 @@ import { useCan } from '../lib/auth';
 import { get, save, useTable } from '../lib/db';
 import { fmtAr, parseNum, parseAr } from '../lib/catalog';
 import {
-  cancelDeliveryToShop, choiceQty, courierSplit, fmtPhone, hasPendingChoice, orderLabel, recordReturn, remaining, PAY_METHODS,
+  cancelDeliveryToShop, MAX_REPORTS, reportCount, choiceQty, courierSplit, fmtPhone, hasPendingChoice, orderLabel, recordReturn, remaining, PAY_METHODS,
   type Courier, type Order, type Zone,
 } from '../lib/orders';
 import { ACCOUNTS, ACCOUNT_IDS, courierBalance, payDeferredFees, settleCourier, type AccountId, type CourierSettlement } from '../lib/money';
-import { Help, Badge, Choice, Button, Confirm, Empty, SelectField, TextField, fmtDateTime, toast } from '../ui/kit';
+import { Help, Badge, Choice, Button, Confirm, Empty, SelectField, TextField, fmtDateTime, toast, useKeep } from '../ui/kit';
+import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period';
 import { Icon } from '../ui/icons';
-import { ReturnModal } from './Orders';
+import { PostponeModal, ReturnModal } from './Orders';
 
 type Decision = 'delivered' | 'refused';
 type FeeMode = 'retenue' | 'apart' | 'plustard';
@@ -32,18 +33,25 @@ export function CourierReturn() {
   const can = useCan();
   const couriers = useTable<Courier>('couriers');
   useTable<Order>('orders'); useTable<Zone>('zones'); useTable<CourierSettlement>('courierSettlements');
-  const withWork = couriers.filter((c) => courierBalance(c.id).pending.length || courierBalance(c.id).carry);
+  // Période : régler le compte d'un livreur pour les colis partis à certaines dates. « Tout » : tout ce qui est en attente.
+  const [period, setPeriod] = useKeep<Period>('return.period', defaultPeriod('all'));
+  const all = period.key === 'all';
+  const inP = (o: Order) => all || inPeriod(o.dispatchedAt || o.createdAt, period);
+  const count = (c: Courier) => courierBalance(c.id).pending.filter(inP).length;
+  const withWork = couriers.filter((c) => count(c) || (all && courierBalance(c.id).carry));
   const [cid, setCid] = useState('');
-  const courier = couriers.find((c) => c.id === cid) ?? withWork[0];
+  const courier = withWork.find((c) => c.id === cid) ?? withWork[0];
   return (
     <>
       <div className="card stack-s">
         <Help>Le livreur revient avec ses colis et l’argent : indiquez pour chaque colis ce qui s’est passé, vérifiez les montants (articles et frais séparés), puis validez ce qu’il vous remet.</Help>
-        {withWork.length === 0 ? <Empty icon="truck" title="Aucun livreur à recevoir">Les colis remis aux livreurs apparaîtront ici.</Empty> : (
-          <Choice label="Livreur" value={courier?.id ?? ''} onChange={setCid} max={4} options={[...(courier ? [] : [{ value: '', label: '— Choisir le livreur —' }]), ...withWork.map((c) => ({ value: c.id, label: `${c.name} · ${courierBalance(c.id).pending.length} colis` }))]} />
+        <PeriodPicker value={period} onChange={setPeriod} />
+        <p className="small muted" style={{ margin: 0 }}>{all ? 'Tous les colis à régler, quelle que soit la date.' : 'Seulement les colis remis au livreur pendant cette période (date de départ).'}</p>
+        {withWork.length === 0 ? <Empty icon="truck" title={all ? 'Aucun livreur à recevoir' : 'Aucun colis à régler sur cette période'}>{all ? 'Les colis remis aux livreurs apparaîtront ici.' : 'Choisissez une autre période, ou « Tout ».'}</Empty> : (
+          <Choice label="Livreur" value={courier?.id ?? ''} onChange={setCid} max={4} options={[...(courier ? [] : [{ value: '', label: '— Choisir le livreur —' }]), ...withWork.map((c) => ({ value: c.id, label: `${c.name} · ${count(c)} colis` }))]} />
         )}
       </div>
-      {courier && <CourierSheet key={courier.id} courier={courier} canSettle={can('couriers.settle')} />}
+      {courier && <CourierSheet key={courier.id + (all ? '' : `${period.key}${period.from ?? ''}${period.to ?? ''}`)} courier={courier} canSettle={can('couriers.settle')} only={all ? undefined : inP} />}
     </>
   );
 }
@@ -60,13 +68,17 @@ function PayOwedModal({ courier, amount, onClose }: { courier: Courier; amount: 
   );
 }
 
-function CourierSheet({ courier, canSettle }: { courier: Courier; canSettle: boolean }) {
-  const b = courierBalance(courier.id);
+function CourierSheet({ courier, canSettle, only }: { courier: Courier; canSettle: boolean; only?: (o: Order) => boolean }) {
+  const full = courierBalance(courier.id);
+  // Avec une période : seulement les colis de ces dates ; le reste des fois précédentes n'est pas ajouté à l'attendu
+  // (il reste sur le compte du livreur et apparaît avec « Tout »).
+  const b = only ? { ...full, pending: full.pending.filter(only), carry: 0 } : full;
   const [dec, setDec] = useState<Record<string, Decision>>({});
   const [fees, setFees] = useState<Record<string, string>>({});
   const [off, setOff] = useState<Record<string, boolean>>({});
   const [ret, setRet] = useState<Order | null>(null);
   const [toShop, setToShop] = useState<Order | null>(null);
+  const [postpone, setPostpone] = useState<Order | null>(null);
   const [mode, setMode] = useState<FeeMode>('retenue');
   const [amount, setAmount] = useState<string | null>(null);
   const [account, setAccount] = useState<AccountId>('cash');
@@ -99,7 +111,7 @@ function CourierSheet({ courier, canSettle }: { courier: Courier; canSettle: boo
   const handOver = b.carry + (mode === 'retenue' ? collect - feeOwed : inHand);
   const n = amount == null ? Math.max(0, handOver) : parseAr(amount) ?? 0;
   const payFees = mode === 'apart' ? feeAll : 0;
-  const after = b.carry + collect - feeOwed - n + payFees; // après validation : + il doit encore ; − la boutique lui doit
+  const after = full.carry + collect - feeOwed - n + payFees; // après validation : + il doit encore ; − la boutique lui doit
   const blockedRows = rows.filter((r) => r.blocked);
 
   async function validate() {
@@ -131,7 +143,7 @@ function CourierSheet({ courier, canSettle }: { courier: Courier; canSettle: boo
     <>
       <div className="card stack-s">
         <div className="row-between">
-          <div><h2>{courier.name}</h2><p className="small muted">{courier.phone ? fmtPhone(courier.phone) + ' · ' : ''}{b.pending.length} colis à régler{b.carry ? ` · reste des fois précédentes : ${b.carry > 0 ? `il doit ${fmtAr(b.carry)}` : `la boutique lui doit ${fmtAr(-b.carry)}`}` : ''}</p></div>
+          <div><h2>{courier.name}</h2><p className="small muted">{courier.phone ? fmtPhone(courier.phone) + ' · ' : ''}{b.pending.length} colis à régler{only && full.carry ? ` · hors période, reste des fois précédentes : ${full.carry > 0 ? `il doit ${fmtAr(full.carry)}` : `la boutique lui doit ${fmtAr(-full.carry)}`} (voir « Tout »)` : ''}{b.carry ? ` · reste des fois précédentes : ${b.carry > 0 ? `il doit ${fmtAr(b.carry)}` : `la boutique lui doit ${fmtAr(-b.carry)}`}` : ''}</p></div>
         </div>
         {b.carry < 0 && canSettle && (
           <div className="notice notice-warn" style={{ flexWrap: 'wrap', alignItems: 'center' }}><Icon name="alert" /><span style={{ flex: '1 1 220px' }}><strong>Frais différés à payer à {courier.name} : {fmtAr(-b.carry)}</strong>. À régler au plus vite (au plus tard à la clôture du soir).</span>
@@ -157,6 +169,7 @@ function CourierSheet({ courier, canSettle }: { courier: Courier; canSettle: boo
                 <div className="row" style={{ gap: 8 }}>
                   <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => setRet(r.o)}>En partie / choix…</button>
                   <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => setToShop(r.o)}>Client en boutique…</button>
+                  <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => setPostpone(r.o)}>À reporter ({reportCount(r.o)}/{MAX_REPORTS})…</button>
                 </div>
               </div>
             )) : <Badge tone={r.o.status === 'refused' ? 'danger' : 'ok'}>{r.o.status === 'refused' ? 'Refusée' : r.o.status === 'partial' ? 'Livrée en partie' : 'Livrée'}</Badge>}
@@ -213,6 +226,7 @@ function CourierSheet({ courier, canSettle }: { courier: Courier; canSettle: boo
           </tbody></table>
           <p className="small muted">Après validation, ces colis ne peuvent plus changer de livreur. Une erreur se corrige ensuite par un nouveau versement.</p></div>} />}
       {ret && <ReturnModal order={ret} onClose={() => setRet(null)} />}
+      {postpone && <PostponeModal order={postpone} onClose={() => setPostpone(null)} />}
       {toShop && <Confirm title="Le client vient chercher en boutique" confirmLabel="Annuler la livraison" message={<p>Le colis {toShop.number} revient en boutique, réservé pour le client. Pas de frais de livraison, pas de dédommagement pour le livreur. La commande deviendra une vente sur place quand le client passera.</p>}
         onClose={() => setToShop(null)} onConfirm={async () => { await cancelDeliveryToShop(toShop); toast('Livraison annulée : la commande attend le client en boutique'); }} />}
     </>

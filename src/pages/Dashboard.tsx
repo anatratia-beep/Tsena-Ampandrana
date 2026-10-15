@@ -16,6 +16,7 @@ import { PeriodPicker, defaultPeriod, type Period } from '../ui/period';
 import { BarChart } from '../ui/chart';
 import { Delta } from './Reports';
 import { useMyScope } from '../lib/scope';
+import { situation, type PageSit } from '../lib/situation';
 import type { Courier } from '../lib/orders';
 import { managesOwnPassword, roleOf, SUPERADMIN_ID, useCan, useCurrentUser, type User, useMe } from '../lib/auth';
 import { useMeta, useTable } from '../lib/db';
@@ -76,7 +77,7 @@ function Board() {
         </div>
       )}
 
-      {(can('reports.view') || can('treasury.view')) ? <><ManagerSummary /><ManagerSales /><SalesExtras /><ManagerMoney /></> : can('orders.create') || can('pos.sell') ? <SellerBoard name={me.fullName} /> : null}
+      {(can('reports.view') || can('treasury.view')) ? <><ManagerSummary /><SituationCard /><ManagerSales /><SalesExtras /><ManagerMoney /></> : can('orders.create') || can('pos.sell') ? <SellerBoard name={me.fullName} /> : null}
       {can('orders.create') && <OrdersState />}
       {can('cashday.use') && (
         <div className="card row-between daycash-shortcut">
@@ -296,21 +297,76 @@ function ManagerBoard({ part }: { part: 'summary' | 'sales' | 'money' | 'chart' 
 /** Vendeur : ses propres ventes de la période (sans les marges). */
 function SellerBoard({ name }: { name: string }) {
   const orders = useTable<Order>('orders');
+  const scope = useMyScope();
   const [period, setPeriod] = usePeriod();
   const from = period.from ?? '2000-01-01', to = period.to ?? todayYmd();
-  const lines = useMemo(() => salesLedger(from, to).filter((l) => l.userName === name), [from, to, orders, name]);
+  // Vendeur limité à ses pages : ventes de ses pages (quel que soit celui qui a saisi) ; sinon ses propres saisies.
+  const lines = useMemo(() => salesLedger(from, to).filter((l) => (scope.strict ? scope.page(rootOf(l.categoryId)) : l.userName === name)), [from, to, orders, name, scope.strict, scope.pages.join()]);
   const k = kpis(lines);
   const pts = series(lines, from, to, bucketFor(from, to));
   return (
     <>
       <div className="card"><PeriodPicker value={period} onChange={setPeriod} /></div>
       <div className="stat-grid">
-        <div className="card stat"><span className="small muted">Mes ventes</span><strong className="stat-value num">{k.orders}</strong><span className="small muted">{k.shopOrders} sur place · {k.onlineOrders} en ligne</span></div>
+        <div className="card stat"><span className="small muted">{scope.strict ? 'Ventes de mes pages' : 'Mes ventes'}</span><strong className="stat-value num">{k.orders}</strong><span className="small muted">{k.shopOrders} sur place · {k.onlineOrders} en ligne</span></div>
         <div className="card stat"><span className="small muted">Montant vendu</span><strong className="stat-value num">{fmtAr(k.revenue)}</strong></div>
         <div className="card stat"><span className="small muted">Pièces</span><strong className="stat-value num">{k.pieces}</strong></div>
       </div>
+      <SituationCard from={from} to={to} />
       {lines.length > 0 && <div className="card stack-s"><h2>Mes ventes dans le temps</h2><BarChart title="Mes ventes" bars={pts.map((p) => ({ key: p.key, label: p.label, long: p.long, value: p.revenue, extra: `${p.orders} vente(s)` }))} format={fmtAr} /></div>}
     </>
+  );
+}
+
+/**
+ * Situation par page : ventes, espèces, MVola, Orange Money, Airtel Money, reste à payer, annulations, échanges,
+ * reports. Vendeur limité à ses pages : seulement ses pages ; gérant : toutes les pages et le total.
+ */
+function SituationCard({ from: f, to: t }: { from?: string; to?: string }) {
+  const ords = useTable<Order>('orders'); useTable('categories');
+  const scope = useMyScope();
+  const [own, setOwn] = usePeriod();
+  const from = f ?? own.from ?? '2000-01-01', to = t ?? own.to ?? todayYmd();
+  const sit = useMemo(() => situation(from, to, scope.strict ? scope.pages : undefined), [from, to, scope.strict, scope.pages.join(), ords]);
+  const T = sit.total;
+  const cols: { k: string; l: string; v: (r: PageSit) => number; money?: boolean; n?: (r: PageSit) => number; cls?: string }[] = [
+    { k: 'sales', l: 'Total ventes', v: (r) => r.sales, money: true, n: (r) => r.qty },
+    { k: 'cash', l: 'Espèces', v: (r) => r.pay.cash, money: true },
+    { k: 'mvola', l: 'MVola', v: (r) => r.pay.mvola, money: true },
+    { k: 'orange', l: 'Orange Money', v: (r) => r.pay.orange, money: true },
+    { k: 'airtel', l: 'Airtel Money', v: (r) => r.pay.airtel, money: true },
+    { k: 'rest', l: 'Reste à payer', v: (r) => r.rest, money: true, n: (r) => r.restN, cls: 'neg' },
+    { k: 'cancel', l: 'Annulé', v: (r) => r.cancelled, money: true, n: (r) => r.cancelledN },
+    { k: 'exch', l: 'Échange', v: (r) => r.exchange, money: true, n: (r) => r.exchangeN },
+    { k: 'rep', l: 'Reportées', v: (r) => r.reported },
+  ];
+  const sub = (c: (typeof cols)[number], r: PageSit) => c.k === 'sales' ? `${fmtNum(r.qty)} produit(s)` : c.n ? `${c.n(r)} commande(s)` : '';
+  const cell = (c: (typeof cols)[number], r: PageSit) => { const v = c.v(r); return <td key={c.k} className={`t-num ${v && c.cls ? c.cls : ''}`}>{v ? (c.money ? fmtAr(v) : fmtNum(v)) : <span className="muted">—</span>}{v && sub(c, r) ? <div className="small muted">{sub(c, r)}</div> : null}</td>; };
+  return (
+    <div className="card card-flush situation-card">
+      <div className="card-pad stack-s">
+        <div className="row-between"><h2>{scope.strict ? 'Situation de mes pages' : 'Situation par page'}</h2>{!f && <PeriodPicker value={own} onChange={setOwn} />}</div>
+        <div className="stat-grid sit-kpis">
+          <div className="card stat stat-strong"><span className="small muted">Total ventes</span><strong className="stat-value num">{fmtAr(T.sales)}</strong><span className="small muted">{fmtNum(T.qty)} produit(s) · {T.orders} vente(s)</span></div>
+          <div className="card stat"><span className="small muted">Espèces</span><strong className="stat-value num">{fmtAr(T.pay.cash)}</strong></div>
+          <div className="card stat"><span className="small muted">MVola</span><strong className="stat-value num">{fmtAr(T.pay.mvola)}</strong></div>
+          <div className="card stat"><span className="small muted">Orange Money</span><strong className="stat-value num">{fmtAr(T.pay.orange)}</strong></div>
+          <div className="card stat"><span className="small muted">Airtel Money</span><strong className="stat-value num">{fmtAr(T.pay.airtel)}</strong></div>
+          <a className="card stat" href="#/commandes/terminees" style={{ textDecoration: 'none', color: 'inherit' }}><span className="small muted">Reste à payer</span><strong className={`stat-value num ${T.rest ? 'neg' : ''}`}>{fmtAr(T.rest)}</strong><span className="small muted">{T.restN} commande(s)</span></a>
+          <a className="card stat" href="#/commandes/annulees" style={{ textDecoration: 'none', color: 'inherit' }}><span className="small muted">Annulé</span><strong className="stat-value num">{fmtAr(T.cancelled)}</strong><span className="small muted">{T.cancelledN} commande(s)</span></a>
+          <div className="card stat"><span className="small muted">Échange</span><strong className="stat-value num">{fmtAr(T.exchange)}</strong><span className="small muted">{T.exchangeN} échange(s)</span></div>
+          <a className="card stat" href="#/commandes/attente" style={{ textDecoration: 'none', color: 'inherit' }}><span className="small muted">Livraisons reportées</span><strong className="stat-value num">{fmtNum(T.reported)}</strong></a>
+        </div>
+        <p className="small muted" style={{ margin: 0 }}>Argent reçu sur la période (boutique et livreurs) par moyen de paiement. Une commande avec des articles de plusieurs pages est répartie selon la valeur de chaque page.</p>
+      </div>
+      {sit.rows.length === 0 ? <p className="card-pad small muted">Aucune activité sur cette période.</p> : (
+        <div className="table-wrap"><table className="table table-grid sit-table">
+          <thead><tr><th>Page</th>{cols.map((c) => <th key={c.k} className="t-num">{c.l}</th>)}</tr></thead>
+          <tbody>{sit.rows.map((r) => <tr key={r.id}><td><strong>{r.name}</strong></td>{cols.map((c) => cell(c, r))}</tr>)}</tbody>
+          {sit.rows.length > 1 && <tfoot><tr className="t-total"><td>{scope.strict ? 'Total de mes pages' : 'Total'}</td>{cols.map((c) => cell(c, T))}</tr></tfoot>}
+        </table></div>
+      )}
+    </div>
   );
 }
 
@@ -330,7 +386,7 @@ function OrdersState() {
     { label: 'Enregistrées', value: String(n(['new', 'confirmed'])), href: '#/commandes/enregistrees' },
     { label: 'En attente de livraison', value: String(n(['ready'])), href: '#/commandes/attente' },
     { label: 'En livraison', value: String(n(['out'])), href: '#/commandes/livraison' },
-    ...(can('deliveries.manage') ? [{ label: 'À rendre par les livreurs', value: fmtAr(due), href: '#/livraisons/retour' }] : []),
+    ...(can('deliveries.menu') ? [{ label: 'À rendre par les livreurs', value: fmtAr(due), href: '#/livraisons/retour' }] : []),
   ];
   return (
     <>
@@ -385,7 +441,7 @@ function BestSellers() {
   const [view, setView] = useState<'articles' | 'pages' | 'dernieres'>('articles');
   const [sort, setSort] = useState<'revenue' | 'qty' | 'gross'>('revenue');
   const from = period.from ?? '2000-01-01', to = period.to ?? todayYmd();
-  const lines = useMemo(() => salesLedger(from, to).filter((l) => scope.mine(l.order)), [from, to, orders, scope.on]);
+  const lines = useMemo(() => salesLedger(from, to).filter((l) => (scope.strict ? scope.page(rootOf(l.categoryId)) : scope.mine(l.order))), [from, to, orders, scope.on, scope.strict]);
   const groups = (view === 'pages' ? groupBy(lines, (l) => rootOf(l.categoryId) || '_', (k) => ({ label: k === '_' ? 'Sans page' : get<Category>('categories', k)?.name ?? '?' })) : groupBy(lines, (l) => l.productId, productLabel))
     .sort((a, b) => (b[sort] as number) - (a[sort] as number)).slice(0, 8);
   const max = Math.max(1, ...groups.map((g) => Math.abs(g[sort] as number)));

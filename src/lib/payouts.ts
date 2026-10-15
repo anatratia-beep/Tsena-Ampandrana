@@ -140,24 +140,35 @@ export function monthly(n: number, todayYmd: string): { rows: MonthRow[]; pages:
 }
 
 /** Récapitulatif global du jour (tous les vendeurs, caisse commune) à envoyer par WhatsApp. */
-export function dayRecap(ymd: string) {
+export function dayRecap(ymd: string, only?: { pages: string[]; userName?: string }) {
   const g = grid(ymd, ymd);
   let shop = 0, online = 0; const shopN = new Set<string>(), onlineN = new Set<string>();
-  for (const l of salesLedger(ymd, ymd)) { if (l.channel === 'shop') { shop += l.amount; shopN.add(l.order.id); } else { online += l.amount; onlineN.add(l.order.id); } }
-  const pages = g.pages.filter((p) => g.pageTotals[p.id]).sort((a, b) => (g.pageTotals[b.id] ?? 0) - (g.pageTotals[a.id] ?? 0));
-  return { g, pages, shop, online, shopCount: shopN.size, onlineCount: onlineN.size, sales: g.salesTotal, expenses: g.expensesTotal, net: g.rest };
+  const set = only?.pages.length ? new Set(only.pages) : null;
+  for (const l of salesLedger(ymd, ymd)) {
+    if (set && !set.has(rootOf(l.categoryId) || '')) continue;
+    if (l.channel === 'shop') { shop += l.amount; shopN.add(l.order.id); } else { online += l.amount; onlineN.add(l.order.id); }
+  }
+  const pages = g.pages.filter((p) => g.pageTotals[p.id] && (!set || set.has(p.id))).sort((a, b) => (g.pageTotals[b.id] ?? 0) - (g.pageTotals[a.id] ?? 0));
+  if (set) {
+    // Vendeur limité à ses pages : seulement ses pages et les dépenses qu'il a saisies lui-même.
+    const expenseMoves = g.expenseMoves.filter((m) => m.userName && m.userName === only!.userName);
+    const sales = pages.reduce((t, p) => t + (g.pageTotals[p.id] ?? 0), 0);
+    const expenses = expenseMoves.reduce((t, m) => t - m.amount, 0);
+    return { g: { ...g, expenseMoves }, pages, shop, online, shopCount: shopN.size, onlineCount: onlineN.size, sales, expenses, net: sales - expenses, mine: true };
+  }
+  return { g, pages, shop, online, shopCount: shopN.size, onlineCount: onlineN.size, sales: g.salesTotal, expenses: g.expensesTotal, net: g.rest, mine: false };
 }
 const ar = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} Ar`;
-export function dayRecapText(ymd: string, companyName: string, sender?: string) {
-  const r = dayRecap(ymd);
+export function dayRecapText(ymd: string, companyName: string, sender?: string, only?: { pages: string[]; userName?: string }) {
+  const r = dayRecap(ymd, only);
   const date = new Date(`${ymd}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
   const L: string[] = [];
-  L.push(`*${companyName}*`, `*Récapitulatif du ${date}*`, '_Global : tous les vendeurs, caisse commune_', '');
+  L.push(`*${companyName}*`, `*Récapitulatif du ${date}*`, r.mine ? `_Mes pages${sender ? ` (${sender})` : ''}_` : '_Global : tous les vendeurs, caisse commune_', '');
   L.push('*Ventes par page*');
   if (!r.pages.length) L.push('• Aucune vente');
   for (const p of r.pages) L.push(`• ${p.name} : ${ar(r.g.pageTotals[p.id])}`);
   L.push(`*TOTAL DES VENTES : ${ar(r.sales)}*`, `  (sur place : ${ar(r.shop)} · ${r.shopCount} vente(s) ; livraisons : ${ar(r.online)} · ${r.onlineCount} commande(s))`, '');
-  L.push('*Dépenses de la caisse commune*');
+  L.push(r.mine ? '*Mes dépenses (caisse commune)*' : '*Dépenses de la caisse commune*');
   if (!r.g.expenseMoves.length) L.push('• Aucune dépense');
   for (const m of r.g.expenseMoves) L.push(`• ${m.label || catName(m.categoryId) || 'Dépense'}${m.label && catName(m.categoryId) ? ` (${catName(m.categoryId)})` : ''} : ${ar(-m.amount)}${m.userName ? ` — ${m.userName}` : ''}`);
   L.push(`*TOTAL DES DÉPENSES : ${ar(r.expenses)}*`, '');
@@ -168,9 +179,11 @@ export function dayRecapText(ymd: string, companyName: string, sender?: string) 
 
 export interface ReviewRow { key: string; at: string; number: string; orderId: string; kind: 'shop' | 'online' | 'return'; who: string; pages: string[]; items: string[]; qty: number; amount: number; seller?: string }
 /** Aperçu détaillé du jour pour la vérification avant envoi : une ligne par vente / livraison / retour. */
-export function dayReview(ymd: string) {
+export function dayReview(ymd: string, pages?: string[]) {
   const rows = new Map<string, ReviewRow>();
+  const set = pages?.length ? new Set(pages) : null;
   for (const l of salesLedger(ymd, ymd)) {
+    if (set && !set.has(rootOf(l.categoryId) || '')) continue;
     const kind: ReviewRow['kind'] = l.kind === 'return' ? 'return' : l.channel === 'shop' ? 'shop' : 'online';
     const key = `${l.order.id}|${kind}|${l.at}`;
     let r = rows.get(key);

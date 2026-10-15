@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { save } from '../lib/db';
 import { audit } from '../lib/auth';
 import { fmtAr, normText, useCatalog, type CatAttr, type Category } from '../lib/catalog';
-import { FIXED, PHOTO_COL, activeAttrs, parseCategoryFile, saveArticles, shortId, suggestCode, type ImportRow } from '../lib/attrs';
+import { FIXED, PHOTO_COL, activeAttrs, parseCategoryFile, rowState, rowsToSave, saveArticles, shortId, suggestCode, type ImportRow } from '../lib/attrs';
 import { blobToThumb, colLetter, normHeader, type Cell, type Sheet } from '../lib/xlsx';
 import { Badge, Button, Help, SelectField, toast } from '../ui/kit';
 import { Icon } from '../ui/icons';
@@ -41,7 +41,12 @@ function guessAttr(a: CatAttr, heads: string[]) {
 export function matchPage(raw: string, pages: Category[]) {
   const n = normText(raw).trim();
   if (!n) return undefined;
-  return pages.find((c) => normText(c.name).trim() === n || normText(c.code ?? '') === n) ?? pages.find((c) => normText(c.name).startsWith(n) || n.startsWith(normText(c.name).trim()));
+  const exact = pages.find((c) => normText(c.name).trim() === n || normText(c.code ?? '') === n);
+  if (exact) return exact;
+  // Nom approché (ex. « Boxer » pour « Boxer homme ») : seulement s'il n'y a qu'une page possible. Sinon on ne devine pas
+  // (« Boxer » pourrait être « Boxer homme » ou « Boxer garçon ») : la ligne attend que vous choisissiez la page.
+  const close = pages.filter((c) => normText(c.name).startsWith(n) || n.startsWith(normText(c.name).trim()));
+  return close.length === 1 ? close[0] : undefined;
 }
 /** Ce fichier peut-il être lu avec les variantes d'une page ? (colonne Catégorie qui nomme une page, ou titres = variantes). */
 export function looksLikePageFile(sheets: Sheet[], pages: Category[]) {
@@ -59,6 +64,40 @@ function MiniPhoto({ blob }: { blob: Blob }) {
   const [url, setUrl] = useState('');
   useEffect(() => { const u = URL.createObjectURL(blob); setUrl(u); return () => URL.revokeObjectURL(u); }, [blob]);
   return url ? <img className="imp-photo" src={url} alt="" /> : null;
+}
+
+/** Erreurs d'abord, puis nouveaux et mises à jour, puis doublons probables, puis lignes identiques. */
+export const sortRows = (rows: ImportRow[]) => {
+  const rank = (r: ImportRow) => (r.errors.length ? 0 : r.twin ? 2 : r.same ? 3 : 1);
+  return [...rows].sort((a, b) => rank(a) - rank(b) || a.line - b.line);
+};
+
+/** Compteurs du contrôle : nouveaux, mises à jour, identiques ignorés, doublons probables, erreurs. */
+export function ImportBadges({ rows, withTwins }: { rows: ImportRow[]; withTwins: boolean }) {
+  const ok = rowsToSave(rows, withTwins);
+  const same = rows.filter((r) => r.same).length;
+  const twins = rows.filter((r) => !r.errors.length && r.twin).length;
+  const bad = rows.filter((r) => r.errors.length).length;
+  return (
+    <div className="row" style={{ gap: 6 }}>
+      <Badge tone="ok">{ok.filter((r) => !r.exists).length} nouveau(x)</Badge>
+      <Badge tone="brand">{ok.filter((r) => r.exists).length} mise(s) à jour</Badge>
+      {same > 0 && <Badge tone="neutral">{same} identique(s) ignoré(s)</Badge>}
+      {twins > 0 && <Badge tone="warn">{twins} doublon(s) probable(s){withTwins ? '' : ' ignoré(s)'}</Badge>}
+      {bad > 0 && <Badge tone="danger">{bad} ligne(s) en erreur</Badge>}
+    </div>
+  );
+}
+
+/** Nouveaux articles qui existent déjà ailleurs : ignorés par défaut, on peut choisir de les créer quand même. */
+export function TwinNotice({ count, withTwins, onChange }: { count: number; withTwins: boolean; onChange: (v: boolean) => void }) {
+  if (!count) return null;
+  return (
+    <div className="notice notice-warn"><Icon name="alert" /><span>
+      <strong>{count} article(s) existent déjà dans une autre page</strong> (ou sous un autre code) : ils ne seront pas créés une deuxième fois. Vérifiez que vous avez choisi la bonne page.
+      <label className="row small" style={{ gap: 6, marginTop: 6 }}><input type="checkbox" checked={withTwins} onChange={(e) => onChange(e.target.checked)} /> Ce sont des articles différents : les créer quand même</label>
+    </span></div>
+  );
 }
 
 export function MappedImport({ sheets, onDone, onSimple }: { sheets: Sheet[]; onDone: (pageId?: string) => void; onSimple?: () => void }) {
@@ -81,6 +120,7 @@ export function MappedImport({ sheets, onDone, onSimple }: { sheets: Sheet[]; on
   const [negZero, setNegZero] = useState(true);
   const [noPrice, setNoPrice] = useState(true);
   const [skip, setSkip] = useState(false);
+  const [withTwins, setWithTwins] = useState(false);
   const [busy, setBusy] = useState(false);
   const newIds = useRef(new Map<string, string>()); // identifiants stables des valeurs à ajouter
 
@@ -131,7 +171,9 @@ export function MappedImport({ sheets, onDone, onSimple }: { sheets: Sheet[]; on
 
   const allRows = plan.flatMap((x) => x.rows);
   const bad = allRows.filter((r) => r.errors.length);
-  const ok = allRows.filter((r) => !r.errors.length);
+  const ok = rowsToSave(allRows, withTwins);
+  const same = allRows.filter((r) => r.same).length;
+  const twins = allRows.filter((r) => !r.errors.length && r.twin).length;
   const unassigned = groups.filter(([g]) => !pageOfGroup(g)).reduce((t, [, n]) => t + n, 0);
   const canGo = ok.length > 0 && (!bad.length || skip) && plan.every((x) => !x.missingCols.length || x.rows.every((r) => r.errors.length));
 
@@ -140,7 +182,7 @@ export function MappedImport({ sheets, onDone, onSimple }: { sheets: Sheet[]; on
     try {
       let created = 0, updated = 0;
       for (const x of plan) {
-        const good = x.rows.filter((r) => !r.errors.length);
+        const good = rowsToSave(x.rows, withTwins);
         if (!good.length) continue;
         if (x.added.length) {
           await save('categories', { id: x.p.id, attrs: x.cat.attrs });
@@ -151,7 +193,7 @@ export function MappedImport({ sheets, onDone, onSimple }: { sheets: Sheet[]; on
         const res = await saveArticles(x.cat, good.map((r) => ({ ...r.input!, photo: r.photo ? thumbs.get(r.photo) : undefined })), 'Import Excel');
         created += res.created; updated += res.updated;
       }
-      toast(`${created} article(s) créé(s), ${updated} mis à jour`);
+      toast(`${created} article(s) créé(s), ${updated} mis à jour${same ? `, ${same} identique(s) ignoré(s)` : ''}`);
       onDone(plan.length === 1 ? plan[0].p.id : undefined);
     } catch (e: any) { toast(e?.message ?? String(e), 'error'); setBusy(false); }
   }
@@ -198,26 +240,24 @@ export function MappedImport({ sheets, onDone, onSimple }: { sheets: Sheet[]; on
         <div className="card card-flush">
           <div className="card-pad stack-s">
             <h2>Contrôle : {allRows.length} ligne(s)</h2>
-            <div className="row" style={{ gap: 6 }}>
-              <Badge tone="ok">{ok.filter((r) => !r.exists).length} nouveau(x)</Badge>
-              <Badge tone="brand">{ok.filter((r) => r.exists).length} mise(s) à jour</Badge>
-              {bad.length > 0 && <Badge tone="danger">{bad.length} ligne(s) en erreur</Badge>}
-            </div>
+            <ImportBadges rows={allRows} withTwins={withTwins} />
+            {same > 0 && same === allRows.length - bad.length && <div className="notice notice-ok"><Icon name="check" /><span>Ce fichier est déjà importé : tous les articles existent avec les mêmes prix et le même stock. Rien à enregistrer.</span></div>}
+            <TwinNotice count={twins} withTwins={withTwins} onChange={setWithTwins} />
           </div>
           <div className="table-wrap"><table className="table">
             <thead><tr><th>Ligne</th><th>Article</th><th>État</th><th className="t-num">Revient</th><th className="t-num">PV détail</th><th className="t-num">PV gros</th><th className="t-num">Stock</th></tr></thead>
-            <tbody>{[...bad, ...ok].slice(0, 400).map((r) => (
-              <tr key={r.line} className={r.errors.length ? 'row-error' : ''}>
+            <tbody>{sortRows(allRows).slice(0, 400).map((r) => (
+              <tr key={r.line} className={r.errors.length ? 'row-error' : r.same ? 'muted' : ''}>
                 <td className="num">{r.line}</td>
                 <td><div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>{r.photo ? <MiniPhoto blob={r.photo} /> : <span className="imp-photo imp-nophoto" />}<div><strong>{r.name || '—'}</strong><div className="small muted">{r.label}</div></div></div></td>
-                <td className="small">{r.errors.length ? <span className="neg">{r.errors.join(' · ')}</span> : r.exists ? <>Mise à jour{r.input?.stock != null && r.current !== r.input.stock ? ` (stock ${r.current} → ${r.input.stock})` : ''}</> : 'Nouvel article'}</td>
+                <td className="small">{r.errors.length ? <span className="neg">{rowState(r)}</span> : r.twin && !withTwins ? <span className="warn-text">{rowState(r)}</span> : rowState(r, withTwins)}</td>
                 <td className="t-num">{fmtAr(r.input?.cost)}</td><td className="t-num">{r.input && r.input.retail == null && !r.exists ? <span className="warn-text">à compléter</span> : fmtAr(r.input?.retail)}</td><td className="t-num">{fmtAr(r.input?.wholesale ?? r.input?.retail)}</td><td className="t-num">{r.input?.stock ?? '—'}</td>
               </tr>
             ))}</tbody>
           </table></div>
           <div className="card-pad row">
             {bad.length > 0 && <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={skip} onChange={(e) => setSkip(e.target.checked)} /> Importer seulement les {ok.length} ligne(s) correcte(s)</label>}
-            <Button busy={busy} disabled={!canGo} onClick={run}>Importer {ok.length} article(s)</Button>
+            <Button busy={busy} disabled={!canGo} onClick={run}>{ok.length ? `Importer ${ok.length} article(s)` : 'Rien à importer'}</Button>
           </div>
         </div>
       )}

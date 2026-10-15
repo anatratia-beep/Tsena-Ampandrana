@@ -84,7 +84,7 @@ export function useNotifications() {
     }
     if (can('deliveries.manage')) {
       const ch = orders.filter((o) => hasPendingChoice(o));
-      if (ch.length) out.push({ id: 'choix', level: 'urgent', title: `${ch.length} livraison(s) avec un choix à préciser`, text: ch.slice(0, 4).map((o) => o.number).join(', '), href: '#/livraisons/retour' });
+      if (ch.length) out.push({ id: 'choix', level: 'urgent', title: `${ch.length} livraison(s) avec un choix à préciser`, text: ch.slice(0, 4).map((o) => o.number).join(', '), href: can('deliveries.menu') ? '#/livraisons/retour' : '#/commandes/livraison' });
     }
     if (can('orders.create')) {
       // Clients à suivre dont l'heure de relance est passée (les siens ; le gérant voit tout).

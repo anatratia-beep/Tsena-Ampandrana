@@ -11,6 +11,7 @@ import { catName, dayRecap, dayRecapText, dayReview } from '../lib/payouts';
 import { closedBy } from '../lib/closed';
 import { fmtPhone, normPhone } from '../lib/orders';
 import { useCompany } from '../lib/settings';
+import { useMyScope } from '../lib/scope';
 import { Help, Badge, Button, Confirm, Empty, IconButton, PageHead, SelectField, TextField, fmtDate, toast } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import type { CashMove } from '../lib/money';
@@ -28,13 +29,15 @@ export function DayCashPage() {
   const [date, setDate] = useState(today());
   if (!can('cashday.use')) return <Empty icon="lock" title="Accès réservé" />;
   const isToday = date === today();
-  const r = dayRecap(date);
-  const text = dayRecapText(date, company.name, user?.fullName);
+  const scope = useMyScope();
+  const only = scope.strict ? { pages: scope.pages, userName: user?.fullName } : undefined;
+  const r = dayRecap(date, only);
+  const text = dayRecapText(date, company.name, user?.fullName, only);
   const longDate = new Date(`${date}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   return (
     <>
-      <PageHead title="Caisse du jour" subtitle="Une seule caisse commune pour tous les vendeurs : dépenses du jour et récapitulatif global à envoyer" />
+      <PageHead title="Caisse du jour" subtitle={r.mine ? `Vos pages seulement (${scope.names}) : vos ventes, vos dépenses et votre récapitulatif à envoyer` : 'Une seule caisse commune pour tous les vendeurs : dépenses du jour et récapitulatif global à envoyer'} />
       <div className="card row" style={{ alignItems: 'center', gap: 6 }}>
         <IconButton icon="chevronLeft" label="Jour précédent" onClick={() => setDate(addDays(date, -1))} />
         <strong style={{ textTransform: 'capitalize' }}>{longDate}</strong>
@@ -43,19 +46,19 @@ export function DayCashPage() {
       </div>
 
       <div className="stat-grid">
-        <div className="card stat"><span className="small muted">Total des ventes (tous les vendeurs)</span><strong className="stat-value num">{fmtAr(r.sales)}</strong></div>
-        <div className="card stat"><span className="small muted">Dépenses de la caisse commune</span><strong className={`stat-value num ${r.expenses ? 'neg' : ''}`}>{fmtAr(r.expenses)}</strong></div>
+        <div className="card stat"><span className="small muted">{r.mine ? 'Ventes de mes pages' : 'Total des ventes (tous les vendeurs)'}</span><strong className="stat-value num">{fmtAr(r.sales)}</strong></div>
+        <div className="card stat"><span className="small muted">{r.mine ? 'Mes dépenses (caisse commune)' : 'Dépenses de la caisse commune'}</span><strong className={`stat-value num ${r.expenses ? 'neg' : ''}`}>{fmtAr(r.expenses)}</strong></div>
         <div className="card stat stat-strong"><span className="small muted">Montant net du jour</span><strong className="stat-value num">{fmtAr(r.net)}</strong></div>
       </div>
 
-      <Expenses date={date} moves={r.g.expenseMoves} total={r.expenses} />
+      <Expenses date={date} moves={r.g.expenseMoves} total={r.expenses} mine={r.mine} />
 
       <Review date={date} r={r} text={text} />
     </>
   );
 }
 
-function Expenses({ date, moves, total }: { date: string; moves: CashMove[]; total: number }) {
+function Expenses({ date, moves, total, mine: onlyMine }: { date: string; moves: CashMove[]; total: number; mine?: boolean }) {
   const can = useCan();
   const user = useCurrentUser();
   const cats = useTable<FinanceCategory>('financeCategories').filter((c) => c.active !== false && c.kind === 'expense').sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
@@ -80,7 +83,7 @@ function Expenses({ date, moves, total }: { date: string; moves: CashMove[]; tot
   };
   return (
     <div className="card card-flush">
-      <div className="card-pad row-between"><div><h2>Dépenses de la caisse commune</h2><p className="small muted">Toutes les dépenses payées avec la caisse, quel que soit le vendeur qui les saisit. Elles sont déduites du montant net.</p></div><strong className="num neg">{fmtAr(total)}</strong></div>
+      <div className="card-pad row-between"><div><h2>{onlyMine ? 'Mes dépenses (caisse commune)' : 'Dépenses de la caisse commune'}</h2><p className="small muted">{onlyMine ? 'Les dépenses que vous avez saisies aujourd’hui avec la caisse commune. Elles sont déduites de votre montant net.' : 'Toutes les dépenses payées avec la caisse, quel que soit le vendeur qui les saisit. Elles sont déduites du montant net.'}</p></div><strong className="num neg">{fmtAr(total)}</strong></div>
       {isToday && !closed && (
         <div className="card-pad stack-s daycash-form">
           <div className="grid-2">
@@ -124,7 +127,8 @@ const hm = (iso: string) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2
 /** Aperçu du jour à vérifier, puis envoi WhatsApp (seulement après confirmation de la vérification). */
 function Review({ date, r, text }: { date: string; r: ReturnType<typeof dayRecap>; text: string }) {
   const company = useCompany();
-  const { rows, warnings } = dayReview(date);
+  const scope = useMyScope();
+  const { rows, warnings } = dayReview(date, scope.strict ? scope.pages : undefined);
   // Empreinte des chiffres : si une vente ou une dépense change après la vérification, il faut revérifier.
   const sig = `${date}|${rows.length}|${Math.round(r.sales)}|${r.g.expenseMoves.length}|${r.expenses}`;
   const [checks, setChecks] = useState({ sales: false, expenses: false, totals: false });

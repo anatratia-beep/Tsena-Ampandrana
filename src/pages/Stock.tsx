@@ -52,13 +52,11 @@ function StockState() {
   const [q, setQ] = useKeep('stock.q', '');
   const [cat, setCat] = useKeep('stock.cat', '');
   const [f, setF] = useKeep<'' | 'in' | 'out' | 'neg'>('stock.f', 'in');
-  const [sort, setSort] = useKeep<'stock' | 'value' | 'new' | 'old'>('stock.sort', 'new');
   const [limit, setLimit] = useKeep('stock.limit', 150);
   const scope = useMyScope();
   const [allMatches, setAllMatches] = useKeep('stock.all', false);
   const [others, setOthers] = useState(0);
   const [detail, setDetail] = useState<string | null>(null);
-  const [added, setAdded] = useKeep<Period>('stock.added', defaultPeriod('all'));
 
   const rows = useMemo(() => {
     const n = q.trim().toLowerCase();
@@ -66,14 +64,13 @@ function StockState() {
       .map((v) => ({ v, p: get<Product>('products', v.productId), stock: stockOf(v.id), incoming: incomingOf(v.id) }))
       .filter((r) => r.p && r.p.active !== false && r.v.active !== false)
       .filter((r) => scope.product(r.p!.id))
-      .filter((r) => inCategory(r.p, cat))
-      .filter((r) => added.key === 'all' || inPeriod(r.p!.createdAt, added)), (r) => `${r.v.sku} ${productText(r.p!)}`, n, allMatches);
+      .filter((r) => inCategory(r.p, cat)), (r) => `${r.v.sku} ${productText(r.p!)}`, n, allMatches);
     queueMicrotask(() => setOthers(sr.others));
     return sr.list
       .filter((r) => f === 'in' ? r.stock > 0 : f === 'out' ? r.stock === 0 : f === 'neg' ? r.stock < 0 : true)
       .map((r) => ({ ...r, value: Math.max(0, r.stock) * (r.v.costAvg ?? 0) }))
-      .sort((a, b) => (sort === 'stock' ? b.stock - a.stock : sort === 'value' ? b.value - a.value : sort === 'new' ? b.p!.createdAt.localeCompare(a.p!.createdAt) : a.p!.createdAt.localeCompare(b.p!.createdAt)) || a.v.sku.localeCompare(b.v.sku, 'fr', { numeric: true }));
-  }, [variants, q, cat, f, sort, scope.on, allMatches, added]);
+      .sort((a, b) => b.p!.createdAt.localeCompare(a.p!.createdAt) || a.v.sku.localeCompare(b.v.sku, 'fr', { numeric: true })); // plus récents d'abord
+  }, [variants, q, cat, f, scope.on, allMatches]);
 
   const allRows = variants.filter((v) => { const p = get<Product>('products', v.productId); return p && p.active !== false && scope.product(p.id) && inCategory(p, cat); });
   const totals = allRows.reduce((t, v) => {
@@ -109,9 +106,7 @@ function StockState() {
             <FilterSelect label="Catégorie" value={cat} onChange={setCat} options={categoryOptions(categories, 'Toutes les catégories')} />
           </div>
         </div>
-        <ListDates period={added} onPeriod={setAdded} order={sort} onOrder={setSort} what="Date d’ajout de l’article"
-          extra={[{ value: 'stock', label: 'Plus grand stock d’abord' }, ...(showCost ? [{ value: 'value' as const, label: 'Plus grande valeur d’abord' }] : [])]} />
-        {(q || cat || added.key !== 'all') && <div><Button variant="ghost" className="btn-sm" icon="x" onClick={() => { setQ(''); setCat(''); setAdded(defaultPeriod('all')); }}>Effacer les filtres</Button></div>}
+        {(q || cat) && <div><Button variant="ghost" className="btn-sm" icon="x" onClick={() => { setQ(''); setCat(''); }}>Effacer les filtres</Button></div>}
         <div className="row-between">
           <div className="segmented" role="group">
             {([['in', 'En stock'], ['out', 'En rupture'], ['neg', 'Négatifs'], ['', 'Tout']] as const).map(([k, l]) => <button key={k} aria-pressed={f === k} onClick={() => setF(k)}>{l}</button>)}

@@ -36,6 +36,52 @@ export function findDuplicates(): DupGroup[] {
   return out.sort((a, b) => a.items[0].name.localeCompare(b.items[0].name, 'fr', { numeric: true }));
 }
 
+// ---------- Avant un import : l'article existe-t-il déjà ailleurs ? ----------
+// Un même article ne doit pas être créé une deuxième fois parce que le fichier est lu dans une autre page,
+// ou une fois en « article simple » (code PH6) et une fois en « article de page » (Modèle PH6, Taille L).
+export interface Twin { id: string; name: string; code: string; page: string }
+const normName = (s?: string) => normText(s ?? '').replace(/[^a-z0-9]+/g, ' ').trim();
+const normCode = (s?: string) => (s ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, '');
+
+/**
+ * Prépare la recherche (une fois par fichier) puis répond pour chaque nouvel article :
+ * - même nom qu'un article d'une AUTRE page (dans la même page, l'article est reconnu par ses valeurs) ;
+ * - article simple dont le code est la valeur d'un article de page (ex. code PH6 ↔ Modèle PH6), dans les deux sens.
+ */
+export function twinFinder() {
+  const pageName = (catId?: string) => get<{ name: string }>('categories', rootOf(catId))?.name ?? 'sans page';
+  const byName = new Map<string, Product[]>();
+  const simpleByCode = new Map<string, Product>();
+  const pageByValueCode = new Map<string, Product>();
+  for (const p of all<Product>('products')) {
+    if (p.active === false || p.kind === 'lot') continue;
+    const n = normName(p.name);
+    if (n.length >= 3) { if (!byName.has(n)) byName.set(n, []); byName.get(n)!.push(p); }
+    if (!p.attrs) { const c = normCode(p.code); if (c.length >= 3 && !simpleByCode.has(c)) simpleByCode.set(c, p); continue; }
+    const cat = get<{ attrs?: { id: string; values: { id: string; code: string }[] }[] }>('categories', p.categoryId || '');
+    for (const a of cat?.attrs ?? []) {
+      const v = a.values.find((x) => x.id === p.attrs![a.id]);
+      const c = normCode(v?.code);
+      if (c.length >= 3 && !pageByValueCode.has(c)) pageByValueCode.set(c, p);
+    }
+  }
+  const twin = (p?: Product): Twin | undefined => (p ? { id: p.id, name: p.name, code: p.code, page: pageName(p.categoryId) } : undefined);
+  return {
+    /** Nouvel article d'une page (valeurs choisies). */
+    forPageArticle(catId: string, name: string, valueCodes: string[]): Twin | undefined {
+      const root = rootOf(catId);
+      const sameName = (byName.get(normName(name)) ?? []).find((p) => !(p.attrs && rootOf(p.categoryId) === root));
+      if (sameName) return twin(sameName);
+      for (const c of valueCodes) { const p = simpleByCode.get(normCode(c)); if (p) return twin(p); }
+      return undefined;
+    },
+    /** Nouvel article simple (code modèle, ex. PH6). */
+    forSimpleArticle(code: string): Twin | undefined {
+      return twin(pageByValueCode.get(normCode(code)));
+    },
+  };
+}
+
 /** Ventes / commandes où un article apparaît (pour choisir lequel garder). */
 export function usesOf(p: Product) {
   const vids = new Set(productVariants(p.id).map((v) => v.id));

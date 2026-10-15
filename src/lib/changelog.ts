@@ -2,6 +2,11 @@
 // La plus récente en premier. `date` : AAAA-MM-JJ.
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
+  { date: '2026-10-15', items: [
+    'Vendeur : il ne voit que ses pages partout (accueil, commandes, ventes, clients, caisse du jour), jamais le total de tous les vendeurs.',
+    'Accueil : « Situation par page » — total des ventes, espèces, MVola, Orange Money, Airtel Money, reste à payer, annulé, échange et livraisons reportées, par page et au total.',
+    'Livraison « À reporter » : le client demande un autre jour (date et raison notées) ; le colis revient en boutique. Au plus 3 reports, ensuite la commande est annulée.',
+  ] },
   { date: '2026-10-14', items: [
     'Récap global : nombre de produits vendus par page (ex. NETVISION : 20 produits vendus), sous chaque total, dans la carte « Produits vendus », sur chaque ligne, et dans l’Excel et le PDF. Les articles revenus (retours, refus) sont déduits.',
     'Paiement en 2 tranches : ex. 10 000 Ar payés 5 000 Ar en espèces + 5 000 Ar en mobile money (vente sur place, paiement reçu sur une commande, création de commande). La 2e tranche se complète toute seule ; chaque tranche apparaît sur le ticket et dans les versements.',

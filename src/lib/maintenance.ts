@@ -165,6 +165,8 @@ export async function clearData(keys: string[]) {
     for (let i = 0; i < rows.length; i += 300) await save(t, rows.slice(i, i + 300).map((r) => ({ id: r.id, deleted: true })));
     n += rows.length;
   }
+  // Date de l'effacement : après, réimporter un fichier déjà importé (stock de départ) est normal, sans avertissement.
+  if (groups.some((g) => ['catalog', 'stock'].includes(g.key))) await save('settings', { id: 'lastReset', at: new Date().toISOString() });
   await audit('Effacement des données', `${groups.map((g) => g.label).join(' ; ')} — ${n} enregistrement(s)`);
   syncNow();
   return n;

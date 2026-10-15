@@ -1,0 +1,37 @@
+// Livraisons → Retour livreur : filtre par période (date de départ du colis) pour régler le compte du livreur par date.
+// « Tout » : tous les colis à régler, comme avant.
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const p = await (await b.newContext({ viewport: { width: 1280, height: 900 }, timezoneId: 'Indian/Antananarivo' })).newPage();
+const N = (t) => t.replace(/[\s  ]+/g, ' ');
+let fail = 0; const ok = (c, m) => { console.log((c ? 'OK   ' : 'FAIL ') + m); if (!c) fail++; };
+p.on('pageerror', (e) => { console.log('ERR', e.message); fail++; });
+await p.goto('http://localhost:5173/'); await p.waitForTimeout(600);
+await p.getByLabel("Nom d'utilisateur").fill('super-adm'); await p.locator('input[type=password]').fill('anosy'); await p.keyboard.press('Enter'); await p.waitForTimeout(700);
+await p.getByRole('button', { name: 'Plus tard' }).click({ timeout: 1500 }).catch(() => {});
+await p.evaluate(async () => {
+  const t = window.__tsena; const now = new Date(); const yest = new Date(now.getTime() - 86400000);
+  await t.save('categories', { id: 'bx', name: 'Boxer' });
+  await t.save('products', { id: 'a', code: 'BX1', name: 'Boxer', categoryId: 'bx', priceRetail: 10000, active: true });
+  await t.save('variants', { id: 'va', productId: 'a', sku: 'BX1', active: true });
+  await t.save('stockMoves', { variantId: 'va', qty: 10, type: 'initial', at: yest.toISOString() });
+  await t.save('zones', { id: 'z1', name: 'Analakely', fee: 3000, active: true });
+  await t.save('couriers', { id: 'c1', name: 'Faly', active: true });
+  const o = (id, at) => ({ id, number: id, kind: 'order', channel: 'facebook', phone: '0340000000', status: 'out', zoneId: 'z1', courierId: 'c1', deliveryFee: 3000, dispatchedAt: at.toISOString(), createdAt: at.toISOString(), lines: [{ id: id + 'l', variantId: 'va', qty: 1, unitPrice: 10000 }], payments: [], discount: 0, createdBy: 'user-superadmin' });
+  await t.save('orders', [o('HIER-1', yest), o('AUJ-1', now)]);
+});
+await p.goto('http://localhost:5173/#/livraisons/retour'); await p.waitForTimeout(700);
+let tx = N(await p.locator('main').innerText());
+ok(tx.includes('Faly · 2 colis') && tx.includes('HIER-1') && tx.includes('AUJ-1'), 'Tout : les 2 colis du livreur');
+await p.getByRole('combobox', { name: 'Période', exact: true }).selectOption('today'); await p.waitForTimeout(400);
+tx = N(await p.locator('main').innerText());
+ok(tx.includes('Faly · 1 colis') && tx.includes('AUJ-1') && !tx.includes('HIER-1'), 'Aujourd’hui : seulement le colis parti aujourd’hui');
+await p.getByRole('button', { name: /Valider le retour de Faly/ }).click(); await p.waitForTimeout(300);
+await p.getByRole('dialog').getByRole('button', { name: 'Valider' }).click(); await p.waitForTimeout(1200);
+await p.getByRole('combobox', { name: 'Période', exact: true }).selectOption('all'); await p.waitForTimeout(400);
+tx = N(await p.locator('main').innerText());
+ok(tx.includes('Faly · 1 colis') && tx.includes('HIER-1') && !tx.includes('AUJ-1'), 'après règlement du jour : il reste le colis d’hier');
+const st = await p.evaluate(() => ({ a: window.__tsena.get('orders', 'AUJ-1').status, h: window.__tsena.get('orders', 'HIER-1').status }));
+ok(st.a === 'delivered' && st.h === 'out', 'seul le colis du jour est enregistré livré');
+console.log(fail ? `${fail} ÉCHEC(S)` : 'TOUT EST BON'); await b.close();
+process.exit(fail ? 1 : 0);

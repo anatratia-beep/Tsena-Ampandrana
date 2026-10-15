@@ -42,12 +42,7 @@ await p.goto('http://localhost:5173/#/vente'); await p.waitForTimeout(500);
 await p.getByLabel('Rechercher un article').fill('PH6'); await p.waitForTimeout(300);
 tx = N(await p.locator('.pos-results').innerText());
 ok(tx.includes('PH6 ML L') && !tx.includes('BOXHOMME') && !/PH6 L\b/.test(tx), 'recherche PH6 : seulement les vrais articles');
-// 3. Tri par date d'ajout
-await p.evaluate(async () => { const t = window.__tsena; await t.save('products', [{ id: 'b1', active: true }]); });
-await p.goto('http://localhost:5173/#/articles'); await p.waitForTimeout(500);
-await p.getByLabel('Ordre').first().selectOption('new'); await p.waitForTimeout(300);
-const first = N(await p.locator('main .list-item-title').first().innerText());
-ok(first.includes('PH6 L'), `tri « ajoutés récemment » : l’article du 05/10 en premier (${first})`);
+// 3. (Tri des articles retiré à la demande : les articles sont regroupés par catégorie.)
 // 4. Commande avec deux paiements dont « 20.000 »
 await p.goto('http://localhost:5173/#/commandes'); await p.waitForTimeout(500);
 await p.getByRole('button', { name: 'Nouvelle commande' }).click(); await p.waitForTimeout(300);

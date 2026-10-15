@@ -8,6 +8,7 @@
 import { all, get, save } from './db';
 import { audit } from './auth';
 import { pointBefore } from './restorePoints';
+import { twinFinder, type Twin } from './duplicates';
 import {
   addMoves, attrCategory, normText, productVariants, stockOf,
   type AttrValue, type CatAttr, type Category, type Product, type Variant,
@@ -202,7 +203,22 @@ export function templateCategory(sheets: Sheet[]): Category | undefined {
   return get<Category>('categories', cell.slice(MARK.length));
 }
 
-export interface ImportRow { line: number; input?: ArticleInput; errors: string[]; name: string; label: string; exists: boolean; current?: number; photo?: Blob }
+/**
+ * Ligne lue dans un fichier d'import. `same` : article existant et rien ne change (ignoré à l'import).
+ * `twin` : nouvel article qui existe probablement déjà ailleurs (autre page, ou article simple au même code) : pas créé, sauf choix contraire.
+ */
+export interface ImportRow { line: number; input?: ArticleInput; errors: string[]; name: string; label: string; exists: boolean; current?: number; photo?: Blob; same?: boolean; twin?: Twin }
+
+/** Lignes à enregistrer : sans erreur, pas identiques à l'existant, et sans doublon probable (sauf `withTwins`). */
+export const rowsToSave = (rows: ImportRow[], withTwins = false) => rows.filter((r) => !r.errors.length && !r.same && (withTwins || !r.twin));
+/** Texte de la colonne « État » d'une ligne contrôlée. */
+export function rowState(r: ImportRow, withTwins = false): string {
+  if (r.errors.length) return r.errors.join(' · ');
+  if (r.same) return 'Identique : déjà enregistré, ignoré';
+  if (r.twin) return `Existe déjà dans la page « ${r.twin.page} » (${r.twin.name})${withTwins ? ' : sera créé quand même' : ' : ignoré'}`;
+  if (r.exists) return `Mise à jour${r.input?.stock != null && r.current !== r.input.stock ? ` (stock ${r.current} → ${r.input.stock})` : ''}`;
+  return 'Nouvel article';
+}
 const num = (v: Cell): number | undefined | null => {
   if (v == null || v === '') return undefined;
   if (typeof v === 'number') return v;
@@ -230,6 +246,7 @@ export function parseCategoryFile(cat: Category, sheets: Sheet[], opts: { allowN
     const n = normText(raw).replace(/\s+/g, ' ').trim();
     return a.values.find((v) => normText(v.label).trim() === n) ?? a.values.find((v) => normText(v.code) === n.replace(/\s/g, ''));
   };
+  const twins = twinFinder();
   for (let r = 1; r < sh.rows.length; r++) {
     const row = sh.rows[r] ?? [];
     if (!row.some((c) => c != null && String(c).trim() !== '')) continue;
@@ -254,8 +271,14 @@ export function parseCategoryFile(cat: Category, sheets: Sheet[], opts: { allowN
     const existing = errors.length ? undefined : findArticle(cat.id, sel);
     if (!errors.length && !existing && retail == null && !opts.allowNoPrice) errors.push('PV détail manquant pour un nouvel article');
     const v = existing ? productVariants(existing.id)[0] : undefined;
+    const current = v ? stockOf(v.id) : undefined;
+    // Rien ne change pour un article existant : la ligne est ignorée (réimport du même fichier).
+    const differs = (a: number | null | undefined, b?: number) => a != null && a !== (b ?? undefined);
+    const same = !errors.length && !!existing && !(name && name !== existing.name) && !differs(retail, existing.priceRetail) && !differs(wholesale, existing.priceWholesale)
+      && !differs(alertQty, existing.alertQty) && !differs(cost, v?.costAvg) && !differs(stock, current) && !(photoOf.get(r) && !existing.photo);
+    const twin = !errors.length && !existing ? twins.forPageArticle(cat.id, name || parts.name, Object.entries(sel).map(([aid, vid]) => cat.attrs?.find((a) => a.id === aid)?.values.find((x) => x.id === vid)?.code ?? '')) : undefined;
     out.push({
-      line: r + 1, errors, name: name || existing?.name || parts.name, label: parts.label, exists: !!existing, current: v ? stockOf(v.id) : undefined, photo: photoOf.get(r),
+      line: r + 1, errors, name: name || existing?.name || parts.name, label: parts.label, exists: !!existing, current, photo: photoOf.get(r), same, twin,
       input: errors.length ? undefined : { sel, name: name || undefined, cost: cost ?? undefined, retail: retail ?? undefined, wholesale: wholesale ?? undefined, stock: stock ?? undefined, alertQty: alertQty ?? undefined },
     });
   }

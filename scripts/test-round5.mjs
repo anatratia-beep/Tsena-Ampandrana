@@ -19,7 +19,7 @@ await p.evaluate(async () => {
   await t.save('orders', Array.from({ length: 30 }, (_, i) => ({ id: 'O' + i, number: 'C-' + i, kind: 'order', channel: 'facebook', phone: '03400000' + String(i).padStart(2, '0'), name: i === 7 ? 'Rasoa' : 'Client ' + i, status: 'new', lines: [{ id: 'l', variantId: 'v1', qty: 1, unitPrice: 10000 }], payments: [], discount: 0, deliveryFee: 0, createdAt: new Date().toISOString() })));
 });
 // 1. Plus de tri habituel
-for (const [path, name] of [['/articles', 'articles'], ['/stock', 'stock'], ['/commandes', 'commandes'], ['/achats', 'achats'], ['/clients', 'clients'], ['/depenses/liste', 'dépenses']]) {
+for (const [path, name] of [['/commandes', 'commandes'], ['/achats', 'achats'], ['/clients', 'clients'], ['/depenses/liste', 'dépenses']]) {
   await p.goto('http://localhost:5173/#' + path); await p.waitForTimeout(450);
   const t = N(await p.locator('main').innerText());
   const sel = (await p.locator('main select').evaluateAll((els) => els.map((e) => e.innerText))).join(' ');
@@ -28,17 +28,16 @@ for (const [path, name] of [['/articles', 'articles'], ['/stock', 'stock'], ['/c
 // 2. Articles : filtre + clic + retour → mêmes résultats, même position
 await p.goto('http://localhost:5173/#/articles'); await p.waitForTimeout(500);
 await p.getByLabel('Catégorie').first().selectOption('lp'); await p.waitForTimeout(300);
-await p.getByLabel('Ordre').first().selectOption('old'); await p.waitForTimeout(300);
 const first = N(await p.locator('main .list-item-title').first().innerText());
-ok(first.includes('Lampe 78'), `articles : catégorie Lampe, plus anciens d’abord (${first})`);
+ok(first.includes('Lampe'), `articles : catégorie Lampe (${first})`);
 await p.evaluate(() => window.scrollTo(0, 900)); await p.waitForTimeout(300);
 const y0 = await p.evaluate(() => window.scrollY);
 const item = p.locator('main a.list-link, main .list-item').filter({ hasText: 'Lampe 40' }).first();
 await item.evaluate((el) => el.click()); await p.waitForTimeout(500);
 ok(p.url().includes('/articles/'), 'fiche de l’article ouverte');
 await p.goBack(); await p.waitForTimeout(700);
-ok(await p.getByLabel('Catégorie').first().inputValue() === 'lp' && await p.getByLabel('Ordre').first().inputValue() === 'old', 'retour : catégorie et ordre gardés');
-ok(N(await p.locator('main .list-item-title').first().innerText()).includes('Lampe 78'), 'retour : mêmes résultats');
+ok(await p.getByLabel('Catégorie').first().inputValue() === 'lp', 'retour : catégorie gardée');
+ok(N(await p.locator('main .list-item-title').first().innerText()) === first, 'retour : mêmes résultats');
 const y1 = await p.evaluate(() => window.scrollY);
 ok(Math.abs(y1 - y0) < 60, `retour : même position dans la liste (${y0} → ${y1})`);
 // 3. Commandes : recherche gardée

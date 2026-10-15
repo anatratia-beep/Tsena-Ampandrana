@@ -1,9 +1,9 @@
 // Import Excel : modèles à télécharger, reprise du stock, fichiers de commande Chine, fournisseurs, catégories.
-import { useState } from 'react';
-import { audit, useCan } from '../lib/auth';
+import { useMemo, useState } from 'react';
+import { audit, currentUser, useCan } from '../lib/auth';
 import { all, get, newId, save, useTable } from '../lib/db';
 import {
-  addMoves, ensureCategory, findProductByCode, fmtAr, fmtNum, makeSku, nextNumber, normSize, parseNum, productVariants, todayYmd, useCatalog,
+  addMoves, ensureCategory, findProductByCode, fmtAr, fmtNum, makeSku, nextNumber, normSize, parseNum, productVariants, stockOf, todayYmd, useCatalog,
   type Product, type Purchase, type PurchaseLine, type StockMove, type Variant,
 } from '../lib/catalog';
 import { lastRate, validateReception, type Supplier } from '../lib/purchases';
@@ -11,37 +11,40 @@ import { blobToThumb, downloadBlob, excelDate, fillMerged, normHeader, readXlsx,
 import { Badge, Button, Empty, PageHead, SelectField, TextField, navigate, toast } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { categoryOptions, Thumb } from './Products';
-import { activeAttrs, categoryTemplate, parseCategoryFile, saveArticles, templateCategory, type ImportRow } from '../lib/attrs';
+import { activeAttrs, categoryTemplate, parseCategoryFile, rowState, rowsToSave, saveArticles, templateCategory, type ImportRow } from '../lib/attrs';
+import { twinFinder } from '../lib/duplicates';
+import { pointBefore } from '../lib/restorePoints';
 import type { Category } from '../lib/catalog';
-import { MappedImport, looksLikePageFile, headerRowOf } from './ImportMapped';
+import { ImportBadges, MappedImport, TwinNotice, looksLikePageFile, headerRowOf, sortRows } from './ImportMapped';
 
 /** Import du fichier d'une page : contrôle de chaque ligne, puis création / mise à jour des articles. */
 function PageImport({ cat, sheets, onDone }: { cat: Category; sheets: Sheet[]; onDone: () => void }) {
   const rows: ImportRow[] = parseCategoryFile(cat, sheets);
   const [skip, setSkip] = useState(false);
+  const [withTwins, setWithTwins] = useState(false);
   const [busy, setBusy] = useState(false);
   const bad = rows.filter((r) => r.errors.length);
-  const ok = rows.filter((r) => !r.errors.length);
+  const ok = rowsToSave(rows, withTwins);
+  const same = rows.filter((r) => r.same);
+  const twins = rows.filter((r) => !r.errors.length && r.twin);
   const canGo = ok.length > 0 && (!bad.length || skip);
   return (
     <div className="card card-flush">
       <div className="card-pad stack-s">
         <h2>Page « {cat.name} » : {rows.length} ligne(s) lue(s)</h2>
-        <div className="row" style={{ gap: 6 }}>
-          <Badge tone="ok">{ok.filter((r) => !r.exists).length} nouveau(x)</Badge>
-          <Badge tone="brand">{ok.filter((r) => r.exists).length} mise(s) à jour</Badge>
-          {bad.length > 0 && <Badge tone="danger">{bad.length} ligne(s) en erreur</Badge>}
-        </div>
+        <ImportBadges rows={rows} withTwins={withTwins} />
         {bad.length > 0 && <div className="notice notice-danger"><Icon name="alert" /><span>Corrigez les lignes en rouge dans le fichier puis importez-le de nouveau. Vous pouvez aussi importer seulement les lignes correctes.</span></div>}
+        {same.length > 0 && same.length === rows.length - bad.length && <div className="notice notice-ok"><Icon name="check" /><span>Ce fichier est déjà importé : tous les articles existent avec les mêmes prix et le même stock. Rien à enregistrer.</span></div>}
+        <TwinNotice count={twins.length} withTwins={withTwins} onChange={setWithTwins} />
       </div>
       <div className="table-wrap"><table className="table">
         <thead><tr><th>Ligne</th><th>Photo</th><th>Article</th><th>État</th><th className="t-num">Revient</th><th className="t-num">PV détail</th><th className="t-num">PV gros</th><th className="t-num">Stock</th></tr></thead>
-        <tbody>{[...bad, ...ok].map((r) => (
-          <tr key={r.line} className={r.errors.length ? 'row-error' : ''}>
+        <tbody>{sortRows(rows).map((r) => (
+          <tr key={r.line} className={r.errors.length ? 'row-error' : r.same ? 'muted' : ''}>
             <td className="num">{r.line}</td>
             <td>{r.photo ? <PreviewPhoto blob={r.photo} /> : <span className="small muted">—</span>}</td>
             <td><strong>{r.name || '—'}</strong><div className="small muted">{r.label}</div></td>
-            <td className="small">{r.errors.length ? <span className="neg">{r.errors.join(' · ')}</span> : r.exists ? <>Mise à jour{r.input?.stock != null && r.current !== r.input.stock ? ` (stock ${r.current} → ${r.input.stock})` : ''}</> : 'Nouvel article'}</td>
+            <td className="small">{r.errors.length ? <span className="neg">{rowState(r)}</span> : r.twin && !withTwins ? <span className="warn-text">{rowState(r)}</span> : rowState(r, withTwins)}</td>
             <td className="t-num">{fmtAr(r.input?.cost)}</td><td className="t-num">{fmtAr(r.input?.retail)}</td><td className="t-num">{fmtAr(r.input?.wholesale ?? r.input?.retail)}</td><td className="t-num">{r.input?.stock ?? '—'}</td>
           </tr>
         ))}</tbody>
@@ -54,13 +57,34 @@ function PageImport({ cat, sheets, onDone }: { cat: Category; sheets: Sheet[]; o
             const thumbs = new Map<Blob, string>();
             for (const x of ok) if (x.photo && !thumbs.has(x.photo)) { const t = await blobToThumb(x.photo).catch(() => undefined); if (t) thumbs.set(x.photo, t); }
             const r = await saveArticles(cat, ok.map((x) => ({ ...x.input!, photo: x.photo ? thumbs.get(x.photo) : undefined })), 'Import Excel');
-            toast(`${r.created} article(s) créé(s), ${r.updated} mis à jour${thumbs.size ? `, ${ok.filter((x) => x.photo).length} photo(s)` : ''}`); onDone();
+            toast(`${r.created} article(s) créé(s), ${r.updated} mis à jour${same.length ? `, ${same.length} identique(s) ignoré(s)` : ''}${thumbs.size ? `, ${ok.filter((x) => x.photo).length} photo(s)` : ''}`); onDone();
           }
           catch (e: any) { toast(e.message, 'error'); setBusy(false); }
-        }}>Importer {ok.length} article(s)</Button>
+        }}>{ok.length ? `Importer ${ok.length} article(s)` : 'Rien à importer'}</Button>
       </div>
     </div>
   );
+}
+
+// ---------- Même fichier importé deux fois ----------
+// Empreinte du contenu du fichier (pas son nom) : un même fichier renommé est reconnu, un fichier modifié ne l'est pas.
+interface ImportLog { id: string; name: string; at: string; byName?: string; kind: string }
+async function fileHash(f: File) {
+  try {
+    const buf = await crypto.subtle.digest('SHA-256', await f.arrayBuffer());
+    return [...new Uint8Array(buf)].slice(0, 12).map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch { return ''; } // navigateur sans crypto.subtle (page non sécurisée) : pas de contrôle du fichier
+}
+/** Import déjà fait de ce fichier, depuis le dernier effacement des données (après un effacement, réimporter est normal). */
+function previousImport(hash: string): ImportLog | undefined {
+  if (!hash) return undefined;
+  const log = get<ImportLog & { createdAt: string; updatedAt: string }>('settings', `import_${hash}`);
+  const reset = get<{ id: string; at: string; createdAt: string; updatedAt: string }>('settings', 'lastReset')?.at ?? '';
+  return log && log.at > reset ? log : undefined;
+}
+async function rememberImport(hash: string, name: string, kind: string) {
+  if (!hash) return;
+  await save('settings', { id: `import_${hash}`, name, kind, at: new Date().toISOString(), byName: currentUser()?.fullName });
 }
 
 // ---------- Modèles ----------
@@ -135,10 +159,16 @@ export function ImportPage() {
   const [tplCat, setTplCat] = useState('');
   const [simpleOk, setSimpleOk] = useState(false);
   const [repairNote, setRepairNote] = useState<string | null>(null);
+  const [hash, setHash] = useState('');
+  const [already, setAlready] = useState<ImportLog | undefined>();
+  const [again, setAgain] = useState(false);
+  const finished = (go: () => void) => { const h = hash, n = file?.name ?? '', k = kind ?? ''; setSheets(null); setAlready(undefined); go(); rememberImport(h, n, k).catch(() => undefined); };
 
   async function open(f: File) {
-    setError(null); setBusy(true); setSheets(null); setKind(null); setFile(f); setRepairNote(null);
+    setError(null); setBusy(true); setSheets(null); setKind(null); setFile(f); setRepairNote(null); setAlready(undefined); setAgain(false);
     try {
+      const h = await fileHash(f);
+      setHash(h); setAlready(previousImport(h));
       const sh = await readXlsx(f, { images: true });
       const rep = (sh as Sheet[] & { repaired?: { missingImages: number } }).repaired;
       if (rep) setRepairNote(`Ce fichier est coupé (téléchargement ou export interrompu, souvent à cause de photos trop lourdes). Tout ce qui était lisible a été récupéré : toutes les lignes${rep.missingImages ? `, mais ${rep.missingImages} photo(s) manquent (elles étaient après la coupure)` : ' et les photos'}. Vous pouvez importer ; les photos manquantes s’ajoutent ensuite dans la fiche article, ou en important de nouveau un fichier complet.`);
@@ -169,11 +199,16 @@ export function ImportPage() {
         {busy && <p className="small muted">Lecture du fichier…</p>}
         {error && <div className="notice notice-danger"><Icon name="alert" /><span>{error}</span></div>}
         {repairNote && <div className="notice notice-warn"><Icon name="alert" /><span>{repairNote}</span></div>}
+        {already && sheets && <div className="notice notice-warn"><Icon name="alert" /><span>
+          <strong>Ce fichier a déjà été importé</strong> le {new Date(already.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}{already.byName ? ` par ${already.byName}` : ''}{already.name !== file?.name ? ` (sous le nom « ${already.name} »)` : ''}.
+          {kind === 'commande' ? ' L’importer de nouveau créerait une deuxième commande.' : ' Les articles déjà enregistrés à l’identique seront ignorés : seuls les changements seront enregistrés.'}
+          {kind === 'commande' && <label className="row small" style={{ gap: 6, marginTop: 6 }}><input type="checkbox" checked={again} onChange={(e) => setAgain(e.target.checked)} /> C’est une autre commande : l’importer quand même</label>}
+        </span></div>}
       </div>
-      {sheets && kind === 'page' && get<Category>('categories', pageId) && <PageImport cat={get<Category>('categories', pageId)!} sheets={sheets} onDone={() => { setSheets(null); navigate(`/articles?cat=${pageId}`); }} />}
-      {sheets && kind === 'mapped' && <MappedImport sheets={sheets} onSimple={simpleOk ? () => setKind('articles') : undefined} onDone={(pid) => { setSheets(null); navigate(pid ? `/articles?cat=${pid}` : '/articles'); }} />}
-      {sheets && kind === 'articles' && file && <ArticlesImport sheets={sheets} fileName={file.name} onDone={() => { setSheets(null); navigate('/articles'); }} />}
-      {sheets && kind === 'commande' && file && <OrderImport sheets={sheets} fileName={file.name} onDone={(id) => { setSheets(null); navigate('/achats/' + id); }} />}
+      {sheets && kind === 'page' && get<Category>('categories', pageId) && <PageImport cat={get<Category>('categories', pageId)!} sheets={sheets} onDone={() => finished(() => navigate(`/articles?cat=${pageId}`))} />}
+      {sheets && kind === 'mapped' && <MappedImport sheets={sheets} onSimple={simpleOk ? () => setKind('articles') : undefined} onDone={(pid) => finished(() => navigate(pid ? `/articles?cat=${pid}` : '/articles'))} />}
+      {sheets && kind === 'articles' && file && <ArticlesImport sheets={sheets} fileName={file.name} onDone={() => finished(() => navigate('/articles'))} />}
+      {sheets && kind === 'commande' && file && <OrderImport sheets={sheets} fileName={file.name} blocked={!!already && !again} onDone={(id) => finished(() => navigate('/achats/' + id))} />}
       {sheets && kind === 'fournisseurs' && <SimpleImport kind="fournisseurs" sheets={sheets} onDone={() => setSheets(null)} />}
       {sheets && kind === 'categories' && <SimpleImport kind="categories" sheets={sheets} onDone={() => setSheets(null)} />}
 
@@ -301,6 +336,27 @@ function ArticlesImport({ sheets, fileName, onDone }: { sheets: Sheet[]; fileNam
     if (!r.name) warnings.push(`Ligne ${r.line} : ${r.code} sans nom — le code servira de nom.`);
   }
   const existing = [...groups.keys()].filter((k) => findProductByCode(k)).length;
+  const [withTwins, setWithTwins] = useState(false);
+  // Pour chaque article du fichier : identique à l'existant (ignoré), ou nouveau mais déjà présent comme article d'une page.
+  const status = useMemo(() => {
+    const twins = twinFinder();
+    const out = new Map<string, { same?: boolean; twin?: ReturnType<typeof twins.forSimpleArticle>; restock: number }>();
+    for (const [k, list] of groups) {
+      const prod = findProductByCode(list[0].model);
+      if (!prod) { out.set(k, { twin: twins.forSimpleArticle(list[0].model), restock: 0 }); continue; }
+      const qty = new Map<string, number>();
+      for (const r of list) { const sk = r.code.toUpperCase().replace(/\s+/g, ''); qty.set(sk, (qty.get(sk) ?? 0) + Math.max(0, r.stock)); }
+      const vs = productVariants(prod.id);
+      let restock = 0, missing = 0;
+      for (const [sk, q] of qty) { const v = vs.find((x) => x.sku.toUpperCase().replace(/\s+/g, '') === sk); if (!v) missing++; else if (stockOf(v.id) !== q) restock++; }
+      out.set(k, { same: !missing && !restock, restock });
+    }
+    return out;
+  }, [sheet]);
+  const sameCount = [...status.values()].filter((x) => x.same).length;
+  const twinKeys = [...status.entries()].filter(([, x]) => x.twin).map(([k]) => k);
+  const restockCount = [...status.values()].reduce((t, x) => t + x.restock, 0);
+  const toImport = [...groups.keys()].filter((k) => !status.get(k)?.same && (withTwins || !status.get(k)?.twin));
   const totalStock = rows.reduce((s, r) => s + Math.max(0, r.stock), 0);
   const totalValue = rows.reduce((s, r) => s + Math.max(0, r.stock) * (r.cost ?? 0), 0);
   const photos = new Map<number, Blob>();
@@ -315,10 +371,10 @@ function ArticlesImport({ sheets, fileName, onDone }: { sheets: Sheet[]; fileNam
       const newVariants: Partial<Variant>[] = [];
       const updVariants: Partial<Variant>[] = [];
       const moves: Omit<StockMove, 'id' | 'createdAt' | 'updatedAt' | 'at'>[] = [];
-      const allMoves = all<StockMove>('stockMoves');
-      const hasMoves = new Set(allMoves.map((m) => m.variantId));
+      await pointBefore(`import Excel (${fileName})`);
       let i = 0;
-      for (const [, list] of groups) {
+      for (const key of toImport) {
+        const list = groups.get(key)!;
         i++;
         if (i % 20 === 0) { setProgress(`${i} / ${groups.size} articles…`); await new Promise((r) => setTimeout(r)); }
         const first = list[0];
@@ -350,6 +406,7 @@ function ArticlesImport({ sheets, fileName, onDone }: { sheets: Sheet[]; fileNam
           newProducts.push({ id: productId, code: first.model, name, categoryId, priceRetail: pv, priceWholesale: pvg, photo, active: true, alertQty: 3 });
         }
         const existingVariants = prod ? productVariants(prod.id) : [];
+        const existingIds = new Set(existingVariants.map((v) => v.id));
         const bySku = new Map<string, Partial<Variant> & { _stock: number }>();
         const colorTaken = new Set<string>(); // une seule copie de la photo par couleur
         const takePhoto = (color: string) => { const k = color.toLowerCase(); if (colorTaken.has(k)) return undefined; const ph = colorPhoto.get(k); if (ph) colorTaken.add(k); return ph; };
@@ -366,7 +423,9 @@ function ArticlesImport({ sheets, fileName, onDone }: { sheets: Sheet[]; fileNam
           bySku.set(k, v);
         }
         for (const v of bySku.values()) {
-          if (v._stock > 0 && !hasMoves.has(v.id!)) moves.push({ variantId: v.id!, qty: v._stock, type: 'initial', unitCost: v.costAvg, reason: `Import ${fileName}` });
+          // Stock du fichier = stock de départ : une variante existante est remise à cette quantité (jamais additionnée).
+          if (existingIds.has(v.id!)) { const d = v._stock - stockOf(v.id!); if (d) moves.push({ variantId: v.id!, qty: d, type: 'inventory', unitCost: v.costAvg, reason: `Import ${fileName} : stock remis à ${v._stock}` }); }
+          else if (v._stock > 0) moves.push({ variantId: v.id!, qty: v._stock, type: 'initial', unitCost: v.costAvg, reason: `Import ${fileName}` });
         }
       }
       setProgress('Enregistrement…');
@@ -375,8 +434,10 @@ function ArticlesImport({ sheets, fileName, onDone }: { sheets: Sheet[]; fileNam
       if (newVariants.length) await save('variants', newVariants.map(strip));
       if (updVariants.length) await save('variants', updVariants.map(strip));
       await addMoves(moves);
-      await audit('Import Excel', `${fileName} : ${newProducts.length} article(s) créé(s), ${newVariants.length} variante(s), ${moves.reduce((s, m) => s + m.qty, 0)} pièce(s) en stock initial`);
-      toast(`Import terminé : ${newProducts.length} articles, ${fmtNum(moves.reduce((s, m) => s + m.qty, 0))} pièces`);
+      const initial = moves.filter((m) => m.type === 'initial').reduce((s, m) => s + m.qty, 0);
+      const reset = new Set(moves.filter((m) => m.type === 'inventory').map((m) => m.variantId)).size;
+      await audit('Import Excel', `${fileName} : ${newProducts.length} article(s) créé(s), ${newVariants.length} variante(s), ${initial} pièce(s) en stock initial${reset ? `, ${reset} stock(s) remis à la quantité du fichier` : ''}${sameCount ? `, ${sameCount} identique(s) ignoré(s)` : ''}`);
+      toast(`Import terminé : ${newProducts.length} article(s) créé(s)${reset ? `, ${reset} stock(s) remis à jour` : ''}${sameCount ? `, ${sameCount} identique(s) ignoré(s)` : ''}`);
       onDone();
     } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); setProgress(''); }
   }
@@ -392,7 +453,10 @@ function ArticlesImport({ sheets, fileName, onDone }: { sheets: Sheet[]; fileNam
         <div><span className="small muted">Photos</span><strong className="num">{photos.size}</strong></div>
       </div>
       {map.category == null && <SelectField label="Catégorie à donner aux articles (le fichier n’en a pas)" value={defaultCat} onChange={setDefaultCat} options={categoryOptions(categories)} />}
-      {existing > 0 && <div className="notice"><Icon name="alert" /><span>{existing} article(s) existent déjà : leurs nouvelles variantes seront ajoutées. Le stock initial n’est ajouté qu’aux variantes qui n’ont encore aucun mouvement.</span></div>}
+      {existing > 0 && <div className="notice"><Icon name="alert" /><span>{existing} article(s) existent déjà{sameCount ? ` (${sameCount} identique(s) : ignoré(s))` : ''}. Leurs nouvelles variantes seront ajoutées, et le stock est <strong>remplacé</strong> par la quantité du fichier, jamais additionné{restockCount ? ` (${restockCount} variante(s) à remettre à jour)` : ''}.</span></div>}
+      {sameCount > 0 && sameCount === groups.size && <div className="notice notice-ok"><Icon name="check" /><span>Ce fichier est déjà importé : tous les articles existent avec le même stock. Rien à enregistrer.</span></div>}
+      <TwinNotice count={twinKeys.length} withTwins={withTwins} onChange={setWithTwins} />
+      {twinKeys.length > 0 && <p className="small muted">{twinKeys.slice(0, 20).map((k) => { const t = status.get(k)!.twin!; return `${groups.get(k)![0].model} → « ${t.name} » (page ${t.page})`; }).join(' · ')}{twinKeys.length > 20 ? '…' : ''}</p>}
       {warnings.length > 0 && (
         <details className="warn-box">
           <summary><strong>{warnings.length} point(s) à vérifier</strong> — l’import peut se faire quand même</summary>
@@ -418,7 +482,7 @@ function ArticlesImport({ sheets, fileName, onDone }: { sheets: Sheet[]; fileNam
       {groups.size > preview.length && <p className="small muted">… et {groups.size - preview.length} autres articles.</p>}
       <div className="row-between">
         <span className="small muted">{progress}</span>
-        <Button icon="check" busy={busy} onClick={run}>Importer {groups.size} articles</Button>
+        <Button icon="check" busy={busy} disabled={!toImport.length} onClick={run}>{toImport.length ? `Importer ${toImport.length} article(s)` : 'Rien à importer'}</Button>
       </div>
     </div>
   );
@@ -442,7 +506,7 @@ function parseFileName(name: string) {
   return { date, family: family ? family.charAt(0).toUpperCase() + family.slice(1) : '' };
 }
 
-function OrderImport({ sheets, fileName, onDone }: { sheets: Sheet[]; fileName: string; onDone: (purchaseId: string) => void }) {
+function OrderImport({ sheets, fileName, blocked, onDone }: { sheets: Sheet[]; fileName: string; blocked?: boolean; onDone: (purchaseId: string) => void }) {
   const { categories } = useCatalog();
   const suppliers = all<Supplier>('suppliers');
   const sheet = sheets.find((s) => findHeader(s, ORDER_COLS, ['ref', 'size', 'qty', 'pu']))!;
@@ -579,7 +643,7 @@ function OrderImport({ sheets, fileName, onDone }: { sheets: Sheet[]; fileName: 
       </fieldset>
       <div className="row-between">
         <span className="small muted">{refs.length} article(s) · {rows.length} ligne(s)</span>
-        <Button icon="check" busy={busy} disabled={!parseNum(rate)} onClick={run}>Importer la commande</Button>
+        <Button icon="check" busy={busy} disabled={!parseNum(rate) || blocked} onClick={run}>Importer la commande</Button>
       </div>
     </div>
   );

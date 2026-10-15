@@ -90,10 +90,11 @@ export function PeriodPicker({ value, onChange, allowFuture = true }: { value: P
 // ---------- Filtre de dates des listes (commandes, ventes, achats, réceptions, articles, stock, clients, dépenses) ----------
 export type ListOrder = 'new' | 'old';
 /** Période + ordre (plus récent / plus ancien d'abord) : un seul bloc, identique sur toutes les listes. */
-export function ListDates<O extends string = ListOrder>({ period, onPeriod, order, onOrder, what = 'Date', extra = [] }: { period: Period; onPeriod: (p: Period) => void; order: O; onOrder: (o: O) => void; what?: string; extra?: { value: O; label: string }[] }) {
+/** Période (facultative : sans `onPeriod`, seulement l'ordre) et ordre d'une liste. */
+export function ListDates<O extends string = ListOrder>({ period, onPeriod, order, onOrder, what = 'Date', extra = [] }: { period?: Period; onPeriod?: (p: Period) => void; order: O; onOrder: (o: O) => void; what?: string; extra?: { value: O; label: string }[] }) {
   return (
     <div className="list-dates">
-      <PeriodPicker value={period} onChange={onPeriod} />
+      {period && onPeriod && <PeriodPicker value={period} onChange={onPeriod} />}
       <div className="field"><label htmlFor="l-order">Ordre ({what.toLowerCase()})</label>
         <select id="l-order" aria-label="Ordre" value={order} onChange={(e) => onOrder(e.target.value as O)}>
           <option value="new">Plus récent d’abord</option>

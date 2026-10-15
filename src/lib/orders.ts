@@ -92,6 +92,8 @@ export interface Order extends BaseRecord {
   employeeName?: string;
   /** Prévue en livraison, finalement retirée par le client en boutique : comptée comme vente sur place. */
   pickedUp?: boolean;
+  /** Livraisons reportées à la demande du client (au plus 3 fois, ensuite la commande est annulée). */
+  reports?: { at: string; to?: string; reason?: string; user?: string; courierId?: string }[];
 }
 
 export const ORDER_STATUS: Record<OrderStatus, { label: string; tone: 'neutral' | 'brand' | 'warn' | 'ok' | 'danger' }> = {
@@ -352,6 +354,41 @@ export async function cancelDeliveryToShop(o: Order) {
     events: [...(o.events || []), { at, text: `Livraison annulée${courier ? ` (rapportée par ${courier})` : ''} : le client vient chercher en boutique`, user: currentUser()?.fullName }],
   });
   await audit('Commande', `${o.number} : livraison annulée, retrait en boutique`, 'orders', o.id);
+}
+
+// ---------- Livraison reportée (« à reporter ») ----------
+/** Nombre maximum de reports : au-delà, la commande est annulée. */
+export const MAX_REPORTS = 3;
+export const reportCount = (o: Pick<Order, 'reports'>) => (o.reports || []).length;
+export const canPostpone = (o: Order) => !isWalkIn(o) && ['new', 'confirmed', 'ready', 'out'].includes(o.status);
+/**
+ * Le client demande de reporter la livraison (il n'est pas là, pas d'argent, autre jour…). Si le colis est chez le
+ * livreur, il revient en boutique (stock remis, réservé pour le client) ; la commande repasse « en attente de livraison »
+ * avec la nouvelle date. Au 3e report atteint, un nouveau report n'est plus possible : il faut annuler.
+ */
+export async function postponeOrder(o: Order, d: { to?: string; reason?: string }) {
+  if (!canPostpone(o)) throw new Error('Cette commande ne peut plus être reportée.');
+  if (reportCount(o) >= MAX_REPORTS) throw new Error(`Déjà reportée ${MAX_REPORTS} fois : la commande doit être annulée.`);
+  const at = bizNow();
+  const u = currentUser();
+  const courier = get<Courier>('couriers', o.courierId || '')?.name;
+  if (o.status === 'out') {
+    assertOpenNow('Retour du livreur');
+    await addMoves(o.lines.map((l) => ({ variantId: l.variantId, qty: l.qty, type: 'delivery_return' as const, refType: 'order', refId: o.id, reason: `${o.number} — livraison reportée, colis revenu en boutique`, at })));
+  }
+  const n = reportCount(o) + 1;
+  const toTxt = d.to ? ` au ${new Date(`${d.to}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: '2-digit' })}` : '';
+  await save('orders', {
+    id: o.id, status: o.status === 'out' ? 'ready' : o.status, wantedDate: d.to || o.wantedDate,
+    ...(o.status === 'out' ? { courierId: null as unknown as undefined, dispatchedAt: null as unknown as undefined, statusDates: { ...(o.statusDates || {}), ready: at } } : {}),
+    reports: [...(o.reports || []), { at, to: d.to, reason: d.reason, user: u?.fullName, courierId: o.courierId }],
+    events: [...(o.events || []), { at, text: `Livraison reportée${toTxt} (${n}/${MAX_REPORTS})${d.reason ? ` — ${d.reason}` : ''}${o.status === 'out' ? ` : colis rapporté${courier ? ` par ${courier}` : ''}, articles revenus en boutique` : ''}`, user: u?.fullName }],
+  });
+  await audit('Commande reportée', `${o.number} : report ${n}/${MAX_REPORTS}${toTxt}${d.reason ? ` — ${d.reason}` : ''}`, 'orders', o.id, 'medium');
+}
+/** Après 3 reports, le client n'a toujours pas pris sa commande : annulation (stock remis exactement). */
+export async function cancelAfterReports(o: Order, reason = '') {
+  await cancelOrder(o, `Reportée ${reportCount(o)} fois, le client n’a pas pris la commande${reason ? ` (${reason})` : ''}`);
 }
 
 /** Vente sur place (comptoir) : enregistrée et terminée immédiatement. */

@@ -10,7 +10,6 @@ import {
   type Category, type Product, type StockMove, type Variant, searchItems } from '../lib/catalog';
 import { blobToThumb } from '../lib/xlsx';
 import { photoBytes } from '../lib/images';
-import { ListDates, defaultPeriod, inPeriod, type ListOrder, type Period } from '../ui/period';
 import { Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDateTime, navigate, toast, useRoute, MoreMatches, useKeep } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { rootOf } from '../lib/scope';
@@ -72,8 +71,6 @@ function ProductList() {
   const [allMatches, setAllMatches] = useKeep('prod.all', false);
   const [others, setOthers] = useState(0);
   const [dups, setDups] = useState(false);
-  const [order, setOrder] = useKeep<ListOrder>('prod.order', 'new');
-  const [added, setAdded] = useKeep<Period>('prod.added', defaultPeriod('all'));
 
   const list = useMemo(() => {
     const n = q.trim().toLowerCase();
@@ -86,8 +83,7 @@ function ProductList() {
     const sr = searchItems(products
       .filter((p) => showArchived || p.active !== false)
       .filter((p) => scope.product(p.id))
-      .filter(inCat)
-      .filter((p) => added.key === 'all' || inPeriod(p.createdAt, added)), productText, n, allMatches);
+      .filter(inCat), productText, n, allMatches);
     queueMicrotask(() => setOthers(sr.others));
     return sr.list
       .map((p) => ({ p, stock: isLot(p) ? lotAvailable(p, stockOf) : productStock(p.id), incoming: isLot(p) ? 0 : productIncoming(p.id) }))
@@ -98,8 +94,8 @@ function ProductList() {
         if (sf === 'incoming') return incoming > 0;
         return true;
       })
-      .sort((a, b) => (order === 'new' ? b.p.createdAt.localeCompare(a.p.createdAt) : a.p.createdAt.localeCompare(b.p.createdAt)) || a.p.code.localeCompare(b.p.code, 'fr', { numeric: true }));
-  }, [products, q, cat, sf, showArchived, scope.on, allMatches, order, added]);
+      .sort((a, b) => b.p.createdAt.localeCompare(a.p.createdAt) || a.p.code.localeCompare(b.p.code, 'fr', { numeric: true })); // plus récents d'abord
+  }, [products, q, cat, sf, showArchived, scope.on, allMatches]);
 
   const dupCount = useMemo(() => findDuplicates().length, [products]);
   return (
@@ -125,8 +121,7 @@ function ProductList() {
             </select>
           </div>
         </div>
-        <ListDates period={added} onPeriod={setAdded} order={order} onOrder={setOrder} what="Date d’ajout" />
-        {(q || cat || sf || added.key !== 'all') && <div><Button variant="ghost" className="btn-sm" icon="x" onClick={() => { setQ(''); setCat(''); setSf(''); setAdded(defaultPeriod('all')); setLimit(60); }}>Effacer les filtres</Button></div>}
+        {(q || cat || sf) && <div><Button variant="ghost" className="btn-sm" icon="x" onClick={() => { setQ(''); setCat(''); setSf(''); setLimit(60); }}>Effacer les filtres</Button></div>}
         <MoreMatches n={others} onShow={() => setAllMatches(true)} />
         <div className="row-between">
           <div className="segmented" role="group" aria-label="Filtrer par stock">

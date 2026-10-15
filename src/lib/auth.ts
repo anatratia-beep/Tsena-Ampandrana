@@ -76,10 +76,11 @@ export async function seedAccounts() {
   }
   if (updates.length) await save('roles', updates);
 
-  // Mise à jour unique : c'est désormais le responsable qui assigne les livreurs, plus le vendeur.
+  // Mise à jour unique : le vendeur peut de nouveau remettre ses commandes au livreur (« En attente de livraison »).
+  // Une seule fois : si l'admin retire ensuite ce droit au rôle Vendeur, il n'est pas redonné.
   const seller = get<Role>('roles', 'role-seller');
-  if (seller && seller.permissions.includes('orders.dispatch') && !(seller.migrations ?? []).includes('dispatch-to-manager')) {
-    await save('roles', { id: seller.id, permissions: seller.permissions.filter((k) => k !== 'orders.dispatch'), migrations: [...(seller.migrations ?? []), 'dispatch-to-manager'] });
+  if (seller && !(seller.migrations ?? []).includes('dispatch-to-seller')) {
+    await save('roles', { id: seller.id, permissions: [...new Set([...seller.permissions, 'orders.dispatch'])], migrations: [...(seller.migrations ?? []), 'dispatch-to-seller'] });
   }
 }
 

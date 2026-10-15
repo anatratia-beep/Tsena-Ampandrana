@@ -4,9 +4,9 @@ import { ScopeBar } from '../ui/scope';
 import { useMemo, useState } from 'react';
 import { audit, currentUser, useCan } from '../lib/auth';
 import { bizNow, get, newId, save, useTable } from '../lib/db';
-import { fmtAr, fmtNum, nextNumber, parseNum, productVariants, useCatalog, variantLabel, type Product, type Variant , photoOf, matchQuery, matchExact, searchItems, productText, parseAr} from '../lib/catalog';
+import { fmtAr, fmtNum, nextNumber, parseNum, productVariants, useCatalog, variantLabel, type Product, type Variant , photoOf, matchQuery, matchExact, searchItems, productText, parseAr, type Category } from '../lib/catalog';
 import {
-  addPayment, availableOf, backToPrepare, cancelOrder, cancelDeliveryToShop, CHANNELS, completeAtShop, confirmOrder, dispatchOrder, exchangeBalance, findCustomer, fmtPhone,
+  addPayment, availableOf, backToPrepare, cancelOrder, cancelDeliveryToShop, MAX_REPORTS, reportCount, canPostpone, postponeOrder, cancelAfterReports, CHANNELS, completeAtShop, confirmOrder, dispatchOrder, exchangeBalance, findCustomer, fmtPhone,
   canReassign, customerIdFor, choiceQty, hasPendingChoice, needsSettlement, reassignCourier, isOutsideHours, isPickupZone, isWalkIn, orderLabel, handOverAtShop, itemsTotal, keptTotal, linePrice, markReady, normPhone, ORDER_STATUS, orderTotal, paidTotal, PAY_METHODS, recordReturn, remaining,
   priceOrder, removeLine, reservedIndex, totalQty, useWholesale, editPayment, courierSplit, withLineWholesale, discountAr, stockShortages,
   type Courier, type Customer, type Order, type OrderLine, type OrderStatus, type PayMethod, type Payment, type Zone, orderText, customerText, findCustomerBy,
@@ -18,7 +18,7 @@ import { Help, DiscountField, Badge, Button, Confirm, Empty, FilterSelect, IconB
 import { Icon } from '../ui/icons';
 import { PayLines, payLinesSum, splitInTwo, type PayLine } from '../ui/payments';
 import { ListDates, defaultPeriod, inPeriod, type ListOrder, type Period } from '../ui/period';
-import { Thumb } from './Products';
+import { Thumb, categoryOptions } from './Products';
 import { siblingsOf } from '../lib/attrs';
 import { deliveryNoteDoc, parcelLabelDoc, ticketDoc } from '../lib/print';
 import { PrintButton, type DocChoice } from '../ui/print';
@@ -40,6 +40,29 @@ const TABS: { key: string; label: string; statuses: OrderStatus[]; match?: (o: O
   { key: 'annulees', label: 'Annulées', statuses: ['cancelled'] },
 ];
 const inTab = (t: (typeof TABS)[number], o: Order) => t.statuses.includes(o.status) && (!t.match || t.match(o));
+/**
+ * Regroupe des commandes ou ventes par page (catégorie principale des articles : Boxer homme, Pyjamas homme…).
+ * Une commande dont les articles sont de plusieurs pages va dans « Plusieurs pages » ; sans article, dans « Sans article ».
+ * L'ordre des commandes dans chaque groupe est gardé ; les pages sont par ordre alphabétique.
+ */
+export function groupOrdersByPage(list: Order[]): { key: string; label: string; items: Order[] }[] {
+  const groups = new Map<string, { key: string; label: string; items: Order[] }>();
+  for (const o of list) {
+    const sold = o.lines.filter((l) => !l.isChoice);
+    const ids = [...new Set((sold.length ? sold : o.lines).map((l) => variantPage(l.variantId)))];
+    const key = ids.length > 1 ? '~multi' : ids.length ? ids[0] || '~none' : '~empty';
+    const label = key === '~multi' ? 'Plusieurs pages' : key === '~empty' ? 'Sans article' : key === '~none' ? 'Sans catégorie' : get<{ name: string }>('categories', key)?.name ?? 'Sans catégorie';
+    if (!groups.has(key)) groups.set(key, { key, label, items: [] });
+    groups.get(key)!.items.push(o);
+  }
+  return [...groups.values()].sort((a, b) => Number(a.key.startsWith('~')) - Number(b.key.startsWith('~')) || a.label.localeCompare(b.label, 'fr', { numeric: true }));
+}
+
+/** En-tête d'un groupe de commandes : nom de la page, nombre et montant. */
+export function OrderGroupHead({ label, count, total }: { label: string; count: number; total: number }) {
+  return <li className="list-group-head row-between"><span>{label} <span className="muted">({count})</span></span><span className="num">{fmtAr(total)}</span></li>;
+}
+
 const hasPage = (o: Order, pageId: string) => o.lines.some((l) => variantPage(l.variantId) === pageId) || (o.lines.length === 0 && pageId === '');
 
 export function OrdersPage() {
@@ -55,6 +78,7 @@ export function OrderStatusBadge({ o }: { o: Order }) {
   return <>
     <Badge tone={st.tone}>{o.kind === 'exchange' ? `Échange · ${st.label}` : st.label}</Badge>
     {hasPendingChoice(o) && <Badge tone="danger">Choix à préciser ({choiceQty(o)})</Badge>}
+    {reportCount(o) > 0 && o.status !== 'cancelled' && <Badge tone={reportCount(o) >= MAX_REPORTS ? 'danger' : 'warn'}>Reportée {reportCount(o)}/{MAX_REPORTS}{o.wantedDate && ['new', 'confirmed', 'ready'].includes(o.status) ? ` · au ${new Date(`${o.wantedDate}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}` : ''}</Badge>}
   </>;
 }
 
@@ -104,7 +128,7 @@ function OrderList({ tabKey }: { tabKey?: string }) {
     <>
       <PageHead title="Commandes" subtitle="Commandes Facebook, téléphone et autres, jusqu’à la livraison et au règlement du livreur."
         actions={can('orders.create') && <><Button variant="ghost" icon="users" onClick={() => setFollowing(true)}>Client à suivre</Button><Button icon="plus" onClick={() => setCreating(true)}>Nouvelle commande</Button></>} />
-      <ScopeBar scope={scope} mineLabel="Mes commandes" text="Vous voyez les commandes que vous avez enregistrées. Les livraisons du jour restent visibles par tous dans Livraisons." />
+      <ScopeBar scope={scope} mineLabel="Mes commandes" text={scope.strict ? 'Vous voyez seulement les commandes de vos pages' : "Vous voyez les commandes que vous avez enregistrées. Les livraisons du jour restent visibles par tous dans Livraisons."} />
       <div className="tabs" role="tablist">
         {(() => { const n = prospects.filter((x) => x.status === 'open' && scope.mine({ createdBy: x.ownerId, createdByName: x.ownerName }) && bucketOf(x) !== 'later').length; return <button role="tab" aria-selected={tabKey === 'suivre'} onClick={() => switchTab('suivre')}>À suivre{n ? <span className="tab-count tab-count-hot">{n}</span> : null}</button>; })()}
         {TABS.map((t) => {
@@ -133,12 +157,14 @@ function OrderList({ tabKey }: { tabKey?: string }) {
       )}
       <div className="card card-flush">
         {list.length === 0 ? <Empty icon="list" title={q || courierF || pageF ? 'Aucune commande trouvée dans cet onglet' : regler ? 'Aucune commande à régler' : 'Aucune commande ici'}>{tab.key === 'enregistrees' && can('orders.create') && !q && <Button icon="plus" onClick={() => setCreating(true)}>Saisir une commande</Button>}</Empty> : (
-          <ul className="list">{list.map((o) => regler ? (
+          <ul className="list">{groupOrdersByPage(list).map((g) => [
+            <OrderGroupHead key={'h' + g.key} label={g.label} count={g.items.length} total={g.items.reduce((s, o) => s + (o.kind === 'exchange' ? exchangeBalance(o) : orderTotal(o)), 0)} />,
+            ...g.items.map((o) => regler ? (
             <li key={o.id} className="row-check">
               <input type="checkbox" aria-label={`Sélectionner ${o.number}`} checked={sel.includes(o.id)} onChange={(e) => setSel(e.target.checked ? [...sel, o.id] : sel.filter((x) => x !== o.id))} />
               <ul className="list" style={{ flex: 1, minWidth: 0 }}><OrderRow o={o} /></ul>
             </li>
-          ) : <OrderRow key={o.id} o={o} />)}</ul>
+          ) : <OrderRow key={o.id} o={o} />)])}</ul>
         )}
       </div>
       </>}
@@ -444,10 +470,20 @@ export function OrderForm({ order, exchangeOf, onClose, onSaved, prefill: pre }:
 }
 
 /** Choisir des articles : recherche, puis quantité par taille/couleur avec le stock disponible. */
+/** L'article est dans la catégorie choisie ou dans une de ses sous-catégories. */
+function inCategory(p: Product, cat: string) {
+  if (!cat) return true;
+  let c = p.categoryId ? get<Category>('categories', p.categoryId) : undefined;
+  while (c) { if (c.id === cat) return true; c = c.parentId ? get<Category>('categories', c.parentId) : undefined; }
+  return false;
+}
+
 export function ItemPicker({ excludeOrderId, onClose, onAdd, onAddLines, noChoice, initialProduct, unknownQty }: { excludeOrderId?: string; onClose: () => void; onAdd: (a: { variantId: string; qty: number; isChoice?: boolean }[]) => void; onAddLines?: (lines: OrderLine[]) => void; noChoice?: boolean; initialProduct?: Product; unknownQty?: boolean }) {
-  const { products } = useCatalog();
+  const { products, categories } = useCatalog();
   const reserved = useMemo(() => reservedIndex(excludeOrderId), [excludeOrderId]);
   const [q, setQ] = useState('');
+  const [cat, setCat] = useKeep('picker.cat', '');
+  const [limit, setLimit] = useState(60);
   const [prod, setProd] = useState<Product | null>(initialProduct ?? null);
   const [qty, setQty] = useState<Record<string, string>>({});
   const [choice, setChoice] = useState<Record<string, string>>({});
@@ -455,8 +491,14 @@ export function ItemPicker({ excludeOrderId, onClose, onAdd, onAddLines, noChoic
   const scope = useMyScope();
   const n = q.trim().toLowerCase();
   const [allMatches, setAllMatches] = useState(false);
-  const searched = searchItems(products.filter((p) => p.active !== false && scope.product(p.id) && (isLot(p) ? !!onAddLines && lotOpen(p) : true)), productText, n, allMatches);
-  const found = searched.list.sort((a, b) => a.code.localeCompare(b.code, 'fr', { numeric: true })).slice(0, 40);
+  const usable = products.filter((p) => p.active !== false && scope.product(p.id) && (isLot(p) ? !!onAddLines && lotOpen(p) : true));
+  // Catégories proposées dans le filtre : seulement celles (et leurs parents) qui ont des articles à vendre ici.
+  const catIds = new Set(usable.flatMap((p) => { const ids: string[] = []; let c = p.categoryId ? get<Category>('categories', p.categoryId) : undefined; while (c) { ids.push(c.id); c = c.parentId ? get<Category>('categories', c.parentId) : undefined; } return ids; }));
+  const catOpts = categoryOptions(categories.filter((c) => catIds.has(c.id)), 'Toutes les catégories');
+  const catF = catIds.has(cat) ? cat : '';
+  const searched = searchItems(usable.filter((p) => inCategory(p, catF)), productText, n, allMatches);
+  const sorted = searched.list.sort((a, b) => a.code.localeCompare(b.code, 'fr', { numeric: true }));
+  const found = sorted.slice(0, limit);
   // Articles voisins proposés en choix : même modèle seulement (autres tailles / couleurs), et qui répondent à la recherche.
   const family = prod?.attrs ? [prod, ...siblingsOf(prod).filter((x) => !n || (matchExact(productText(prod), n) ? matchExact(productText(x), n) : matchQuery(productText(x), n)))] : prod ? [prod] : [];
   const variants = family.flatMap((p) => productVariants(p.id).filter((v) => v.active !== false));
@@ -473,7 +515,10 @@ export function ItemPicker({ excludeOrderId, onClose, onAdd, onAddLines, noChoic
       {!prod ? (
         <div className="stack">
           <ScopeBar scope={scope} />
-          <div className="field"><input autoFocus aria-label="Rechercher un article" placeholder="Rechercher un code ou un nom" value={q} onChange={(e) => { setQ(e.target.value); setAllMatches(false); }} /></div>
+          <div className="row">
+            <div className="field" style={{ flex: '2 1 220px' }}><input autoFocus aria-label="Rechercher un article" placeholder="Rechercher un code ou un nom" value={q} onChange={(e) => { setQ(e.target.value); setAllMatches(false); setLimit(60); }} /></div>
+            {catOpts.length > 2 && <div className="field" style={{ flex: '1 1 180px' }}><FilterSelect label="Catégorie" value={catF} onChange={(v) => { setCat(v); setLimit(60); }} options={catOpts} /></div>}
+          </div>
           <MoreMatches n={searched.others} onShow={() => setAllMatches(true)} />
           <ul className="list card" style={{ padding: 0 }}>
             {found.map((p) => {
@@ -486,7 +531,8 @@ export function ItemPicker({ excludeOrderId, onClose, onAdd, onAddLines, noChoic
                 </button></li>
               );
             })}
-            {!found.length && <Empty icon="search" title="Aucun article trouvé" />}
+            {sorted.length > found.length && <li style={{ padding: '10px 14px' }}><Button variant="ghost" className="btn-sm" onClick={() => setLimit(limit + 100)}>Afficher plus ({sorted.length - found.length})</Button></li>}
+            {!found.length && <Empty icon="search" title={catF ? 'Aucun article trouvé dans cette catégorie' : 'Aucun article trouvé'} />}
           </ul>
         </div>
       ) : (
@@ -533,7 +579,7 @@ function OrderDetail({ id }: { id: string }) {
   useTable<Zone>('zones');
   const o = orders.find((x) => x.id === id);
   const [editPay, setEditPay] = useState<Payment | null>(null);
-  const [modal, setModal] = useState<'' | 'edit' | 'dispatch' | 'return' | 'pay' | 'cancel' | 'exchange' | 'shop' | 'pickup' | 'reassign' | 'settle'>('');
+  const [modal, setModal] = useState<'' | 'edit' | 'dispatch' | 'return' | 'pay' | 'cancel' | 'exchange' | 'shop' | 'pickup' | 'reassign' | 'settle' | 'postpone'>('');
   const [payFee, setPayFee] = useState(false);
   if (!o) return <Empty icon="list" title="Commande introuvable"><Button variant="ghost" onClick={() => navigate('/commandes')}>Retour</Button></Empty>;
   const zone = get<Zone>('zones', o.zoneId || '');
@@ -582,6 +628,7 @@ function OrderDetail({ id }: { id: string }) {
           {o.kind === 'exchange' && ['new', 'confirmed', 'ready'].includes(o.status) && can('returns.manage') && <Button variant="ghost" onClick={() => setModal('shop')}>Échange fait en boutique</Button>}
           {((!closed && o.status !== 'cancelled') || rest !== 0) && o.status !== 'cancelled' && can('orders.create') && <Button variant="ghost" icon="plus" onClick={() => setModal('pay')}>{rest < 0 ? 'Rendre l’argent au client' : 'Paiement reçu'}</Button>}
           {closed && o.status !== 'refused' && can('returns.manage') && <Button variant="ghost" icon="refresh" onClick={() => setModal('exchange')}>Retour / échange</Button>}
+          {canPostpone(o) && (can('orders.create') || can('deliveries.manage')) && <Button variant="ghost" icon="clock" onClick={() => setModal('postpone')}>{reportCount(o) >= MAX_REPORTS ? `Reportée ${MAX_REPORTS} fois : annuler ?` : `À reporter (${reportCount(o)}/${MAX_REPORTS})`}</Button>}
           {!closed && o.status !== 'cancelled' && can('orders.create') && <Button variant="danger" icon="trash" onClick={() => setModal('cancel')}>Annuler / supprimer</Button>}
           {closed && isWalkIn(o) && can('records.correct') && <Button variant="ghost" icon="edit" onClick={() => setModal('correct')}>Modifier / corriger la vente</Button>}
           {closed && can('records.correct') && <Button variant="danger" icon="trash" onClick={() => setModal('void')}>Annuler / supprimer la vente</Button>}
@@ -676,6 +723,7 @@ function OrderDetail({ id }: { id: string }) {
       {modal === 'reassign' && <ReassignModal order={o} onClose={() => setModal('')} />}
       {editPay && <EditPaymentModal order={o} payment={editPay} onClose={() => setEditPay(null)} />}
       {modal === 'cancel' && <CancelModal order={o} onClose={() => setModal('')} />}
+      {modal === 'postpone' && <PostponeModal order={o} onClose={() => setModal('')} />}
       {modal === 'void' && <VoidModal order={o} onClose={() => setModal('')} />}
       {modal === 'correct' && <CorrectSaleModal order={o} onClose={() => setModal('')} />}
     </>
@@ -725,6 +773,7 @@ export function ReturnModal({ order: o, onClose }: { order: Order; onClose: () =
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [toShop, setToShop] = useState(false);
+  const [postpone, setPostpone] = useState(false);
   const amountVal = amount == null ? toCollect : parseAr(amount) ?? 0;
   const c = o.kind === 'exchange' ? exchangeBalance(sim) : orderTotal(sim);
   const prepaid = (o.payments || []).filter((p) => p.receivedBy === 'shop').reduce((t, p) => t + p.amount, 0);
@@ -747,7 +796,9 @@ export function ReturnModal({ order: o, onClose }: { order: Order; onClose: () =
           <Button variant="ghost" onClick={() => setKept(Object.fromEntries(o.lines.map((l) => [l.id, String(l.isChoice ? 0 : l.qty)])))}>{hasChoice ? 'Tout livré, choix tous rendus' : 'Tout livré'}</Button>
           <Button variant="ghost" onClick={() => setKept(Object.fromEntries(o.lines.map((l) => [l.id, '0'])))}>Tout refusé</Button>
           {o.status === 'out' && <Button variant="ghost" icon="store" onClick={() => setToShop(true)}>Le client vient chercher en boutique</Button>}
+          {o.status === 'out' && <Button variant="ghost" icon="clock" onClick={() => setPostpone(true)}>À reporter ({reportCount(o)}/{MAX_REPORTS})</Button>}
         </div>
+        {postpone && <PostponeModal order={o} onClose={() => setPostpone(false)} onDone={onClose} />}
         {toShop && <Confirm title="Livraison annulée : retrait en boutique" confirmLabel="Annuler la livraison" message={<div className="stack-s"><p>Le livreur rapporte le colis : les articles reviennent en boutique, <strong>réservés pour ce client</strong>.</p><p>Pas de frais de livraison pour le client, pas de dédommagement pour le livreur. Quand le client passera, ouvrez la commande et touchez « Remise au client en boutique » : elle sera comptée comme <strong>vente sur place</strong>.</p></div>}
           onClose={() => setToShop(false)} onConfirm={async () => { await cancelDeliveryToShop(o); toast('Livraison annulée : la commande attend le client en boutique'); onClose(); }} />}
         <div className="table-wrap">
@@ -845,6 +896,41 @@ function PayModal({ order: o, onClose }: { order: Order; onClose: () => void }) 
         {!refund && <p className="small muted">Reste à payer : <strong>{fmtAr(due)}</strong>. Le client peut payer en plusieurs tranches (ex. une partie en espèces, le reste en mobile money).</p>}
         <PayLines lines={lines} onChange={setLines} total={due} mode="select" />
         {o.courierId && <SelectField label="Reçu par" value={by} onChange={(v) => setBy(v as any)} options={[{ value: 'shop', label: 'La boutique' }, { value: 'courier', label: 'Le livreur' }]} />}
+      </div>
+    </Modal>
+  );
+}
+
+const tomorrowYmd = () => { const d = new Date(); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const REPORT_REASONS = ['Client absent', 'Client pas encore prêt à payer', 'Client demande un autre jour', 'Client injoignable', 'Autre'];
+/** « À reporter » : le client demande une autre date. Au plus 3 fois ; ensuite, annulation de la commande. */
+export function PostponeModal({ order: o, onClose, onDone }: { order: Order; onClose: () => void; onDone?: () => void }) {
+  const n = reportCount(o);
+  const [to, setTo] = useState(tomorrowYmd());
+  const [reason, setReason] = useState(REPORT_REASONS[0]);
+  const [other, setOther] = useState('');
+  const why = reason === 'Autre' ? other.trim() : reason;
+  const history = (o.reports || []).map((r, i) => <li key={i} className="small">{i + 1}. {new Date(r.at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}{r.to ? ` → au ${new Date(`${r.to}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}` : ''}{r.reason ? ` — ${r.reason}` : ''}{r.user ? ` (${r.user})` : ''}</li>);
+  if (n >= MAX_REPORTS) return (
+    <Confirm title={`${o.number} : déjà reportée ${n} fois`} danger confirmLabel="Annuler la commande" onClose={onClose}
+      message={<div className="stack-s"><p>Le client a déjà fait reporter cette livraison <strong>{n} fois</strong> sans prendre sa commande. Elle doit maintenant être <strong>annulée</strong> : les articles reviennent exactement en stock.</p><ul className="stack-s" style={{ margin: 0, paddingLeft: 16 }}>{history}</ul>
+        <TextField label="Remarque (facultatif)" value={other} onChange={setOther} /></div>}
+      onConfirm={async () => { await cancelAfterReports(o, other.trim()); toast(`Commande annulée après ${n} reports`); onDone?.(); }} />
+  );
+  return (
+    <Modal title={`Reporter la livraison — ${o.number}`} onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Fermer</Button><Button icon="clock" disabled={!to || (reason === 'Autre' && !why)} onClick={async () => {
+        try { await postponeOrder(o, { to, reason: why }); toast(`Livraison reportée (${n + 1}/${MAX_REPORTS})${o.status === 'out' ? ' : colis revenu en boutique' : ''}`); onDone?.(); onClose(); } catch (e: any) { toast(e.message, 'error'); }
+      }}>Reporter ({n + 1}/{MAX_REPORTS})</Button></>}>
+      <div className="stack">
+        <p className="small">Le client demande de livrer un autre jour. {o.status === 'out' ? <>Le livreur rapporte le colis : <strong>les articles reviennent en boutique</strong>, réservés pour ce client, et la commande repasse « en attente de livraison ».</> : 'La commande garde ses articles réservés et attend la nouvelle date.'}</p>
+        <div className="grid-2">
+          <TextField label="Nouvelle date de livraison" type="date" value={to} onChange={setTo} />
+          <SelectField label="Raison" value={reason} onChange={setReason} options={REPORT_REASONS.map((r) => ({ value: r, label: r }))} />
+        </div>
+        {reason === 'Autre' && <TextField label="Précisez" value={other} onChange={setOther} required />}
+        <div className={`notice ${n + 1 >= MAX_REPORTS ? 'notice-danger' : ''}`}><Icon name="alert" /><span>Report <strong>{n + 1} sur {MAX_REPORTS}</strong>. {n + 1 >= MAX_REPORTS ? 'C’est le dernier report possible : si le client ne prend toujours pas la commande, elle sera annulée.' : `Après ${MAX_REPORTS} reports, la commande devra être annulée.`}</span></div>
+        {n > 0 && <div><strong className="small">Reports précédents</strong><ul className="stack-s" style={{ margin: '4px 0 0', paddingLeft: 16 }}>{history}</ul></div>}
       </div>
     </Modal>
   );
