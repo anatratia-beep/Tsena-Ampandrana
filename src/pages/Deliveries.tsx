@@ -5,12 +5,12 @@ import { useMemo, useState } from 'react';
 import { audit, useCan } from '../lib/auth';
 import { get, remove, save, useTable } from '../lib/db';
 import { fmtAr, fmtNum, parseNum, parseAr } from '../lib/catalog';
-import { orderText, choiceQty, hasPendingChoice, courierAccount, courierSplit, fmtPhone, isPickupZone, orderLabel, remaining, totalQty, type Courier, type Order, type Zone } from '../lib/orders';
+import { dispatchOrder, orderText, choiceQty, hasPendingChoice, courierAccount, courierSplit, fmtPhone, isPickupZone, orderLabel, remaining, totalQty, type Courier, type Order, type Zone } from '../lib/orders';
 import { Help, Badge, FilterSelect, MultiPick, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, Toggle, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period';
 import { matchQuery } from '../lib/catalog';
-import { DispatchModal, ReassignModal, ReturnModal, OrderRow } from './Orders';
+import { ReassignModal, ReturnModal, OrderRow } from './Orders';
 import { CourierReturn } from './CourierReturn';
 import { useCompany } from '../lib/settings';
 import { useMyScope } from '../lib/scope';
@@ -79,8 +79,9 @@ function ToDeliver() {
   const company = useCompany();
   const orders = useTable<Order>('orders');
   const zones = useTable<Zone>('zones');
+  const couriers = useTable<Courier>('couriers').filter((c) => c.active !== false && !c.removed).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   const [sel, setSel] = useState<string[]>([]);
-  const [dispatch, setDispatch] = useState(false);
+  const [confirm, setConfirm] = useState(false);
   const f = useDelivFilters('all');
   const scope = useMyScope();
   const ready = orders.filter((o) => o.status === 'ready' && !isPickupZone(o.zoneId) && (!scope.strict || scope.mine(o)) && passes(o, f, o.createdAt));
@@ -91,38 +92,92 @@ function ToDeliver() {
     return [...m.entries()].sort((a, b) => (get<Zone>('zones', a[0])?.order ?? 99) - (get<Zone>('zones', b[0])?.order ?? 99));
   }, [orders, zones, f.courierId, f.period, f.q]);
   const toggle = (id: string) => setSel(sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id]);
+  // Livreur prévu de chaque commande : choisi directement dans la liste (enregistré tout de suite), coché automatiquement.
+  const plan = async (list: Order[], courierId: string) => {
+    await save('orders', list.map((o) => ({ id: o.id, courierId: courierId || (null as unknown as undefined) })));
+    if (courierId) setSel((cur) => [...new Set([...cur, ...list.map((o) => o.id)])]);
+  };
+  const chosen = ready.filter((o) => sel.includes(o.id));
+  const missing = chosen.filter((o) => !o.courierId || !couriers.some((c) => c.id === o.courierId));
+  const byCourier = couriers.map((c) => ({ c, list: chosen.filter((o) => o.courierId === c.id) })).filter((x) => x.list.length);
+  const courierOpts = [{ value: '', label: '— Livreur —' }, ...couriers.map((c) => ({ value: c.id, label: c.name }))];
   return (
     <>
       <DelivFilters f={f} dateLabel="la date de la commande ; livreur = livreur prévu" />
-      <div className="card row-between">
-        <p className="small">{ready.length} commande(s) en attente de livraison{preparing ? ` · ${preparing} enregistrée(s), pas encore préparée(s)` : ''}. Imprimez les étiquettes, cochez les commandes d’un même axe puis remettez-les au livreur.</p>
-        <div className="row" style={{ gap: 6 }}>
-          {ready.length > 0 && <PrintButton label={sel.length ? `Étiquettes (${sel.length})` : 'Toutes les étiquettes'} docs={[{ key: 'etq', label: `Étiquettes colis 58 mm (${(sel.length ? ready.filter((o) => sel.includes(o.id)) : ready).length})`, build: () => joinDocs('Étiquettes colis', (sel.length ? ready.filter((o) => sel.includes(o.id)) : ready).map((o) => parcelLabelDoc(o, company))) }]} />}
-          <Button icon="truck" disabled={!sel.length} onClick={() => setDispatch(true)}>Remettre {sel.length || ''} au livreur</Button>
+      <div className="card stack-s">
+        <div className="row-between">
+          <p className="small" style={{ margin: 0 }}>{ready.length} commande(s) en attente de livraison{preparing ? ` · ${preparing} enregistrée(s), pas encore préparée(s)` : ''}. Choisissez le livreur de chaque commande (ou de toute une zone) directement ici, puis validez tout d’un coup.</p>
+          <div className="row" style={{ gap: 6 }}>
+            {ready.length > 0 && <PrintButton label={sel.length ? `Étiquettes (${sel.length})` : 'Toutes les étiquettes'} docs={[{ key: 'etq', label: `Étiquettes colis 58 mm (${(sel.length ? chosen : ready).length})`, build: () => joinDocs('Étiquettes colis', (sel.length ? chosen : ready).map((o) => parcelLabelDoc(o, company))) }]} />}
+            <Button icon="truck" disabled={!chosen.length} onClick={() => setConfirm(true)}>{chosen.length ? `Valider : remettre ${chosen.length} commande(s)` : 'Remettre au livreur'}</Button>
+          </div>
         </div>
+        {chosen.length > 0 && <p className="small" style={{ margin: 0 }}>{byCourier.map((x) => `${x.c.name} : ${x.list.length}`).join(' · ')}{missing.length ? <span className="neg">{byCourier.length ? ' · ' : ''}{missing.length} sans livreur</span> : null} <button type="button" className="link-btn" onClick={() => setSel([])}>Tout décocher</button></p>}
       </div>
       {groups.length === 0 ? <div className="card"><Empty icon="truck" title="Aucune commande en attente de livraison"><Button variant="ghost" onClick={() => navigate('/commandes/enregistrees')}>Voir les commandes enregistrées</Button></Empty></div> : groups.map(([zid, list]) => (
         <div key={zid} className="card card-flush">
-          <div className="row-between card-pad">
+          <div className="row-between card-pad" style={{ gap: 8 }}>
             <h3>{get<Zone>('zones', zid)?.name || 'Zone non indiquée'} <span className="muted small">· {list.length} commande(s)</span></h3>
-            <Button variant="quiet" onClick={() => setSel([...new Set([...sel, ...list.map((o) => o.id)])])}>Tout cocher</Button>
+            <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+              <select className="cell-input courier-pick" aria-label={`Livreur pour toute la zone ${get<Zone>('zones', zid)?.name || ''}`} value="" onChange={(e) => { if (e.target.value) void plan(list, e.target.value); }}>
+                <option value="">Livreur pour toute la zone…</option>
+                {couriers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <Button variant="quiet" onClick={() => setSel([...new Set([...sel, ...list.map((o) => o.id)])])}>Tout cocher</Button>
+            </div>
           </div>
           <ul className="list">
             {list.map((o) => (
-              <li key={o.id} className="list-item">
+              <li key={o.id} className="list-item deliver-row">
                 <input type="checkbox" className="perm-check" checked={sel.includes(o.id)} onChange={() => toggle(o.id)} aria-label={`Choisir ${o.number}`} />
                 <a className="list-item-main" href={`#/commandes/${o.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
                   <span className="list-item-title">{orderLabel(o)}</span>
                   <p className="small muted">{o.number} · {fmtPhone(o.phone)} · {o.place || 'lieu non précisé'} · {fmtNum(totalQty(o))} article(s){o.lines.some((l) => l.isChoice) ? ' + choix' : ''}</p>
                 </a>
+                <select className="cell-input courier-pick" aria-label={`Livreur ${o.number}`} value={o.courierId && couriers.some((c) => c.id === o.courierId) ? o.courierId : ''} onChange={(e) => void plan([o], e.target.value)}>
+                  {courierOpts.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+                </select>
                 <div className="list-item-side"><strong className="num">{fmtAr(courierSplit(o).toCollect)}</strong><span className="small muted">à encaisser{courierSplit(o).fee ? ` + frais ${fmtAr(courierSplit(o).feeKept)}` : ''}</span></div>
               </li>
             ))}
           </ul>
         </div>
       ))}
-      {dispatch && <DispatchModal orders={ready.filter((o) => sel.includes(o.id))} onClose={() => { setDispatch(false); setSel([]); }} />}
+      {confirm && <BatchDispatch orders={chosen} onClose={() => setConfirm(false)} onDone={() => setSel([])} />}
     </>
+  );
+}
+
+/** Validation groupée : chaque commande cochée part avec son livreur. Les commandes sans livreur en reçoivent un ici. */
+function BatchDispatch({ orders, onClose, onDone }: { orders: Order[]; onClose: () => void; onDone: () => void }) {
+  const couriers = useTable<Courier>('couriers').filter((c) => c.active !== false && !c.removed).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  const has = (o: Order) => !!o.courierId && couriers.some((c) => c.id === o.courierId);
+  const missing = orders.filter((o) => !has(o));
+  const zoneIds = new Set(missing.map((o) => o.zoneId));
+  const [forMissing, setForMissing] = useState(couriers.find((c) => c.zoneIds?.some((z) => zoneIds.has(z)))?.id ?? '');
+  const [busy, setBusy] = useState(false);
+  const cidOf = (o: Order) => (has(o) ? o.courierId! : forMissing);
+  const groups = couriers.map((c) => ({ c, list: orders.filter((o) => cidOf(o) === c.id) })).filter((x) => x.list.length);
+  return (
+    <Modal title={`Remettre ${orders.length} commande(s) aux livreurs`} onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} icon="truck" disabled={missing.length > 0 && !forMissing} onClick={async () => {
+        setBusy(true);
+        let n = 0;
+        try { for (const o of orders) { await dispatchOrder(o, cidOf(o)); n++; } }
+        catch (e: any) { toast(`${n} remise(s) ; erreur : ${e.message}`, 'error'); setBusy(false); return; }
+        toast(`${n} commande(s) remise(s) à ${groups.length} livreur(s)`); setBusy(false); onDone(); onClose();
+      }}>Valider tout</Button></>}>
+      <div className="stack">
+        {missing.length > 0 && <SelectField label={`Livreur pour les ${missing.length} commande(s) sans livreur`} required value={forMissing} onChange={setForMissing} options={[{ value: '', label: '— Choisir —' }, ...couriers.map((c) => ({ value: c.id, label: c.name }))]} />}
+        {groups.map(({ c, list }) => (
+          <div key={c.id} className="card stack-s" style={{ background: 'var(--surface-2)' }}>
+            <strong>{c.name} · {list.length} colis · à encaisser {fmtAr(list.reduce((t, o) => t + courierSplit(o).toCollect, 0))}</strong>
+            <ul className="small" style={{ margin: 0 }}>{list.map((o) => <li key={o.id}>{o.number} — {orderLabel(o)} — {get<Zone>('zones', o.zoneId || '')?.name ?? ''}</li>)}</ul>
+          </div>
+        ))}
+        <p className="small muted">Les articles (y compris ceux en choix) sortent du stock de la boutique. Ce qui revient sera remis en stock au retour du livreur.</p>
+      </div>
+    </Modal>
   );
 }
 

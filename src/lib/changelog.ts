@@ -3,6 +3,7 @@
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
   { date: '2026-10-15', items: [
+    'En attente de livraison : le livreur se choisit directement dans la liste (par commande ou pour toute une zone), puis une seule validation remet tout, chaque commande à son livreur.',
     'Responsable : dans « Commandes », seulement les pages qu’il tient ; dans « Livraisons », toutes les commandes à remettre au livreur, toutes pages.',
     'Seul le responsable remet les commandes au livreur (et change de livreur) ; il voit toutes les pages. Le vendeur ne voit que les livraisons de ses pages.',
     'Menu « Livraisons » de retour pour le responsable (il assigne les livreurs) et pour le vendeur (seulement les livraisons de ses pages, sans les comptes de tous les livreurs).',
