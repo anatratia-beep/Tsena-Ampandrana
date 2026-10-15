@@ -17,7 +17,7 @@ await p.evaluate(async () => {
   const me = t.all('users').find((u) => u.username === 'super-adm');
   await t.save('users', [{ id: me.id, pageIds: ['pg1'] }, { id: 'u2', username: 'rina', fullName: 'Rina', roleId: 'role-seller', active: true, passwordHash: 'x', pageIds: ['pg2'] }]);
   await t.save('orders', [
-    { id: 'o1', number: 'V-1', kind: 'order', channel: 'shop', status: 'delivered', deliveredAt: now, lines: [{ id: 'l1', variantId: 'v1', qty: 3, unitPrice: 20000 }], payments: [{ id: 'a', at: now, amount: 40000, method: 'cash', receivedBy: 'shop' }, { id: 'b', at: now, amount: 20000, method: 'mvola', receivedBy: 'shop' }], discount: 0, createdAt: now },
+    { id: 'o1', number: 'V-1', kind: 'order', channel: 'shop', createdBy: me.id, status: 'delivered', deliveredAt: now, lines: [{ id: 'l1', variantId: 'v1', qty: 3, unitPrice: 20000 }], payments: [{ id: 'a', at: now, amount: 40000, method: 'cash', receivedBy: 'shop' }, { id: 'b', at: now, amount: 20000, method: 'mvola', receivedBy: 'shop' }], discount: 0, createdAt: now },
     { id: 'o2', number: 'V-2', kind: 'order', channel: 'shop', status: 'delivered', deliveredAt: now, lines: [{ id: 'l2', variantId: 'v2', qty: 1, unitPrice: 50000 }], payments: [{ id: 'c', at: now, amount: 50000, method: 'cash', receivedBy: 'shop' }], discount: 0, createdAt: now },
     { id: 'o3', number: 'C-3', kind: 'order', channel: 'facebook', status: 'ready', phone: '0341112233', lines: [{ id: 'l3', variantId: 'v1', qty: 1, unitPrice: 20000 }], payments: [], discount: 0, createdAt: now },
   ]);
@@ -29,6 +29,7 @@ ok(/Ventes\s*60 000 Ar/.test(tx) && !tx.includes('Basket'), 'ventes de ma page s
 ok(tx.includes('Pyjama (L)') && /En attente de livraison\s*1/.test(tx) && /Pyjamas\s*17 pcs/.test(tx), 'articles vendus, commandes en cours, stock restant');
 await p.getByLabel(/Remarques/).fill('Client Fara à rappeler');
 tx = N(await p.locator('pre.recap-text').innerText());
+ok(tx.includes('*Espèces en main (à remettre)*') && tx.includes('*Total à remettre : 40 000 Ar*'), 'espèces encaissées par le vendeur : 40 000 Ar à remettre');
 ok(tx.includes('*Ventes : 60 000 Ar*') && tx.includes('Espèces : 40 000 Ar') && tx.includes('MVola : 20 000 Ar') && tx.includes('Client Fara à rappeler'), 'texte WhatsApp complet avec remarques');
 await p.getByRole('button', { name: 'Enregistrer sans WhatsApp' }).click(); await p.waitForTimeout(400);
 tx = N(await p.locator('main').innerText());

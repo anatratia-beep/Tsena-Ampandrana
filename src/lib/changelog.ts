@@ -3,6 +3,7 @@
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
   { date: '2026-10-15', items: [
+    'Mon rapport du jour : nouvelle partie « Espèces en main » — les espèces que le vendeur a encaissées lui-même (ventes sur place, argent des livreurs) et le total à remettre le soir ; aussi dans le message au patron.',
     'Notifications : chaque vendeur ne reçoit que celles de ses pages (commandes du site web, choix à préciser, stock, compte boost).',
     'Livreur « frais de livraison pour la caisse » (fiche du livreur → Modifier) : il remet tout ce que le client a payé, frais compris ; les frais entrent dans la caisse et ne lui sont jamais dus. Activé pour Toky.',
     'Nouveau menu « Mon rapport du jour » : chaque vendeur envoie au patron, en fin de journée, le rapport de ses pages (ventes, espèces, MVola, Orange, Airtel, reste à payer, annulé, reporté, articles vendus, commandes en cours, stock restant, remarques) par WhatsApp ou en PDF. Rappel à partir de 17 h.',

@@ -11,6 +11,7 @@ import { useCompany } from '../lib/settings';
 import { a4Table, arA4, h, printA4 } from '../lib/a4';
 import { dayReport, dayReportText, reportPages, saveDayReport, sentReport, type DayReport, type DayReportRec } from '../lib/dayReport';
 import { Button, Field, PageHead, toast } from '../ui/kit';
+import { sellerDay } from '../lib/handovers';
 import { Icon } from '../ui/icons';
 
 const frDay = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -102,7 +103,9 @@ export function MyDayReportPage() {
   const prev = sentReport(me.id, date);
   const [note, setNote] = useState<{ d: string; v: string } | null>(null);
   const noteV = note?.d === date ? note.v : prev?.note ?? '';
-  const text = dayReportText(r, me.fullName, company.name, noteV);
+  useTable('cashMoves'); useTable('handovers');
+  const sd = sellerDay(me, date);
+  const text = dayReportText(r, me.fullName, company.name, noteV, sd);
   const phone = normPhone(company.bossPhone || '');
   const intl = phone ? '261' + phone.replace(/^0/, '') : '';
   const send = () => { saveDayReport(me, r, text, noteV).then(() => toast('Rapport enregistré : le patron le voit aussi dans Rapports.', 'ok')).catch((e) => toast(e.message, 'error')); };
@@ -115,6 +118,18 @@ export function MyDayReportPage() {
         {prev && <p className="small ok-text"><Icon name="check" size={14} /> Rapport envoyé le {frTime(prev.sentAt)}{prev.sales !== Math.round(r.sit.total.sales) ? ' — les chiffres ont changé depuis : renvoyez-le.' : ''}</p>}
       </div>
       <section className="card stack-s"><DayReportView r={r} /></section>
+      <section className="card stack-s">
+        <h2>Espèces en main (à remettre ce soir)</h2>
+        <p className="small muted" style={{ margin: 0 }}>Les espèces que vous avez encaissées vous-même : ventes sur place que vous avez saisies (quelle que soit la page) et argent rapporté par les livreurs pour vos commandes.</p>
+        <div className="money-lines">
+          <div><span>Ventes sur place (espèces)</span><strong className="num">{fmtAr(sd.shopCash)}</strong></div>
+          {Math.round(sd.courierCash) !== 0 && <div><span>Rapportées par les livreurs</span><strong className="num">{fmtAr(sd.courierCash)}</strong></div>}
+          {Math.round(sd.fees) !== 0 && <div><span>− Frais gardés par les livreurs</span><strong className="num">{fmtAr(sd.fees)}</strong></div>}
+          {Math.round(sd.expenses) !== 0 && <div><span>− Dépenses payées</span><strong className="num">{fmtAr(sd.expenses)}</strong></div>}
+          <div className="ml-strong"><span>= Total à remettre</span><strong className="num">{fmtAr(sd.toPay)}</strong></div>
+        </div>
+        {sd.handover && <p className="small ok-text" style={{ margin: 0 }}><Icon name="check" size={14} /> Remis : {fmtAr(sd.handover.amount)} à {sd.handover.byName}</p>}
+      </section>
       <section className="card stack-s">
         <h2>Envoyer au patron</h2>
         <Field label="Remarques (problèmes, clients à rappeler, articles demandés…)">{(id) => <textarea id={id} rows={3} value={noteV} onChange={(e) => setNote({ d: date, v: e.target.value })} placeholder="Facultatif" />}</Field>

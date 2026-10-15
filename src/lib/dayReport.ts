@@ -91,7 +91,10 @@ const ar = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} Ar`;
 const frDay = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
 /** Texte WhatsApp du rapport. */
-export function dayReportText(r: DayReport, who: string, company: string, note?: string): string {
+/** Argent en main du vendeur ce jour-là (ventes qu'il a saisies, quelle que soit la page) : à remettre le soir. */
+export interface CashInHand { shopCash: number; courierCash: number; fees: number; expenses: number; toPay: number }
+
+export function dayReportText(r: DayReport, who: string, company: string, note?: string, cash?: CashInHand): string {
   const T = r.sit.total;
   const out = [`*${company} — Rapport du jour de ${who}*`, frDay(r.date), `Pages : ${r.pageNames.join(', ') || '—'}`, ''];
   out.push(`*Ventes : ${ar(T.sales)}*`, `${T.orders} vente(s) · ${T.qty} pièce(s)`);
@@ -101,6 +104,13 @@ export function dayReportText(r: DayReport, who: string, company: string, note?:
   out.push(`Reste à payer : ${ar(T.rest)}${T.restN ? ` (${T.restN} commande(s))` : ''}`);
   if (T.cancelledN) out.push(`Annulé : ${ar(T.cancelled)} (${T.cancelledN} commande(s))`);
   if (T.reportedN) out.push(`Reporté : ${ar(T.reported)} (${T.reportedN} commande(s))`);
+  if (cash) {
+    out.push('', '*Espèces en main (à remettre)*', `Ventes sur place : ${ar(cash.shopCash)}`);
+    if (Math.round(cash.courierCash)) out.push(`Rapportées par les livreurs : ${ar(cash.courierCash)}`);
+    if (Math.round(cash.fees)) out.push(`− Frais gardés par les livreurs : ${ar(cash.fees)}`);
+    if (Math.round(cash.expenses)) out.push(`− Dépenses payées : ${ar(cash.expenses)}`);
+    out.push(`*Total à remettre : ${ar(cash.toPay)}*`);
+  }
   if (r.sit.rows.length > 1) { out.push('', '*Par page*'); for (const p of r.sit.rows) out.push(`• ${p.name} : ${ar(p.sales)} (${p.qty} pcs)`); }
   if (r.items.length) { out.push('', '*Articles vendus*'); for (const i of r.items) out.push(`• ${i.name} × ${i.qty} = ${ar(i.amount)}`); }
   const o = r.open;
