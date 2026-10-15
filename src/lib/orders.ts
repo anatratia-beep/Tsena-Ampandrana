@@ -46,7 +46,7 @@ export interface Payment {
   note?: string;
   userName?: string;
   /** Corrections faites par l'admin : ancien et nouveau montant, date, utilisateur. */
-  edits?: { at: string; user?: string; fromAmount: number; toAmount: number; fromMethod: PayMethod; toMethod: PayMethod; reason?: string }[];
+  edits?: { at: string; user?: string; fromAmount: number; toAmount: number; fromMethod: PayMethod; toMethod: PayMethod; fromRef?: string; toRef?: string; fromBy?: 'shop' | 'courier'; toBy?: 'shop' | 'courier'; reason?: string }[];
 }
 export interface Order extends BaseRecord {
   number: string;
@@ -285,7 +285,7 @@ export async function dispatchOrder(o: Order, courierId: string) {
 }
 
 /** Retour du livreur : ce qui est gardé, rendu, l'argent encaissé. */
-export async function recordReturn(o: Order, r: { kept: Record<string, number>; feeCharged: number; collected: { amount: number; method: PayMethod; ref?: string }[]; note?: string }) {
+export async function recordReturn(o: Order, r: { kept: Record<string, number>; feeCharged: number; collected: { amount: number; method: PayMethod; ref?: string; receivedBy?: 'shop' | 'courier' }[]; note?: string }) {
   assertOpenNow('Retour du livreur');
   const at = bizNow();
   const lines = o.lines.map((l) => {
@@ -297,7 +297,9 @@ export async function recordReturn(o: Order, r: { kept: Record<string, number>; 
     reason: `${o.number} — ${l.isChoice ? 'choix non retenu' : 'refusé par le client'}`, at,
   })));
   const u = currentUser();
-  const pays: Payment[] = r.collected.filter((c) => c.amount).map((c) => ({ id: newId(), at, amount: c.amount, method: c.method, ref: c.ref, receivedBy: 'courier', courierId: o.courierId, userName: u?.fullName }));
+  const pays: Payment[] = r.collected.filter((c) => c.amount).map((c) => (c.receivedBy === 'shop'
+    ? { id: newId(), at, amount: c.amount, method: c.method, ref: c.ref, receivedBy: 'shop' as const, userName: u?.fullName, note: 'Payé par le client au retour du livreur' }
+    : { id: newId(), at, amount: c.amount, method: c.method, ref: c.ref, receivedBy: 'courier' as const, courierId: o.courierId, userName: u?.fullName }));
   const keptAny = lines.some((l) => (l.qtyKept ?? 0) > 0);
   const allKept = lines.filter((l) => !l.isChoice).every((l) => (l.qtyKept ?? 0) >= l.qty);
   const status: OrderStatus = !keptAny && !(o.kind === 'exchange' && !o.lines.length) ? 'refused' : allKept ? 'delivered' : 'partial';
@@ -453,14 +455,25 @@ export async function cancelOrder(o: Order, reason: string) {
   await setStatus(o, 'cancelled', { notes: [o.notes, `Annulée : ${reason}`].filter(Boolean).join('\n') });
 }
 
-/** Correction d'un paiement (erreur de saisie) par l'admin : tout est gardé dans l'historique. */
-export async function editPayment(o: Order, paymentId: string, amount: number, method: PayMethod, reason?: string) {
+/** Correction d'un paiement (erreur de saisie : montant, moyen, référence, reçu par) : tout est gardé dans l'historique. */
+export async function editPayment(o: Order, paymentId: string, ch: { amount: number; method: PayMethod; ref?: string; receivedBy?: 'shop' | 'courier' }, reason?: string) {
   const u = currentUser();
   const at = new Date().toISOString(); // heure réelle de la correction
   const old = (o.payments || []).find((p) => p.id === paymentId);
   if (!old) return;
-  const payments = o.payments.map((p) => (p.id === paymentId ? { ...p, amount, method, edits: [...(p.edits || []), { at, user: u?.fullName, fromAmount: p.amount, toAmount: amount, fromMethod: p.method, toMethod: method, reason }] } : p));
-  const text = `Paiement corrigé : ${old.amount.toLocaleString('fr-FR')} Ar (${PAY_METHODS[old.method]}) → ${amount.toLocaleString('fr-FR')} Ar (${PAY_METHODS[method]})${reason ? ` — ${reason}` : ''}`;
+  const ref = ch.ref?.trim() || undefined;
+  const by = ch.receivedBy ?? old.receivedBy;
+  if (by === 'courier' && !o.courierId && !old.courierId) throw new Error('Aucun livreur sur cette commande.');
+  const parts: string[] = [];
+  if (old.amount !== ch.amount || old.method !== ch.method) parts.push(`${old.amount.toLocaleString('fr-FR')} Ar (${PAY_METHODS[old.method]}) → ${ch.amount.toLocaleString('fr-FR')} Ar (${PAY_METHODS[ch.method]})`);
+  if ((old.ref || undefined) !== ref) parts.push(old.ref ? `réf. ${old.ref} → ${ref ?? 'aucune'}` : `réf. ajoutée : ${ref}`);
+  if (old.receivedBy !== by) parts.push(by === 'shop' ? 'reçu par la boutique (et non par le livreur)' : 'encaissé par le livreur (et non par la boutique)');
+  if (!parts.length) return;
+  const payments = o.payments.map((p) => (p.id === paymentId ? {
+    ...p, amount: ch.amount, method: ch.method, ref, receivedBy: by, courierId: by === 'courier' ? (p.courierId ?? o.courierId) : p.courierId,
+    edits: [...(p.edits || []), { at, user: u?.fullName, fromAmount: p.amount, toAmount: ch.amount, fromMethod: p.method, toMethod: ch.method, fromRef: p.ref, toRef: ref, fromBy: p.receivedBy, toBy: by, reason }],
+  } : p));
+  const text = `Paiement corrigé : ${parts.join(' ; ')}${reason ? ` — ${reason}` : ''}`;
   await save('orders', { id: o.id, payments, events: [...(o.events || []), { at, text, user: u?.fullName }] });
   await audit('Paiement corrigé', `${o.number} : ${text}`, 'orders', o.id);
 }

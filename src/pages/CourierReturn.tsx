@@ -9,7 +9,7 @@ import { get, save, useTable } from '../lib/db';
 import { fmtAr, parseNum, parseAr } from '../lib/catalog';
 import {
   cancelDeliveryToShop, MAX_REPORTS, reportCount, choiceQty, courierSplit, fmtPhone, hasPendingChoice, orderLabel, recordReturn, remaining, PAY_METHODS,
-  type Courier, type Order, type Zone,
+  type Courier, type Order, type Zone, type PayMethod,
 } from '../lib/orders';
 import { ACCOUNTS, ACCOUNT_IDS, courierBalance, payDeferredFees, settleCourier, type AccountId, type CourierSettlement } from '../lib/money';
 import { Help, Badge, Choice, Button, Confirm, Empty, SelectField, TextField, fmtDateTime, toast, useKeep } from '../ui/kit';
@@ -19,14 +19,17 @@ import { PostponeModal, ReturnModal } from './Orders';
 import { useMyScope } from '../lib/scope';
 
 type Decision = 'delivered' | 'refused';
+/** Le client a payé par Mobile Money sur le numéro de la boutique (au lieu de donner les espèces au livreur). */
+type MM = { method: PayMethod; amount: number; ref: string };
 type FeeMode = 'retenue' | 'apart' | 'plustard';
 
 /** Ce que donnerait le retour d'un colis encore « en livraison », sans rien enregistrer. */
-function simulate(o: Order, d: Decision, fee: number): Order {
+function simulate(o: Order, d: Decision, fee: number, mm?: MM, noCash = false): Order {
   const lines = o.lines.map((l) => ({ ...l, qtyKept: d === 'delivered' && !l.isChoice ? l.qty : 0, qtyReturned: d === 'delivered' && !l.isChoice ? 0 : l.qty }));
   const sim = { ...o, status: d, lines, feeCharged: fee } as Order;
+  if (mm && mm.amount > 0) sim.payments = [...(o.payments || []), { id: 'sim-mm', at: '', amount: mm.amount, method: mm.method, receivedBy: 'shop' }];
   const rest = remaining(sim);
-  if (rest > 0) sim.payments = [...(o.payments || []), { id: 'sim', at: '', amount: rest, method: 'cash', receivedBy: 'courier', courierId: o.courierId }];
+  if (rest > 0 && !noCash) sim.payments = [...(sim.payments || []), { id: 'sim', at: '', amount: rest, method: 'cash', receivedBy: 'courier', courierId: o.courierId }];
   return sim;
 }
 
@@ -79,6 +82,8 @@ function CourierSheet({ courier, canSettle, only }: { courier: Courier; canSettl
   const [dec, setDec] = useState<Record<string, Decision>>({});
   const [fees, setFees] = useState<Record<string, string>>({});
   const [off, setOff] = useState<Record<string, boolean>>({});
+  const [mm, setMm] = useState<Record<string, MM>>({});
+  const [mmFor, setMmFor] = useState<{ o: Order; due: number } | null>(null);
   const [ret, setRet] = useState<Order | null>(null);
   const [toShop, setToShop] = useState<Order | null>(null);
   const [postpone, setPostpone] = useState<Order | null>(null);
@@ -95,15 +100,17 @@ function CourierSheet({ courier, canSettle, only }: { courier: Courier; canSettl
     const blocked = open && hasPendingChoice(o);
     const d: Decision = dec[o.id] ?? 'delivered';
     const fee = open ? (fees[o.id] != null ? parseNum(fees[o.id]) ?? 0 : d === 'refused' ? 0 : o.deliveryFee || 0) : (o.feeCharged ?? o.deliveryFee ?? 0);
-    const sim = open && !blocked ? simulate(o, d, fee) : o;
+    const m = open && !blocked ? mm[o.id] : undefined;
+    const sim = open && !blocked ? simulate(o, d, fee, m) : o;
     const x = courierSplit(sim);
-    const shopPays = (o.payments || []).filter((p) => p.receivedBy === 'shop');
+    const shopPays = (sim.payments || []).filter((p) => p.receivedBy === 'shop');
     const prepaid = shopPays.reduce((s, p) => s + p.amount, 0);
-    const paidHow = [...new Set(shopPays.map((p) => `${PAY_METHODS[p.method] ?? p.method}${p.ref ? ' réf. ' + p.ref : ''}`))].join(', ');
+    const paidHow = [...new Set(shopPays.map((p) => `${PAY_METHODS[p.method] ?? p.method}${p.id === 'sim-mm' ? ' au retour' : ''}${(p.id === 'sim-mm' ? m?.ref : p.ref) ? ' réf. ' + (p.id === 'sim-mm' ? m?.ref : p.ref) : ''}`))].join(', ');
+    const dueBefore = open && !blocked ? Math.max(0, remaining(simulate(o, d, fee, undefined, true))) : 0; // ce que le client doit encore, sans Mobile Money au retour
     const e = x.toCollect + x.feeKept;            // ce que le client a payé au livreur
     const c = e + prepaid;                        // total payé par le client
-    return { o, open, blocked, d, fee, x, prepaid, paidHow, a: c - fee, c, e, on: !blocked && !off[o.id] };
-  }), [b.pending, dec, fees, off]);
+    return { o, open, blocked, d, fee, x, prepaid, paidHow, a: c - fee, c, e, m, dueBefore, on: !blocked && !off[o.id] };
+  }), [b.pending, dec, fees, off, mm]);
 
   const on = rows.filter((r) => r.on);
   const collect = on.reduce((t, r) => t + r.x.toCollect, 0);
@@ -124,14 +131,19 @@ function CourierSheet({ courier, canSettle, only }: { courier: Courier; canSettl
         if (!r.open) continue;
         const kept = Object.fromEntries(r.o.lines.map((l) => [l.id, r.d === 'delivered' && !l.isChoice ? l.qty : 0]));
         const rest = remaining({ ...r.o, status: r.d, lines: r.o.lines.map((l) => ({ ...l, qtyKept: kept[l.id] })), feeCharged: r.fee } as Order);
-        await recordReturn(r.o, { kept, feeCharged: r.fee, collected: rest > 0 ? [{ amount: rest, method: 'cash' }] : [], note: r.d === 'refused' ? 'Refusée (retour livreur)' : undefined });
+        const mmAmt = r.m ? Math.min(Math.max(0, r.m.amount), Math.max(0, rest)) : 0;
+        const collected = [
+          ...(mmAmt > 0 ? [{ amount: mmAmt, method: r.m!.method, ref: r.m!.ref.trim() || undefined, receivedBy: 'shop' as const }] : []),
+          ...(rest - mmAmt > 0 ? [{ amount: rest - mmAmt, method: 'cash' as const }] : []),
+        ];
+        await recordReturn(r.o, { kept, feeCharged: r.fee, collected, note: r.d === 'refused' ? 'Refusée (retour livreur)' : undefined });
       }
       const label = mode === 'retenue' ? 'frais retenus par le livreur' : mode === 'apart' ? 'frais payés à part' : 'frais à payer plus tard (compte du livreur)';
       await settleCourier(courier, on.map((r) => r.o.id), n, account, [note.trim(), label].filter(Boolean).join(' · '));
       if (payFees > 0) await settleCourier(courier, [], -payFees, feeAccount, 'Frais de livraison payés au livreur');
       for (const r of on) if (r.fee > 0) await save('orders', { id: r.o.id, feeStatus: mode === 'retenue' ? 'kept' : mode === 'apart' ? 'paid' : 'deferred', ...(mode === 'apart' ? { feePaidAt: new Date().toISOString(), feePaidHow: ACCOUNTS[feeAccount] } : {}) });
       toast(`Retour de ${courier.name} enregistré`);
-      setDec({}); setFees({}); setOff({}); setAmount(null); setNote('');
+      setDec({}); setFees({}); setOff({}); setMm({}); setAmount(null); setNote('');
     } catch (e: any) { toast(e?.message ?? String(e), 'error'); }
     setBusy(false);
   }
@@ -182,6 +194,7 @@ function CourierSheet({ courier, canSettle, only }: { courier: Courier; canSettl
                   <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => setRet(r.o)}>En partie / choix…</button>
                   <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => setToShop(r.o)}>Client en boutique…</button>
                   <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => setPostpone(r.o)}>À reporter ({reportCount(r.o)}/{MAX_REPORTS})…</button>
+                  {r.d === 'delivered' && (r.m || r.dueBefore > 0) && <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => setMmFor({ o: r.o, due: r.dueBefore })}>{r.m ? `Payé ${PAY_METHODS[r.m.method]} ${fmtAr(r.m.amount)} — modifier…` : 'Payé en Mobile Money…'}</button>}
                 </div>
               </div>
             )) : <Badge tone={r.o.status === 'refused' ? 'danger' : 'ok'}>{r.o.status === 'refused' ? 'Refusée' : r.o.status === 'partial' ? 'Livrée en partie' : 'Livrée'}</Badge>}
@@ -226,6 +239,8 @@ function CourierSheet({ courier, canSettle, only }: { courier: Courier; canSettl
           <div className="row"><Button busy={busy} disabled={!canSettle || (gap !== 0 && !note.trim())} icon="check" onClick={() => setAsk(true)}>Valider le retour de {courier.name}</Button>{!canSettle && <span className="small muted">Réservé aux personnes qui font les règlements des livreurs.</span>}</div>
         </div>
       )}
+      {mmFor && <MobilePaidModal order={mmFor.o} due={mmFor.due} value={mm[mmFor.o.id]} onClose={() => setMmFor(null)}
+        onSave={(v) => { const next = { ...mm }; if (v) next[mmFor.o.id] = v; else delete next[mmFor.o.id]; setMm(next); setAmount(null); setMmFor(null); }} />}
       {payOwed && <PayOwedModal courier={courier} amount={-b.carry} onClose={() => setPayOwed(null)} />}
       {ask && <Confirm title={`Valider le retour de ${courier.name} ?`} confirmLabel="Valider" onClose={() => setAsk(false)} onConfirm={validate}
         message={<div className="stack-s"><p>{on.length} colis seront enregistrés et réglés : {on.filter((r) => r.open).map((r) => `${r.o.number} ${r.d === 'delivered' ? 'livrée' : 'refusée'}`).join(', ') || 'déjà saisis'}.</p>
@@ -245,3 +260,25 @@ function CourierSheet({ courier, canSettle, only }: { courier: Courier; canSettl
   );
 }
 
+
+/** Au retour du livreur : le client a payé par Mobile Money (sur le numéro de la boutique) au lieu des espèces. */
+function MobilePaidModal({ order: o, due, value, onClose, onSave }: { order: Order; due: number; value?: MM; onClose: () => void; onSave: (v: MM | null) => void }) {
+  const [method, setMethod] = useState<PayMethod>(value?.method ?? 'mvola');
+  const [amount, setAmount] = useState(String(value?.amount ?? due));
+  const [ref, setRef] = useState(value?.ref ?? '');
+  const n = parseAr(amount) ?? NaN;
+  const MOBILE = (Object.keys(PAY_METHODS) as PayMethod[]).filter((m) => m !== 'cash');
+  return (
+    <Confirm title={`Payé en Mobile Money — ${o.number}`} confirmLabel="Enregistrer" onClose={onClose}
+      onConfirm={async () => { if (isNaN(n) || n <= 0) throw new Error('Montant à saisir.'); if (n > due) throw new Error(`Le client ne doit que ${fmtAr(due)}.`); onSave({ method, amount: n, ref }); }}
+      message={<div className="stack-s">
+        <p>Le client a envoyé l’argent sur le numéro de la <strong>boutique</strong> : ce montant n’est pas demandé au livreur et il est compté sur le compte Mobile Money de la boutique. Le reste éventuel est payé en espèces au livreur.</p>
+        <div className="grid-2">
+          <SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={MOBILE.map((m) => ({ value: m, label: PAY_METHODS[m] }))} />
+          <TextField label="Montant reçu (Ar)" required value={amount} onChange={setAmount} inputMode="numeric" hint={`Reste à payer par le client : ${fmtAr(due)} (frais compris)`} />
+        </div>
+        <TextField label="Référence de la transaction" value={ref} onChange={setRef} hint="Peut être ajoutée plus tard, après vérification" />
+        {value && <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => onSave(null)}>Retirer : le client a payé en espèces</button>}
+      </div>} />
+  );
+}

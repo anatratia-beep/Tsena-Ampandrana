@@ -578,7 +578,8 @@ function OrderDetail({ id }: { id: string }) {
   const couriers = useTable<Courier>('couriers');
   useTable<Zone>('zones');
   const o = orders.find((x) => x.id === id);
-  const [editPay, setEditPay] = useState<Payment | null>(null);
+  const [editPay, setEditPay] = useState<{ p: Payment; refOnly?: boolean } | null>(null);
+  const canFixPay = can('users.manage') || can('records.correct') || can('handover.receive');
   const [modal, setModal] = useState<'' | 'edit' | 'dispatch' | 'return' | 'pay' | 'cancel' | 'exchange' | 'shop' | 'pickup' | 'reassign' | 'settle' | 'postpone'>('');
   const [payFee, setPayFee] = useState(false);
   if (!o) return <Empty icon="list" title="Commande introuvable"><Button variant="ghost" onClick={() => navigate('/commandes')}>Retour</Button></Empty>;
@@ -693,9 +694,11 @@ function OrderDetail({ id }: { id: string }) {
               <li key={p.id} className="list-item" style={{ padding: '10px 0' }}>
                 <div className="list-item-main"><strong className="num">{fmtAr(p.amount)}</strong> · {PAY_METHODS[p.method]}{p.ref ? ` · réf. ${p.ref}` : ''}
                   <p className="small muted">{fmtDateTime(p.at)} · {p.receivedBy === 'shop' ? 'reçu par la boutique' : `encaissé par ${get<Courier>('couriers', p.courierId || '')?.name || 'le livreur'}`}{p.userName ? ` · saisi par ${p.userName}` : ''}</p>
-                  {(p.edits || []).map((e, i) => <p key={i} className="small" style={{ color: 'var(--warn, #9a6700)' }}>Corrigé le {fmtDateTime(e.at)} par {e.user || '—'} : {fmtAr(e.fromAmount)}{e.fromMethod !== e.toMethod ? ` (${PAY_METHODS[e.fromMethod]})` : ''} → {fmtAr(e.toAmount)}{e.fromMethod !== e.toMethod ? ` (${PAY_METHODS[e.toMethod]})` : ''}{e.reason ? ` — ${e.reason}` : ''}</p>)}
+                  {p.note && <p className="small muted">{p.note}</p>}
+                  {(p.edits || []).map((e, i) => <p key={i} className="small" style={{ color: 'var(--warn, #9a6700)' }}>Corrigé le {fmtDateTime(e.at)} par {e.user || '—'} : {payEditText(e)}{e.reason ? ` — ${e.reason}` : ''}</p>)}
+                  {p.method !== 'cash' && !p.ref && <p className="small" style={{ color: 'var(--warn, #9a6700)' }}>Référence de la transaction pas encore saisie{can('orders.create') ? <> · <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => setEditPay({ p, refOnly: true })}>Ajouter la référence</button></> : null}</p>}
                 </div>
-                {can('users.manage') && <IconButton icon="edit" label="Corriger ce paiement" onClick={() => setEditPay(p)} />}
+                {canFixPay && <IconButton icon="edit" label="Corriger ce paiement (montant, moyen, référence, reçu par)" onClick={() => setEditPay({ p })} />}
               </li>
             ))}
           </ul>
@@ -721,7 +724,7 @@ function OrderDetail({ id }: { id: string }) {
       {modal === 'shop' && <ShopExchangeModal order={o} onClose={() => setModal('')} />}
       {modal === 'pickup' && <PickupModal order={o} onClose={() => setModal('')} />}
       {modal === 'reassign' && <ReassignModal order={o} onClose={() => setModal('')} />}
-      {editPay && <EditPaymentModal order={o} payment={editPay} onClose={() => setEditPay(null)} />}
+      {editPay && <EditPaymentModal order={o} payment={editPay.p} refOnly={editPay.refOnly} onClose={() => setEditPay(null)} />}
       {modal === 'cancel' && <CancelModal order={o} onClose={() => setModal('')} />}
       {modal === 'postpone' && <PostponeModal order={o} onClose={() => setModal('')} />}
       {modal === 'void' && <VoidModal order={o} onClose={() => setModal('')} />}
@@ -770,6 +773,8 @@ export function ReturnModal({ order: o, onClose }: { order: Order; onClose: () =
   const [amount, setAmount] = useState<string | null>(null);
   const [method, setMethod] = useState<PayMethod>('cash');
   const [ref, setRef] = useState('');
+  const [mmBy, setMmBy] = useState<'shop' | 'courier'>('shop');
+  const byShop = method !== 'cash' && mmBy === 'shop';
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [toShop, setToShop] = useState(false);
@@ -778,7 +783,7 @@ export function ReturnModal({ order: o, onClose }: { order: Order; onClose: () =
   const c = o.kind === 'exchange' ? exchangeBalance(sim) : orderTotal(sim);
   const prepaid = (o.payments || []).filter((p) => p.receivedBy === 'shop').reduce((t, p) => t + p.amount, 0);
   const paidHow = [...new Set((o.payments || []).filter((p) => p.receivedBy === 'shop').map((p) => `${PAY_METHODS[p.method]}${p.ref ? ' réf. ' + p.ref : ''}`))].join(', ');
-  const simPaid = { ...sim, payments: [...(o.payments || []), ...(amountVal ? [{ id: 'sim', at: '', amount: amountVal, method, receivedBy: 'courier' as const, courierId: o.courierId }] : [])] } as Order;
+  const simPaid = { ...sim, payments: [...(o.payments || []), ...(amountVal ? [byShop ? { id: 'sim', at: '', amount: amountVal, method, receivedBy: 'shop' as const } : { id: 'sim', at: '', amount: amountVal, method, receivedBy: 'courier' as const, courierId: o.courierId }] : [])] } as Order;
   const x = courierSplit(simPaid);
   const eDue = x.toCollect + x.feeKept;
   const toSettle = !!o.courierId && !isPickupZone(o.zoneId);
@@ -786,7 +791,7 @@ export function ReturnModal({ order: o, onClose }: { order: Order; onClose: () =
     <Modal title={hasChoice ? `Préciser le choix du client — ${o.number}` : `Retour du livreur — ${o.number}`} onClose={onClose} wide
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} disabled={choiceMissing.length > 0} onClick={async () => {
         setBusy(true);
-        try { await recordReturn(o, { kept: keptNum, feeCharged: feeVal, collected: [{ amount: amountVal, method, ref: ref.trim() || undefined }], note: note.trim() || undefined }); }
+        try { await recordReturn(o, { kept: keptNum, feeCharged: feeVal, collected: [{ amount: amountVal, method, ref: ref.trim() || undefined, receivedBy: byShop ? 'shop' : 'courier' }], note: note.trim() || undefined }); }
         catch (e: any) { toast(e.message, 'error'); setBusy(false); return; }
         toast(toSettle ? 'Retour confirmé : la commande passe dans « À régler (livreur) »' : 'Retour enregistré'); setBusy(false); onClose();
       }}>{choiceMissing.length ? `Indiquez le choix (${choiceMissing.length} ligne(s))` : 'Confirmer le retour'}</Button></>}>
@@ -835,10 +840,12 @@ export function ReturnModal({ order: o, onClose }: { order: Order; onClose: () =
             <div className="ml-strong"><span>e. Reste à verser par le livreur (frais compris)</span><strong className="num">{fmtAr(eDue)}</strong></div>
           </div>
           <div className="grid-2">
-            <TextField label="Encaissé par le livreur auprès du client (Ar)" value={amount ?? String(amountVal)} onChange={setAmount} inputMode="numeric" hint={amountVal !== toCollect ? `Prévu : ${fmtAr(toCollect)}` : 'Normalement : le reste à payer par le client.'} />
-            <SelectField label="Le client a payé le livreur en" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />
-            {method !== 'cash' && <TextField label="Référence de la transaction" value={ref} onChange={setRef} />}
+            <TextField label={byShop ? 'Payé par le client en Mobile Money (Ar)' : 'Encaissé par le livreur auprès du client (Ar)'} value={amount ?? String(amountVal)} onChange={setAmount} inputMode="numeric" hint={amountVal !== toCollect ? `Prévu : ${fmtAr(toCollect)}` : 'Normalement : le reste à payer par le client.'} />
+            <SelectField label="Le client a payé en" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />
+            {method !== 'cash' && <SelectField label="Envoyé sur le numéro de" value={mmBy} onChange={(v) => setMmBy(v as 'shop' | 'courier')} options={[{ value: 'shop', label: 'La boutique (le livreur n’a rien encaissé)' }, { value: 'courier', label: 'Le livreur (il doit le verser)' }]} />}
+            {method !== 'cash' && <TextField label="Référence de la transaction" value={ref} onChange={setRef} hint="Peut être ajoutée plus tard, après vérification" />}
           </div>
+          {byShop && <p className="small muted" style={{ margin: 0 }}>Le paiement est compté sur le compte {PAY_METHODS[method]} de la boutique : le livreur ne doit pas cet argent{x.feeOwed ? <>, et la boutique lui reverse ses frais ({fmtAr(x.feeOwed)})</> : null}.</p>}
         </div>
         <TextField label="Remarque (motif de refus, etc.)" value={note} onChange={setNote} placeholder="Ex. taille trop petite, client absent…" />
         {toSettle && <p className="small muted">Étape suivante : le règlement avec le livreur (onglet « À régler »), pour une ou plusieurs commandes à la fois.</p>}
@@ -858,22 +865,43 @@ export function PayFeeModal({ order, courier, amount, onClose }: { order: Order;
   );
 }
 
-function EditPaymentModal({ order: o, payment: p, onClose }: { order: Order; payment: Payment; onClose: () => void }) {
+/** Texte d'une correction de paiement (ancien → nouveau). */
+function payEditText(e: NonNullable<Payment['edits']>[number]) {
+  const parts: string[] = [];
+  if (e.fromAmount !== e.toAmount || e.fromMethod !== e.toMethod) parts.push(`${fmtAr(e.fromAmount)}${e.fromMethod !== e.toMethod ? ` (${PAY_METHODS[e.fromMethod]})` : ''} → ${fmtAr(e.toAmount)}${e.fromMethod !== e.toMethod ? ` (${PAY_METHODS[e.toMethod]})` : ''}`);
+  if ((e.fromRef || '') !== (e.toRef || '')) parts.push(e.fromRef ? `réf. ${e.fromRef} → ${e.toRef || 'aucune'}` : `référence ajoutée : ${e.toRef}`);
+  if (e.fromBy && e.toBy && e.fromBy !== e.toBy) parts.push(e.toBy === 'shop' ? 'reçu par la boutique (et non par le livreur)' : 'encaissé par le livreur (et non par la boutique)');
+  return parts.join(' ; ') || 'modifié';
+}
+
+function EditPaymentModal({ order: o, payment: p, refOnly, onClose }: { order: Order; payment: Payment; refOnly?: boolean; onClose: () => void }) {
   const [amount, setAmount] = useState(String(p.amount));
   const [method, setMethod] = useState<PayMethod>(p.method);
-  const [reason, setReason] = useState('Erreur de saisie');
-  const n = parseAr(amount) ?? NaN;
+  const [ref, setRef] = useState(p.ref ?? '');
+  const [by, setBy] = useState<'shop' | 'courier'>(p.receivedBy);
+  const [reason, setReason] = useState(refOnly ? 'Référence vérifiée' : 'Erreur de saisie');
+  const [busy, setBusy] = useState(false);
+  const n = refOnly ? p.amount : parseAr(amount) ?? NaN;
+  const hasCourier = !!(o.courierId || p.courierId);
+  const changed = n !== p.amount || method !== p.method || ref.trim() !== (p.ref ?? '') || by !== p.receivedBy;
+  const doSave = async () => {
+    setBusy(true);
+    try { await editPayment(o, p.id, { amount: n, method: refOnly ? p.method : method, ref, receivedBy: refOnly ? p.receivedBy : by }, reason.trim() || undefined); toast(refOnly ? 'Référence enregistrée' : 'Paiement corrigé'); onClose(); }
+    catch (e: any) { toast(e?.message ?? String(e), 'error'); setBusy(false); }
+  };
   return (
-    <Modal title={`Corriger un paiement — ${o.number}`} onClose={onClose}
-      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={isNaN(n) || (n === p.amount && method === p.method)} onClick={async () => { await editPayment(o, p.id, n, method, reason.trim() || undefined); toast('Paiement corrigé'); onClose(); }}>Enregistrer la correction</Button></>}>
+    <Modal title={refOnly ? `Référence du paiement — ${o.number}` : `Corriger un paiement — ${o.number}`} onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} disabled={isNaN(n) || !changed || (refOnly && !ref.trim())} onClick={doSave}>{refOnly ? 'Enregistrer la référence' : 'Enregistrer la correction'}</Button></>}>
       <div className="stack">
-        <p className="small">Montant actuel : <strong>{fmtAr(p.amount)}</strong> ({PAY_METHODS[p.method]}, {p.receivedBy === 'shop' ? 'reçu par la boutique' : 'encaissé par le livreur'}) le {fmtDateTime(p.at)}.</p>
-        <div className="grid-2">
-          <TextField label="Nouveau montant (Ar)" required value={amount} onChange={setAmount} inputMode="numeric" hint="0 pour annuler ce paiement" />
+        <p className="small">Paiement : <strong>{fmtAr(p.amount)}</strong> ({PAY_METHODS[p.method]}{p.ref ? `, réf. ${p.ref}` : ''}, {p.receivedBy === 'shop' ? 'reçu par la boutique' : 'encaissé par le livreur'}) le {fmtDateTime(p.at)}.</p>
+        {!refOnly && <div className="grid-2">
+          <TextField label="Montant (Ar)" required value={amount} onChange={setAmount} inputMode="numeric" hint="0 pour annuler ce paiement" />
           <SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />
-        </div>
-        <TextField label="Motif" value={reason} onChange={setReason} />
-        <Help>L’ancien montant, le nouveau, la date et votre nom restent visibles sous le paiement et dans le journal d’activité. Le reste à payer et le compte du livreur se recalculent tout seuls.</Help>
+        </div>}
+        <TextField label="Référence de la transaction" value={ref} onChange={setRef} autoFocus={refOnly} hint={method === 'cash' ? 'Pas nécessaire pour les espèces' : 'Numéro de la transaction MVola, Orange Money ou Airtel Money'} />
+        {!refOnly && hasCourier && <SelectField label="Argent reçu par" value={by} onChange={(v) => setBy(v as 'shop' | 'courier')} options={[{ value: 'shop', label: 'La boutique (sur son numéro / en caisse)' }, { value: 'courier', label: 'Le livreur (il doit le verser)' }]} />}
+        {!refOnly && <TextField label="Motif" value={reason} onChange={setReason} />}
+        <Help>{refOnly ? 'La référence est ajoutée au paiement ; votre nom et l’heure restent visibles sous le paiement et dans le journal.' : 'L’ancienne et la nouvelle valeur, la date et votre nom restent visibles sous le paiement et dans le journal d’activité. Le reste à payer, la trésorerie et le compte du livreur se recalculent tout seuls.'}</Help>
       </div>
     </Modal>
   );
