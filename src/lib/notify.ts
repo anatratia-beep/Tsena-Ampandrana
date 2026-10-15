@@ -87,11 +87,6 @@ export function useNotifications() {
       if (ch.length) out.push({ id: 'choix', level: 'urgent', title: `${ch.length} livraison(s) avec un choix à préciser`, text: ch.slice(0, 4).map((o) => o.number).join(', '), href: can('deliveries.menu') ? '#/livraisons/retour' : '#/commandes/livraison' });
     }
     if (can('orders.create')) {
-      // Commandes reçues du site web : le client attend l'appel de confirmation.
-      const web = orders.filter((o) => o.channel === 'web' && o.status === 'new');
-      if (web.length) out.push({ id: `web:${web.map((o) => o.number).join(',')}`, level: 'urgent', title: `${web.length} commande(s) du site web à confirmer par appel`, text: web.slice(0, 4).map((o) => `${o.number} — ${o.name || o.phone}`).join(', '), href: '#/commandes/enregistrees' });
-    }
-    if (can('orders.create')) {
       // Clients à suivre dont l'heure de relance est passée (les siens ; le gérant voit tout).
       const due = dueProspects(can('users.manage') ? undefined : currentUser()?.id);
       if (due.length) out.push({ id: 'suivre', level: 'important', title: `${due.length} client(s) à relancer`, text: due.slice(0, 4).map((p) => p.fbName).join(', '), href: '#/commandes/suivre' });

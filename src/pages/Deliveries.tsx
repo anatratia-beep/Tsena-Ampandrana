@@ -13,6 +13,8 @@ import { matchQuery } from '../lib/catalog';
 import { DispatchModal, ReassignModal, ReturnModal, OrderRow } from './Orders';
 import { CourierReturn } from './CourierReturn';
 import { useCompany } from '../lib/settings';
+import { useMyScope } from '../lib/scope';
+import { ScopeBar } from '../ui/scope';
 import { deliveryNoteDoc, joinDocs, parcelLabelDoc, routeSheetDoc } from '../lib/print';
 import { PrintButton } from '../ui/print';
 import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, courierBalance, courierRemovalBlockers, removeCourier, deferredOrders, deliveryNet, feeState, payDeferredFees, settleCourier, type AccountId, type CourierSettlement } from '../lib/money';
@@ -54,12 +56,15 @@ const passes = (o: Order, f: DF, date?: string) => (!f.courierId || o.courierId 
 export function DeliveriesPage() {
   const can = useCan();
   const route = useRoute();
-  const tabs = TABS.filter((t) => can(t.perm));
+  const scope = useMyScope();
+  // Vendeur limité à ses pages : pas les comptes de tous les livreurs (argent de toutes les pages).
+  const tabs = TABS.filter((t) => can(t.perm) && !(scope.strict && t.key === 'livreurs'));
   const cur = tabs.find((t) => route.endsWith('/' + t.key)) ?? tabs[0];
   if (!cur) return <Empty icon="lock" title="Accès réservé" />;
   return (
     <>
       <PageHead title="Livraisons" />
+      {scope.strict && <ScopeBar scope={scope} text="Vous voyez seulement les livraisons de vos pages" />}
       <div className="tabs" role="tablist">{tabs.map((t) => <button key={t.key} role="tab" aria-selected={cur.key === t.key} onClick={() => navigate('/livraisons/' + t.key)}>{t.label}</button>)}</div>
       {cur.key === 'a-livrer' && <ToDeliver />}
       {cur.key === 'en-cours' && <OutNow />}
@@ -77,7 +82,8 @@ function ToDeliver() {
   const [sel, setSel] = useState<string[]>([]);
   const [dispatch, setDispatch] = useState(false);
   const f = useDelivFilters('all');
-  const ready = orders.filter((o) => o.status === 'ready' && !isPickupZone(o.zoneId) && passes(o, f, o.createdAt));
+  const scope = useMyScope();
+  const ready = orders.filter((o) => o.status === 'ready' && !isPickupZone(o.zoneId) && scope.mine(o) && passes(o, f, o.createdAt));
   const preparing = orders.filter((o) => ['new', 'confirmed'].includes(o.status) && o.channel !== 'shop').length;
   const groups = useMemo(() => {
     const m = new Map<string, Order[]>();
@@ -128,7 +134,8 @@ function OutNow() {
   const [ret, setRet] = useState<Order | null>(null);
   const [move, setMove] = useState<Order | null>(null);
   const f = useDelivFilters('all');
-  const out = orders.filter((o) => o.status === 'out' && passes(o, f, o.dispatchedAt));
+  const scope = useMyScope();
+  const out = orders.filter((o) => o.status === 'out' && scope.mine(o) && passes(o, f, o.dispatchedAt));
   const byCourier = new Map<string, Order[]>();
   for (const o of out) { const k = o.courierId || ''; if (!byCourier.has(k)) byCourier.set(k, []); byCourier.get(k)!.push(o); }
   return (

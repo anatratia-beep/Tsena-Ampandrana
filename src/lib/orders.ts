@@ -52,7 +52,7 @@ export interface Order extends BaseRecord {
   number: string;
   kind: 'order' | 'exchange';
   parentId?: string;              // commande d'origine (échange)
-  channel: 'facebook' | 'phone' | 'shop' | 'web' | 'other';
+  channel: 'facebook' | 'phone' | 'shop' | 'other';
   customerId?: string;
   phone: string;
   name?: string;
@@ -106,9 +106,7 @@ export const ORDER_STATUS: Record<OrderStatus, { label: string; tone: 'neutral' 
   refused: { label: 'Refusée', tone: 'danger' },
   cancelled: { label: 'Annulée', tone: 'neutral' },
 };
-export const CHANNELS = { facebook: 'Facebook', phone: 'Téléphone', shop: 'Vente sur place (boutique)', web: 'Site web', other: 'Autre' };
-/** Commande passée par un client sur le site web (créée directement dans le cloud). */
-export const isWeb = (o: Pick<Order, 'channel'>) => o.channel === 'web';
+export const CHANNELS = { facebook: 'Facebook', phone: 'Téléphone', shop: 'Vente sur place (boutique)', other: 'Autre' };
 export const isWalkIn = (o: Pick<Order, 'channel'>) => o.channel === 'shop';
 export const isInternal = (o: Pick<Order, 'internal'>) => !!o.internal;
 /** Nom affiché : client, sinon téléphone, sinon « Vente sur place ». */

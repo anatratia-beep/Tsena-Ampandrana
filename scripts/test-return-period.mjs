@@ -23,6 +23,15 @@ await p.evaluate(async () => {
 await p.goto('http://localhost:5173/#/livraisons/retour'); await p.waitForTimeout(700);
 let tx = N(await p.locator('main').innerText());
 ok(tx.includes('Faly · 2 colis') && tx.includes('HIER-1') && tx.includes('AUJ-1'), 'Tout : les 2 colis du livreur');
+ok(tx.includes('2 / 2 colis cochés') && tx.includes('Compte avec Faly (2 colis)'), 'par défaut : tous les colis cochés');
+await p.getByRole('button', { name: 'Tout décocher' }).click(); await p.waitForTimeout(200);
+tx = N(await p.locator('main').innerText());
+ok(tx.includes('0 / 2 colis cochés') && !tx.includes('Compte avec Faly'), 'Tout décocher : aucun colis, pas de total');
+await p.getByRole('checkbox', { name: 'Régler AUJ-1' }).check(); await p.waitForTimeout(200);
+tx = N(await p.locator('main').innerText());
+ok(tx.includes('1 / 2 colis cochés · le livreur doit verser 13 000 Ar') && tx.includes('Compte avec Faly (1 colis)'), 'un colis coché : total de ce colis seulement');
+await p.getByRole('button', { name: 'Tout cocher' }).click(); await p.waitForTimeout(200);
+ok(N(await p.locator('main').innerText()).includes('2 / 2 colis cochés'), 'Tout cocher : de nouveau les 2');
 await p.getByRole('combobox', { name: 'Période', exact: true }).selectOption('today'); await p.waitForTimeout(400);
 tx = N(await p.locator('main').innerText());
 ok(tx.includes('Faly · 1 colis') && tx.includes('AUJ-1') && !tx.includes('HIER-1'), 'Aujourd’hui : seulement le colis parti aujourd’hui');

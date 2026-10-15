@@ -16,6 +16,7 @@ import { Help, Badge, Choice, Button, Confirm, Empty, SelectField, TextField, fm
 import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period';
 import { Icon } from '../ui/icons';
 import { PostponeModal, ReturnModal } from './Orders';
+import { useMyScope } from '../lib/scope';
 
 type Decision = 'delivered' | 'refused';
 type FeeMode = 'retenue' | 'apart' | 'plustard';
@@ -36,9 +37,11 @@ export function CourierReturn() {
   // Période : régler le compte d'un livreur pour les colis partis à certaines dates. « Tout » : tout ce qui est en attente.
   const [period, setPeriod] = useKeep<Period>('return.period', defaultPeriod('all'));
   const all = period.key === 'all';
-  const inP = (o: Order) => all || inPeriod(o.dispatchedAt || o.createdAt, period);
+  // Vendeur limité à ses pages : seulement les colis de ses pages.
+  const scope = useMyScope();
+  const inP = (o: Order) => (all || inPeriod(o.dispatchedAt || o.createdAt, period)) && scope.mine(o);
   const count = (c: Courier) => courierBalance(c.id).pending.filter(inP).length;
-  const withWork = couriers.filter((c) => count(c) || (all && courierBalance(c.id).carry));
+  const withWork = couriers.filter((c) => count(c) || (all && !scope.strict && courierBalance(c.id).carry));
   const [cid, setCid] = useState('');
   const courier = withWork.find((c) => c.id === cid) ?? withWork[0];
   return (
@@ -51,7 +54,7 @@ export function CourierReturn() {
           <Choice label="Livreur" value={courier?.id ?? ''} onChange={setCid} max={4} options={[...(courier ? [] : [{ value: '', label: '— Choisir le livreur —' }]), ...withWork.map((c) => ({ value: c.id, label: `${c.name} · ${count(c)} colis` }))]} />
         )}
       </div>
-      {courier && <CourierSheet key={courier.id + (all ? '' : `${period.key}${period.from ?? ''}${period.to ?? ''}`)} courier={courier} canSettle={can('couriers.settle')} only={all ? undefined : inP} />}
+      {courier && <CourierSheet key={courier.id + (all ? '' : `${period.key}${period.from ?? ''}${period.to ?? ''}`)} courier={courier} canSettle={can('couriers.settle')} only={all && !scope.strict ? undefined : inP} />}
     </>
   );
 }
@@ -151,6 +154,15 @@ function CourierSheet({ courier, canSettle, only }: { courier: Courier; canSettl
         )}
         {blockedRows.length > 0 && <div className="notice notice-danger"><Icon name="alert" /><span>{blockedRows.length} colis avec un <strong>choix à préciser</strong> : touchez « Préciser le choix » pour indiquer ce que le client a gardé.</span></div>}
         {rows.length === 0 && <p className="small muted">Aucun colis à régler.</p>}
+        {rows.some((r) => !r.blocked) && (
+          <div className="row-between check-bar">
+            <span className="small"><strong>{on.length}</strong> / {rows.filter((r) => !r.blocked).length} colis cochés{on.length ? <> · le livreur doit verser <strong className="num">{fmtAr(inHand)}</strong></> : ' : cochez les colis à régler'}</span>
+            <div className="row" style={{ gap: 8 }}>
+              <Button variant="ghost" className="btn-sm" icon="check" disabled={on.length === rows.filter((r) => !r.blocked).length} onClick={() => setOff({})}>Tout cocher</Button>
+              <Button variant="ghost" className="btn-sm" icon="x" disabled={!on.length} onClick={() => setOff(Object.fromEntries(rows.map((r) => [r.o.id, true])))}>Tout décocher</Button>
+            </div>
+          </div>
+        )}
       </div>
       {rows.map((r) => (
         <div key={r.o.id} className={`card stack-s parcel ${r.on ? 'is-checked' : 'is-off'}`}>

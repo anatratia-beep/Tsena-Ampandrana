@@ -82,6 +82,13 @@ export async function seedAccounts() {
   if (seller && !(seller.migrations ?? []).includes('dispatch-to-seller')) {
     await save('roles', { id: seller.id, permissions: [...new Set([...seller.permissions, 'orders.dispatch'])], migrations: [...(seller.migrations ?? []), 'dispatch-to-seller'] });
   }
+  // Mise à jour unique : le menu « Livraisons » revient pour le responsable et le vendeur (le vendeur n'y voit que ses
+  // pages) ; le responsable assigne les livreurs. Si l'admin retire ensuite ces droits, ils ne
+  // sont pas redonnés.
+  for (const [id, add] of [['role-manager', ['deliveries.menu', 'orders.dispatch', 'deliveries.manage', 'couriers.view']], ['role-seller', ['deliveries.menu']]] as const) {
+    const r = get<Role>('roles', id);
+    if (r && !(r.migrations ?? []).includes('deliveries-menu-back')) await save('roles', { id, permissions: [...new Set([...r.permissions, ...add])], migrations: [...(r.migrations ?? []), 'deliveries-menu-back'] });
+  }
 }
 
 // ---- Session ----

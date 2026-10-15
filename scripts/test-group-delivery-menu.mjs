@@ -1,5 +1,5 @@
 // Ventes sur place et commandes clients regroupées par page (catégorie principale des articles) ;
-// menu « Livraisons et livreurs » réservé à l'admin / gérant (pas au vendeur ni au responsable).
+// menu « Livraisons et livreurs » visible pour le responsable (qui assigne les livreurs) et le vendeur (ses pages).
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
 const p = await (await b.newContext({ viewport: { width: 1280, height: 900 }, timezoneId: 'Indian/Antananarivo' })).newPage();
@@ -32,7 +32,7 @@ await p.evaluate(async () => {
   const o = (id, kind, channel, status, lines) => ({ id, number: id, kind, channel, phone: '0340000000', status, zoneId: '', lines: lines.map(([v, q, pr], i) => ({ id: id + i, variantId: v, qty: q, unitPrice: pr, qtyKept: q })), payments: [], discount: 0, deliveryFee: 0, createdBy: 'user-superadmin', createdByName: 'Super-admin', createdAt: now });
   await t.save('orders', [
     o('V1', 'order', 'shop', 'delivered', [['va', 1, 10000]]), o('V2', 'order', 'shop', 'delivered', [['vb', 1, 40000]]), o('V3', 'order', 'shop', 'delivered', [['vc', 2, 12000]]),
-    o('C1', 'order', 'facebook', 'new', [['va', 1, 10000]]), o('C2', 'order', 'facebook', 'new', [['vb', 1, 40000]]), o('C3', 'order', 'facebook', 'new', [['vc', 1, 12000], ['vb', 1, 40000]]),
+    o('C1', 'order', 'facebook', 'new', [['va', 1, 10000]]), { ...o('R1', 'order', 'facebook', 'ready', [['va', 1, 10000]]), zoneId: 'zone-ville' }, o('C2', 'order', 'facebook', 'new', [['vb', 1, 40000]]), o('C3', 'order', 'facebook', 'new', [['vc', 1, 12000], ['vb', 1, 40000]]),
   ]);
 });
 await p.goto('http://localhost:5173/#/vente'); await p.waitForTimeout(600);
@@ -47,11 +47,13 @@ heads = (await p.locator('main .list-group-head').allInnerTexts()).map(N);
 ok(heads.length === 3 && heads[0].startsWith('Boxer (1)') && heads[1].startsWith('Pyjamas (1)') && heads[2].startsWith('Plusieurs pages (1)'), `commandes clients : regroupées par page (${heads.join(' | ')})`);
 ok((await navText()).includes('Livraisons et livreurs'), 'admin : menu Livraisons visible');
 await logout(); await login('aina');
-ok(!(await navText()).includes('Livraisons et livreurs'), 'vendeur : menu Livraisons caché');
-await p.goto('http://localhost:5173/#/livraisons'); await p.waitForTimeout(400);
-ok(!/Comptes livreurs|Retour livreur/.test(N(await p.locator('main').innerText())), 'vendeur : adresse directe sans accès');
+ok((await navText()).includes('Livraisons et livreurs'), 'vendeur : menu Livraisons visible');
 await logout(); await login('resp');
-ok(!(await navText()).includes('Livraisons et livreurs'), 'responsable : menu Livraisons caché');
+ok((await navText()).includes('Livraisons et livreurs'), 'responsable : menu Livraisons visible');
+await p.goto('http://localhost:5173/#/livraisons/a-livrer'); await p.waitForTimeout(500);
+ok(N(await p.locator('main').innerText()).includes('En attente de livraison'), 'responsable : onglet « En attente de livraison » pour assigner les livreurs');
+await p.goto('http://localhost:5173/#/commandes/R1'); await p.waitForTimeout(500);
+ok(await p.getByRole('button', { name: 'Remettre au livreur (en livraison)' }).count() === 1, 'responsable : peut assigner le livreur');
 if (process.env.SHOT) { await logout(); await login('super-adm'); await p.goto('http://localhost:5173/#/commandes/enregistrees'); await p.waitForTimeout(600); await p.screenshot({ path: process.env.SHOT }); }
 console.log(fail ? `${fail} ÉCHEC(S)` : 'TOUT EST BON'); await b.close();
 process.exit(fail ? 1 : 0);
