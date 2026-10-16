@@ -67,20 +67,22 @@ export function salesLedger(from?: string, to?: string): SaleLine[] {
       ...sellingLines(o).map((l) => ({ variantId: l.variantId, qty: l.qty, value: l.qty * l.unitPrice, over: lotOver(o, l) })),
       ...adj.map((a) => ({ variantId: '', qty: 0, value: a.qty * a.unit, over: adjOver(a) })),
     ], o.discount || 0);
-    if (inR(o.dispatchedAt)) for (const l of nonChoice) push(o, o.dispatchedAt, 'sale', l.variantId, l.qty, l.value, l.over);
-    if (o.status === 'cancelled') {
-      const at = o.statusDates?.cancelled;
-      if (at && inR(at)) for (const l of nonChoice) push(o, at, 'return', l.variantId, -l.qty, -l.value, l.over);
-      continue;
-    }
-    if (o.returnedAt && inR(o.returnedAt)) {
-      for (const l of o.lines) {
-        if (l.isChoice) { if (l.qtyKept) push(o, o.returnedAt, 'sale', l.variantId, l.qtyKept, l.qtyKept * l.unitPrice); }
-        else if (l.qtyReturned) push(o, o.returnedAt, 'return', l.variantId, -l.qtyReturned, -l.qtyReturned * l.unitPrice, lotOver(o, l));
+    // Une livraison compte le jour du départ. Si elle est annulée ou si des articles reviennent (refus, retour partiel),
+    // c'est déduit de ce même jour : la vente d'hier annulée ce matin diminue les ventes d'hier, pas celles d'aujourd'hui.
+    if (o.status === 'cancelled') continue;
+    const day = o.dispatchedAt;
+    if (inR(day)) {
+      for (const l of nonChoice) push(o, day, 'sale', l.variantId, l.qty, l.value, l.over);
+      if (o.returnedAt) {
+        for (const l of o.lines) {
+          if (l.isChoice) { if (l.qtyKept) push(o, day, 'sale', l.variantId, l.qtyKept, l.qtyKept * l.unitPrice); }
+          else if (l.qtyReturned) push(o, day, 'return', l.variantId, -l.qtyReturned, -l.qtyReturned * l.unitPrice, lotOver(o, l));
+        }
+        for (const a of adj) { const back = a.qty - adjustKept(a, o.lines, adj); if (back) push(o, day, 'return', '', 0, -back * a.unit, adjOver(a)); }
       }
-      for (const a of adj) { const back = a.qty - adjustKept(a, o.lines, adj); if (back) push(o, o.returnedAt, 'return', '', 0, -back * a.unit, adjOver(a)); }
-      for (const rl of o.returnLines || []) push(o, o.returnedAt, 'return', rl.variantId, -rl.qty, -rl.qty * rl.unitPrice);
     }
+    // Échange : les articles rendus par le client (achetés un autre jour) comptent le jour de l'échange.
+    if (o.returnedAt && inR(o.returnedAt)) for (const rl of o.returnLines || []) push(o, o.returnedAt, 'return', rl.variantId, -rl.qty, -rl.qty * rl.unitPrice);
   }
   return out.sort((a, b) => a.at.localeCompare(b.at));
 }

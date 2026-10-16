@@ -209,7 +209,7 @@ function SalesJournal({ from, to }: { from: string; to: string }) {
           <SelectField label="Paiement" value={method} onChange={setMethod} options={[{ value: '', label: 'Tous' }, ...Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))]} />
           <TextField label="Recherche" value={q} onChange={setQ} placeholder="N°, client, téléphone" />
         </div>
-        <p className="small muted">Une commande livrée compte comme vendue le jour du départ chez le livreur ; ce qui revient apparaît en « retour » le jour du retour.</p>
+        <p className="small muted">Une commande livrée compte comme vendue le jour du départ chez le livreur ; ce qui revient (refus, retour partiel) est déduit de ce même jour, et une commande annulée ne compte pas.</p>
       </div>
       <SortTable rowKey={(e) => e.id} rows={rows} cols={cols} initialSort={{ key: 'at', desc: true }} limit={100} />
     </div>

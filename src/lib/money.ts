@@ -347,7 +347,8 @@ const costOf = (variantId: string) => { const v = get<Variant>('variants', varia
 
 /**
  * Règle de comptage : les articles partis avec un livreur (hors « choix ») sont vendus le jour du départ.
- * Ce qui revient ensuite est un « retour » le jour du retour ; les choix gardés sont vendus le jour du retour.
+ * Ce qui revient ensuite (refus, retour partiel) est déduit de ce même jour ; une commande annulée ne compte pas.
+ * Les choix gardés sont vendus le jour du départ. Les échanges comptent le jour de l'échange.
  */
 export function report(from: string, to: string): Report {
   const z = () => Object.fromEntries(ACCOUNT_IDS.map((a) => [a, 0])) as Record<AccountId, number>;
@@ -369,28 +370,32 @@ export function report(from: string, to: string): Report {
       continue;
     }
     if (!o.dispatchedAt) continue;
+    // Une commande annulée (même partie avec le livreur puis revenue) n'est pas une vente : rien n'est compté.
+    if (o.status === 'cancelled') continue;
     const nonChoice = sellingLines(o);
     if (inR(o.dispatchedAt)) {
       const value = itemsTotal(o) - (o.discount || 0);
       addSale(o, value, nonChoice.reduce((t, l) => t + l.qty * costOf(l.variantId), 0), true);
-      if (o.pickedUp && o.status !== 'cancelled') s.walkIns.push(o);
-      else if (o.status !== 'cancelled') { const d = deliveryNet(o); s.deliveries.push({ o, courierId: isPickupZone(o.zoneId) ? '' : o.courierId || '', value, ...d, settled: !!o.courierSettledAt }); }
-    }
-    const back = o.status === 'cancelled' ? o.statusDates?.cancelled : o.returnedAt;
-    if (inR(back)) {
-      let ret = 0, retCost = 0;
-      if (o.status === 'cancelled') { ret = itemsTotal(o) - (o.discount || 0); retCost = nonChoice.reduce((t, l) => t + l.qty * costOf(l.variantId), 0); }
-      else {
+      if (o.pickedUp) s.walkIns.push(o);
+      else { const d = deliveryNet(o); s.deliveries.push({ o, courierId: isPickupZone(o.zoneId) ? '' : o.courierId || '', value, ...d, settled: !!o.courierSettledAt }); }
+      // Ce qui revient (refus, retour partiel, lot devenu incomplet) est déduit du jour du départ ; les choix gardés y sont vendus.
+      if (o.returnedAt) {
+        let ret = 0, retCost = 0;
         for (const l of o.lines) {
           if (l.isChoice) { const k = l.qtyKept ?? 0; if (k) addSale(o, k * l.unitPrice, k * costOf(l.variantId), false); }
           else { const r = l.qtyReturned ?? 0; ret += r * l.unitPrice; retCost += r * costOf(l.variantId); }
         }
         ret += adjustsTotal(o) - adjustsKeptTotal(o); // lot devenu incomplet : prix normal pour ce qui est gardé
-        for (const rl of o.returnLines || []) { ret += rl.qty * rl.unitPrice; retCost += rl.qty * costOf(rl.variantId); }
-        if (o.credit && !(o.returnLines || []).length) ret += o.credit;
-        s.courierFees += o.feeCharged ?? 0;
+        if (ret) { s.returns.amount += ret; s.cost -= retCost; s.returns.count++; }
       }
+    }
+    if (inR(o.returnedAt)) {
+      // Échange : articles rendus par le client (achetés un autre jour) et avoir, le jour de l'échange.
+      let ret = 0, retCost = 0;
+      for (const rl of o.returnLines || []) { ret += rl.qty * rl.unitPrice; retCost += rl.qty * costOf(rl.variantId); }
+      if (o.credit && !(o.returnLines || []).length) ret += o.credit;
       if (ret) { s.returns.amount += ret; s.cost -= retCost; s.returns.count++; }
+      s.courierFees += o.feeCharged ?? 0;
     }
   }
   s.netSales = s.sales.amount - s.returns.amount;
