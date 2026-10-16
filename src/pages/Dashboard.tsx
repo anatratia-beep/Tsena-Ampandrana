@@ -444,8 +444,10 @@ function BestSellers() {
   const from = period.from ?? '2000-01-01', to = period.to ?? todayYmd();
   const lines = useMemo(() => salesLedger(from, to).filter((l) => (scope.strict ? scope.page(rootOf(l.categoryId)) : scope.mine(l.order))), [from, to, orders, scope.on, scope.strict]);
   const groups = (view === 'pages' ? groupBy(lines, (l) => rootOf(l.categoryId) || '_', (k) => ({ label: k === '_' ? 'Sans page' : get<Category>('categories', k)?.name ?? '?' })) : groupBy(lines, (l) => l.productId, productLabel))
+    // Meilleures ventes : seulement ce qui s'est vendu sur la période (les retours d'un autre jour donneraient un montant négatif).
+    .filter((g) => (g[sort] as number) > 0)
     .sort((a, b) => (b[sort] as number) - (a[sort] as number)).slice(0, 8);
-  const max = Math.max(1, ...groups.map((g) => Math.abs(g[sort] as number)));
+  const max = Math.max(1, ...groups.map((g) => g[sort] as number));
   const last = [...orders].filter((o) => scope.mine(o) && o.status !== 'cancelled').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 6);
   const fmt = (g: { revenue: number; qty: number; gross: number }) => (sort === 'qty' ? `${g.qty} pcs` : fmtAr(sort === 'gross' ? g.gross : g.revenue));
   return (
