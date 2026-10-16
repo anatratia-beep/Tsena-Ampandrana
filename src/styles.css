@@ -1242,3 +1242,6 @@ a.bell { text-decoration: none; }
 /* Livreur choisi directement dans « En attente de livraison » */
 .courier-pick { min-width: 130px; max-width: 180px; }
 @media (max-width: 600px) { .deliver-row { flex-wrap: wrap; } .deliver-row .courier-pick { order: 3; flex: 1 1 100%; max-width: none; } }
+
+/* Commandes : totaux de la liste filtrée */
+.order-sums { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 8px 12px; border-radius: var(--radius-m); background: var(--surface-2); }

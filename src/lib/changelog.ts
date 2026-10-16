@@ -2,6 +2,9 @@
 // La plus récente en premier. `date` : AAAA-MM-JJ.
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
+  { date: '2026-10-16', items: [
+    'Commandes : nouvel onglet « Toutes » et filtre « Paiement » (reste à payer, payées, argent chez le livreur, réglées avec le livreur, espèces, Mobile Money, Mobile Money sans référence). Les totaux de la liste s’affichent : total, payé, reste à payer, chez les livreurs.',
+  ] },
   { date: '2026-10-15', items: [
     'Mon rapport du jour : nouvelle partie « Espèces en main » — les espèces que le vendeur a encaissées lui-même (ventes sur place, argent des livreurs) et le total à remettre le soir ; aussi dans le message au patron.',
     'Notifications : chaque vendeur ne reçoit que celles de ses pages (commandes du site web, choix à préciser, stock, compte boost).',

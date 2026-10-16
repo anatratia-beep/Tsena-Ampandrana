@@ -38,6 +38,19 @@ const TABS: { key: string; label: string; statuses: OrderStatus[]; match?: (o: O
   { key: 'regler', label: 'À régler (livreur)', statuses: CLOSED, match: (o) => needsSettlement(o) },
   { key: 'terminees', label: 'Terminées', statuses: CLOSED, match: (o) => !needsSettlement(o) },
   { key: 'annulees', label: 'Annulées', statuses: ['cancelled'] },
+  { key: 'toutes', label: 'Toutes', statuses: ['new', 'confirmed', 'ready', 'out', 'delivered', 'partial', 'refused', 'cancelled'] },
+];
+const DONE_TABS = ['terminees', 'annulees', 'toutes'];
+/** Filtre « Paiement » : impayés, payés, argent encore chez le livreur, moyen de paiement. */
+const PAY_FILTERS: { value: string; label: string; test: (o: Order) => boolean }[] = [
+  { value: '', label: 'Tous les paiements', test: () => true },
+  { value: 'rest', label: 'Reste à payer (impayés)', test: (o) => o.status !== 'cancelled' && remaining(o) > 0.5 },
+  { value: 'paid', label: 'Payées entièrement', test: (o) => o.status !== 'cancelled' && remaining(o) <= 0.5 },
+  { value: 'courier', label: 'Argent chez le livreur (pas encore versé)', test: (o) => needsSettlement(o) && settleRow(o).e > 0.5 },
+  { value: 'settled', label: 'Réglées avec le livreur', test: (o) => !!o.courierSettledAt },
+  { value: 'cash', label: 'Payé en espèces', test: (o) => (o.payments || []).some((p) => p.method === 'cash' && p.amount > 0) },
+  { value: 'mobile', label: 'Payé par Mobile Money', test: (o) => (o.payments || []).some((p) => p.method !== 'cash' && p.amount > 0) },
+  { value: 'noref', label: 'Mobile Money sans référence', test: (o) => (o.payments || []).some((p) => p.method !== 'cash' && p.amount > 0 && !p.ref) },
 ];
 const inTab = (t: (typeof TABS)[number], o: Order) => t.statuses.includes(o.status) && (!t.match || t.match(o));
 /**
@@ -96,8 +109,10 @@ function OrderList({ tabKey }: { tabKey?: string }) {
   const [settling, setSettling] = useState(false);
   const prospects = useTable<Prospect>('prospects');
   const scope = useMyScope();
-  const tab = TABS.find((t) => t.key === tabKey) ?? TABS.find((t) => !['terminees', 'annulees'].includes(t.key) && orders.some((o) => !isWalkIn(o) && inTab(t, o))) ?? TABS[0];
-  const done = ['terminees', 'annulees'].includes(tab.key);
+  const tab = TABS.find((t) => t.key === tabKey) ?? TABS.find((t) => !DONE_TABS.includes(t.key) && orders.some((o) => !isWalkIn(o) && inTab(t, o))) ?? TABS[0];
+  const done = DONE_TABS.includes(tab.key);
+  const [payF, setPayF] = useKeep('orders.pay', '');
+  const payTest = (PAY_FILTERS.find((f) => f.value === payF) ?? PAY_FILTERS[0]).test;
   // Période et ordre : commandes en cours = toutes, plus anciennes d'abord (à traiter) ; terminées = aujourd'hui, récentes d'abord.
   const [periodOpen, setPeriodOpen] = useKeep<Period>('orders.periodOpen', defaultPeriod('all'));
   const [periodDone, setPeriodDone] = useKeep<Period>('orders.periodDone', defaultPeriod('today'));
@@ -110,12 +125,13 @@ function OrderList({ tabKey }: { tabKey?: string }) {
   // Filtres de l'onglet : livreur, page, recherche (et période pour les commandes terminées / annulées).
   // Recherche : priorité aux correspondances exactes (« PH6 » ne ramène pas « PH60 ») quand il y en a.
   const exactOnly = useMemo(() => !!q.trim() && orders.some((o) => !isWalkIn(o) && matchExact(orderText(o), q)), [orders, q]);
-  const base = (o: Order) => !isWalkIn(o) && scope.mine(o) && (!courierF || o.courierId === courierF) && (!pageF || hasPage(o, pageF)) && (!q.trim() || (exactOnly ? matchExact(orderText(o), q) : matchQuery(orderText(o), q)));
+  const base = (o: Order) => !isWalkIn(o) && scope.mine(o) && (!courierF || o.courierId === courierF) && (!pageF || hasPage(o, pageF)) && payTest(o) && (!q.trim() || (exactOnly ? matchExact(orderText(o), q) : matchQuery(orderText(o), q)));
   const list = useMemo(() => orders
     .filter((o) => base(o) && inTab(tab, o))
     .filter((o) => (done && q.trim()) || inPeriod(o.createdAt, period))
     .sort((a, b) => (order === 'new' ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt))),
-  [orders, tab.key, q, period, scope.on, courierF, pageF, order]);
+  [orders, tab.key, q, period, scope.on, courierF, pageF, order, payF]);
+  const sums = useMemo(() => { const live = list.filter((o) => o.status !== 'cancelled'); return { total: live.reduce((t, o) => t + (o.kind === 'exchange' ? exchangeBalance(o) : orderTotal(o)), 0), paid: live.reduce((t, o) => t + paidTotal(o), 0), rest: live.reduce((t, o) => t + Math.max(0, remaining(o)), 0), courier: live.reduce((t, o) => t + (needsSettlement(o) ? Math.max(0, settleRow(o).e) : 0), 0) }; }, [list]);
   // La recherche reste dans l'onglet ; on indique seulement où d'autres commandes correspondent.
   const elsewhere = q.trim() ? TABS.filter((t) => t.key !== tab.key).map((t) => ({ t, n: orders.filter((o) => base(o) && inTab(t, o)).length })).filter((x) => x.n) : [];
   const selected = list.filter((o) => sel.includes(o.id));
@@ -133,7 +149,7 @@ function OrderList({ tabKey }: { tabKey?: string }) {
         {(() => { const n = prospects.filter((x) => x.status === 'open' && scope.mine({ createdBy: x.ownerId, createdByName: x.ownerName }) && bucketOf(x) !== 'later').length; return <button role="tab" aria-selected={tabKey === 'suivre'} onClick={() => switchTab('suivre')}>À suivre{n ? <span className="tab-count tab-count-hot">{n}</span> : null}</button>; })()}
         {TABS.map((t) => {
           const n = orders.filter((o) => !isWalkIn(o) && scope.mine(o) && inTab(t, o)).length;
-          return <button key={t.key} role="tab" aria-selected={tabKey !== 'suivre' && tab.key === t.key} onClick={() => switchTab(t.key)}>{t.label}{!['terminees', 'annulees'].includes(t.key) && n ? <span className={`tab-count ${t.key === 'regler' ? 'tab-count-hot' : ''}`}>{n}</span> : null}</button>;
+          return <button key={t.key} role="tab" aria-selected={tabKey !== 'suivre' && tab.key === t.key} onClick={() => switchTab(t.key)}>{t.label}{!DONE_TABS.includes(t.key) && n ? <span className={`tab-count ${t.key === 'regler' ? 'tab-count-hot' : ''}`}>{n}</span> : null}</button>;
         })}
       </div>
       {tabKey === 'suivre' ? <ProspectList /> : <>
@@ -142,9 +158,11 @@ function OrderList({ tabKey }: { tabKey?: string }) {
           <div className="field" style={{ flex: '2 1 240px' }}><input aria-label="Rechercher" placeholder={`Rechercher dans « ${tab.label} » : téléphone, nom, n°, lieu, article…`} value={q} onChange={(e) => setQ(e.target.value)} /></div>
           <div className="field" style={{ flex: '1 1 160px' }}><FilterSelect label="Livreur" value={courierF} onChange={(v) => { setCourierF(v); setSel([]); }} options={[{ value: '', label: 'Tous les livreurs' }, ...couriers.filter((c) => c.active !== false).sort((a, b) => a.name.localeCompare(b.name, 'fr')).map((c) => ({ value: c.id, label: c.name }))]} /></div>
           {pages.length > 1 && <div className="field" style={{ flex: '1 1 160px' }}><FilterSelect label="Page" value={pageF} onChange={setPageF} options={[{ value: '', label: 'Toutes les pages' }, ...pages.map((p) => ({ value: p.id, label: p.name }))]} /></div>}
+          <div className="field" style={{ flex: '1 1 200px' }}><FilterSelect label="Paiement" value={payF} onChange={(v) => { setPayF(v); setSel([]); }} options={PAY_FILTERS.map((f) => ({ value: f.value, label: f.label }))} /></div>
         </div>
         <ListDates period={period} onPeriod={setPeriod} order={order} onOrder={setOrder} what="Date de la commande" />
-        {(q || courierF || pageF) && <div><Button variant="ghost" className="btn-sm" icon="x" onClick={() => { setQ(''); setCourierF(''); setPageF(''); setSel([]); }}>Effacer les filtres</Button></div>}
+        {(q || courierF || pageF || payF) && <div><Button variant="ghost" className="btn-sm" icon="x" onClick={() => { setQ(''); setCourierF(''); setPageF(''); setPayF(''); setSel([]); }}>Effacer les filtres</Button></div>}
+        {list.length > 0 && <div className="order-sums small"><span><strong>{list.length}</strong> commande(s)</span><span>Total <strong className="num">{fmtAr(sums.total)}</strong></span><span>Payé <strong className="num">{fmtAr(sums.paid)}</strong></span><span>Reste à payer <strong className={`num ${sums.rest > 0.5 ? 'neg' : ''}`}>{fmtAr(sums.rest)}</strong></span>{sums.courier > 0.5 && <span>Chez les livreurs <strong className="num">{fmtAr(sums.courier)}</strong></span>}</div>}
         {elsewhere.length > 0 && <p className="small muted" style={{ margin: 0 }}>Aussi trouvé dans : {elsewhere.map(({ t, n }, i) => <span key={t.key}>{i ? ', ' : ''}<button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => switchTab(t.key)}>{t.label} ({n})</button></span>)}</p>}
       </div>
       {regler && list.length > 0 && (
@@ -152,11 +170,11 @@ function OrderList({ tabKey }: { tabKey?: string }) {
           <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={selected.length === list.length} onChange={(e) => setSel(e.target.checked ? list.map((o) => o.id) : [])} /> Tout sélectionner</label>
           <span className="small">{selected.length ? <>{selected.length} sélectionnée(s){selCourier ? <> · {selCourier.name} doit verser <strong>{fmtAr(selDue)}</strong></> : null}</> : 'Cochez les commandes que le livreur règle maintenant.'}</span>
           {selCouriers.length > 1 && <span className="small neg">Plusieurs livreurs : choisissez un livreur dans le filtre.</span>}
-          {can('couriers.settle') && <Button icon="check" disabled={!selCourier} onClick={() => setSettling(true)}>Régler la sélection</Button>}
+          {can('couriers.settle') ? <Button icon="check" disabled={!selCourier} onClick={() => setSettling(true)}>Régler la sélection</Button> : <span className="small muted">Le règlement est fait par la personne qui a le droit « Faire les règlements des livreurs » (Rôles et accès).</span>}
         </div>
       )}
       <div className="card card-flush">
-        {list.length === 0 ? <Empty icon="list" title={q || courierF || pageF ? 'Aucune commande trouvée dans cet onglet' : regler ? 'Aucune commande à régler' : 'Aucune commande ici'}>{tab.key === 'enregistrees' && can('orders.create') && !q && <Button icon="plus" onClick={() => setCreating(true)}>Saisir une commande</Button>}</Empty> : (
+        {list.length === 0 ? <Empty icon="list" title={q || courierF || pageF || payF ? 'Aucune commande trouvée dans cet onglet' : regler ? 'Aucune commande à régler' : 'Aucune commande ici'}>{tab.key === 'enregistrees' && can('orders.create') && !q && <Button icon="plus" onClick={() => setCreating(true)}>Saisir une commande</Button>}</Empty> : (
           <ul className="list">{groupOrdersByPage(list).map((g) => [
             <OrderGroupHead key={'h' + g.key} label={g.label} count={g.items.length} total={g.items.reduce((s, o) => s + (o.kind === 'exchange' ? exchangeBalance(o) : orderTotal(o)), 0)} />,
             ...g.items.map((o) => regler ? (
