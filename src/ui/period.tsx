@@ -1,4 +1,5 @@
 // Sélecteur de période réutilisé par tous les tableaux de bord et rapports.
+import type { ReactNode } from 'react';
 export type PeriodKey = 'today' | 'yesterday' | 'tomorrow' | 'day' | 'week' | 'month' | 'year' | '7d' | '30d' | 'all' | 'custom';
 export interface Period { key: PeriodKey; from?: string; to?: string } // dates AAAA-MM-JJ incluses
 
@@ -65,23 +66,23 @@ export function shiftPeriod(p: Period, dir: -1 | 1): Period {
 }
 
 /** Période : une seule liste déroulante (compacte sur téléphone), et les deux dates si « Dates… ». */
-export function PeriodPicker({ value, onChange, allowFuture = true }: { value: Period; onChange: (p: Period) => void; allowFuture?: boolean }) {
+export function PeriodPicker({ value, onChange, allowFuture = true, label = 'Période', idp = 'p' }: { value: Period; onChange: (p: Period) => void; allowFuture?: boolean; label?: string; idp?: string }) {
   return (
     <div className="period-picker">
       <div className="field">
-        <label htmlFor="p-key">Période</label>
-        <select id="p-key" aria-label="Période" value={value.key} onChange={(e) => { const k = e.target.value as PeriodKey; onChange(k === 'custom' ? { key: 'custom', from: value.from ?? ymd(new Date()), to: value.to ?? ymd(new Date()) } : k === 'day' ? { key: 'day', from: value.from ?? ymd(new Date()), to: value.from ?? ymd(new Date()) } : defaultPeriod(k)); }}>
+        <label htmlFor={`${idp}-key`}>{label}</label>
+        <select id={`${idp}-key`} aria-label={label} value={value.key} onChange={(e) => { const k = e.target.value as PeriodKey; onChange(k === 'custom' ? { key: 'custom', from: value.from ?? ymd(new Date()), to: value.to ?? ymd(new Date()) } : k === 'day' ? { key: 'day', from: value.from ?? ymd(new Date()), to: value.from ?? ymd(new Date()) } : defaultPeriod(k)); }}>
           {OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
         </select>
       </div>
       <div className="period-arrows">
-        <button type="button" className="icon-btn" aria-label="Période précédente" onClick={() => onChange(shiftPeriod(value, -1))}>‹</button>
-        <button type="button" className="icon-btn" aria-label="Période suivante" disabled={!allowFuture && !!value.to && value.to >= ymd(new Date())} onClick={() => onChange(shiftPeriod(value, 1))}>›</button>
+        <button type="button" className="icon-btn" aria-label={`${label} : précédente`} onClick={() => onChange(shiftPeriod(value, -1))}>‹</button>
+        <button type="button" className="icon-btn" aria-label={`${label} : suivante`} disabled={!allowFuture && !!value.to && value.to >= ymd(new Date())} onClick={() => onChange(shiftPeriod(value, 1))}>›</button>
       </div>
-      {value.key === 'day' && <div className="field"><label htmlFor="p-day">Jour</label><input id="p-day" type="date" value={value.from} onChange={(e) => onChange({ key: 'day', from: e.target.value, to: e.target.value })} /></div>}
+      {value.key === 'day' && <div className="field"><label htmlFor={`${idp}-day`}>Jour</label><input id={`${idp}-day`} type="date" value={value.from} onChange={(e) => onChange({ key: 'day', from: e.target.value, to: e.target.value })} /></div>}
       {value.key === 'custom' && <>
-        <div className="field"><label htmlFor="p-from">Du</label><input id="p-from" type="date" value={value.from} onChange={(e) => onChange({ ...value, from: e.target.value })} /></div>
-        <div className="field"><label htmlFor="p-to">Au</label><input id="p-to" type="date" value={value.to} onChange={(e) => onChange({ ...value, to: e.target.value })} /></div>
+        <div className="field"><label htmlFor={`${idp}-from`}>Du</label><input id={`${idp}-from`} type="date" value={value.from} onChange={(e) => onChange({ ...value, from: e.target.value })} /></div>
+        <div className="field"><label htmlFor={`${idp}-to`}>Au</label><input id={`${idp}-to`} type="date" value={value.to} onChange={(e) => onChange({ ...value, to: e.target.value })} /></div>
       </>}
     </div>
   );
@@ -91,10 +92,11 @@ export function PeriodPicker({ value, onChange, allowFuture = true }: { value: P
 export type ListOrder = 'new' | 'old';
 /** Période + ordre (plus récent / plus ancien d'abord) : un seul bloc, identique sur toutes les listes. */
 /** Période (facultative : sans `onPeriod`, seulement l'ordre) et ordre d'une liste. */
-export function ListDates<O extends string = ListOrder>({ period, onPeriod, order, onOrder, what = 'Date', extra = [] }: { period?: Period; onPeriod?: (p: Period) => void; order: O; onOrder: (o: O) => void; what?: string; extra?: { value: O; label: string }[] }) {
+export function ListDates<O extends string = ListOrder>({ period, onPeriod, order, onOrder, what = 'Date', extra = [], periodLabel, children }: { period?: Period; onPeriod?: (p: Period) => void; order: O; onOrder: (o: O) => void; what?: string; extra?: { value: O; label: string }[]; periodLabel?: string; children?: ReactNode }) {
   return (
     <div className="list-dates">
-      {period && onPeriod && <PeriodPicker value={period} onChange={onPeriod} />}
+      {period && onPeriod && <PeriodPicker value={period} onChange={onPeriod} label={periodLabel} />}
+      {children}
       <div className="field"><label htmlFor="l-order">Ordre ({what.toLowerCase()})</label>
         <select id="l-order" aria-label="Ordre" value={order} onChange={(e) => onOrder(e.target.value as O)}>
           <option value="new">Plus récent d’abord</option>

@@ -23,7 +23,7 @@ await p.evaluate(async () => {
     o('o4', 'Enregistrée', { status: 'confirmed', payments: [] }),
   ]);
 });
-const view = async (pay) => { await p.goto('http://localhost:5173/#/commandes/toutes'); await p.waitForTimeout(400); await p.getByLabel('Paiement').selectOption(pay); await p.waitForTimeout(300); return N(await p.locator('main').innerText()); };
+const view = async (pay) => { await p.goto('http://localhost:5173/#/commandes/toutes'); await p.waitForTimeout(400); await p.getByLabel('Paiement', { exact: true }).selectOption(pay); await p.waitForTimeout(300); return N(await p.locator('main').innerText()); };
 let tx = await view('');
 ok(tx.includes('Toutes') && /4 commande\(s\)/.test(tx) && /Reste à payer 35 000 Ar/.test(tx), 'onglet Toutes + totaux (4 commandes, reste 35 000)');
 if (!/Reste à payer 35 000 Ar/.test(tx)) console.log(tx.slice(0, 1500));
@@ -33,6 +33,6 @@ tx = await view('courier');
 ok(tx.includes('Payé livreur') && tx.includes('Impayé') && !tx.includes('C-o3') && /Chez les livreurs 25 000 Ar/.test(tx), 'filtre argent chez le livreur (25 000)');
 tx = await view('mobile');
 ok(tx.includes('C-o3') && /1 commande\(s\)/.test(tx), 'filtre Mobile Money');
-await p.getByLabel('Paiement').selectOption(''); await p.goto('http://localhost:5173/#/commandes/regler'); await p.waitForTimeout(400);
+await p.getByLabel('Paiement', { exact: true }).selectOption(''); await p.goto('http://localhost:5173/#/commandes/regler'); await p.waitForTimeout(400);
 ok(N(await p.locator('main').innerText()).includes('Régler la sélection'), 'admin : bouton Régler la sélection');
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);

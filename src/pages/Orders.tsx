@@ -17,7 +17,7 @@ import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, feeState, payDeferredFees, settleCour
 import { Help, DiscountField, Badge, Button, Confirm, Empty, FilterSelect, IconButton, Modal, MoreMatches, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute, DateSort, type DateOrder, useKeep } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { PayLines, payLinesSum, splitInTwo, type PayLine } from '../ui/payments';
-import { ListDates, defaultPeriod, inPeriod, type ListOrder, type Period } from '../ui/period';
+import { ListDates, PeriodPicker, defaultPeriod, inPeriod, type ListOrder, type Period } from '../ui/period';
 import { Thumb, categoryOptions } from './Products';
 import { siblingsOf } from '../lib/attrs';
 import { deliveryNoteDoc, parcelLabelDoc, ticketDoc } from '../lib/print';
@@ -114,6 +114,10 @@ function OrderList({ tabKey }: { tabKey?: string }) {
   const tab = TABS.find((t) => t.key === tabKey) ?? TABS.find((t) => !DONE_TABS.includes(t.key) && orders.some((o) => !isWalkIn(o) && inTab(t, o))) ?? TABS[0];
   const done = DONE_TABS.includes(tab.key);
   const [payF, setPayF] = useKeep('orders.pay', '');
+  // Date de paiement : commandes dont de l'argent a été reçu ce jour-là (ex. reste d'hier payé aujourd'hui).
+  const [payPeriod, setPayPeriod] = useKeep<Period>('orders.payPeriod', defaultPeriod('all'));
+  const payOn = payPeriod.key !== 'all';
+  const paidIn = (o: Order) => (o.payments || []).filter((p) => { const d = payDay(o, p); return !!d && inPeriod(`${d}T12:00:00`, payPeriod); });
   const payTest = (PAY_FILTERS.find((f) => f.value === payF) ?? PAY_FILTERS[0]).test;
   // Période et ordre : commandes en cours = toutes, plus anciennes d'abord (à traiter) ; terminées = aujourd'hui, récentes d'abord.
   const [periodOpen, setPeriodOpen] = useKeep<Period>('orders.periodOpen', defaultPeriod('all'));
@@ -127,13 +131,14 @@ function OrderList({ tabKey }: { tabKey?: string }) {
   // Filtres de l'onglet : livreur, page, recherche (et période pour les commandes terminées / annulées).
   // Recherche : priorité aux correspondances exactes (« PH6 » ne ramène pas « PH60 ») quand il y en a.
   const exactOnly = useMemo(() => !!q.trim() && orders.some((o) => !isWalkIn(o) && matchExact(orderText(o), q)), [orders, q]);
-  const base = (o: Order) => !isWalkIn(o) && scope.mine(o) && (!courierF || o.courierId === courierF) && (!pageF || hasPage(o, pageF)) && payTest(o) && (!q.trim() || (exactOnly ? matchExact(orderText(o), q) : matchQuery(orderText(o), q)));
+  const base = (o: Order) => !isWalkIn(o) && scope.mine(o) && (!courierF || o.courierId === courierF) && (!pageF || hasPage(o, pageF)) && payTest(o) && (!payOn || paidIn(o).length > 0) && (!q.trim() || (exactOnly ? matchExact(orderText(o), q) : matchQuery(orderText(o), q)));
   const list = useMemo(() => orders
     .filter((o) => base(o) && inTab(tab, o))
     .filter((o) => (done && q.trim()) || inPeriod(o.createdAt, period))
     .sort((a, b) => (order === 'new' ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt))),
-  [orders, tab.key, q, period, scope.on, courierF, pageF, order, payF]);
-  const sums = useMemo(() => { const live = list.filter((o) => o.status !== 'cancelled'); return { total: live.reduce((t, o) => t + (o.kind === 'exchange' ? exchangeBalance(o) : orderTotal(o)), 0), paid: live.reduce((t, o) => t + paidTotal(o), 0), rest: live.reduce((t, o) => t + Math.max(0, remaining(o)), 0), courier: live.reduce((t, o) => t + (needsSettlement(o) ? Math.max(0, settleRow(o).e) : 0), 0) }; }, [list]);
+  [orders, tab.key, q, period, scope.on, courierF, pageF, order, payF, payPeriod]);
+  const sums = useMemo(() => { const live = list.filter((o) => o.status !== 'cancelled'); return { total: live.reduce((t, o) => t + (o.kind === 'exchange' ? exchangeBalance(o) : orderTotal(o)), 0), paid: live.reduce((t, o) => t + paidTotal(o), 0), rest: live.reduce((t, o) => t + Math.max(0, remaining(o)), 0), courier: live.reduce((t, o) => t + (needsSettlement(o) ? Math.max(0, settleRow(o).e) : 0), 0),
+    inPer: Object.fromEntries((['cash', 'mvola', 'orange', 'airtel'] as PayMethod[]).map((m) => [m, live.reduce((t, o) => t + paidIn(o).filter((p) => p.method === m).reduce((a, p) => a + p.amount, 0), 0)])) as Record<PayMethod, number> }; }, [list, payPeriod]);
   // La recherche reste dans l'onglet ; on indique seulement où d'autres commandes correspondent.
   const elsewhere = q.trim() ? TABS.filter((t) => t.key !== tab.key).map((t) => ({ t, n: orders.filter((o) => base(o) && inTab(t, o)).length })).filter((x) => x.n) : [];
   const selected = list.filter((o) => sel.includes(o.id));
@@ -162,9 +167,12 @@ function OrderList({ tabKey }: { tabKey?: string }) {
           {pages.length > 1 && <div className="field" style={{ flex: '1 1 160px' }}><FilterSelect label="Page" value={pageF} onChange={setPageF} options={[{ value: '', label: 'Toutes les pages' }, ...pages.map((p) => ({ value: p.id, label: p.name }))]} /></div>}
           <div className="field" style={{ flex: '1 1 200px' }}><FilterSelect label="Paiement" value={payF} onChange={(v) => { setPayF(v); setSel([]); }} options={PAY_FILTERS.map((f) => ({ value: f.value, label: f.label }))} /></div>
         </div>
-        <ListDates period={period} onPeriod={setPeriod} order={order} onOrder={setOrder} what="Date de la commande" />
-        {(q || courierF || pageF || payF) && <div><Button variant="ghost" className="btn-sm" icon="x" onClick={() => { setQ(''); setCourierF(''); setPageF(''); setPayF(''); setSel([]); }}>Effacer les filtres</Button></div>}
+        <ListDates period={period} onPeriod={setPeriod} order={order} onOrder={setOrder} what="Date de la commande" periodLabel="Date de la commande">
+          <PeriodPicker value={payPeriod} onChange={(v) => { setPayPeriod(v); setSel([]); }} label="Date de paiement" idp="pp" />
+        </ListDates>
+        {(q || courierF || pageF || payF || payOn) && <div><Button variant="ghost" className="btn-sm" icon="x" onClick={() => { setQ(''); setCourierF(''); setPageF(''); setPayF(''); setPayPeriod(defaultPeriod('all')); setSel([]); }}>Effacer les filtres</Button></div>}
         {list.length > 0 && <div className="order-sums small"><span><strong>{list.length}</strong> commande(s)</span><span>Total <strong className="num">{fmtAr(sums.total)}</strong></span><span>Payé <strong className="num">{fmtAr(sums.paid)}</strong></span><span>Reste à payer <strong className={`num ${sums.rest > 0.5 ? 'neg' : ''}`}>{fmtAr(sums.rest)}</strong></span>{sums.courier > 0.5 && <span>Chez les livreurs <strong className="num">{fmtAr(sums.courier)}</strong></span>}</div>}
+        {payOn && list.length > 0 && <div className="order-sums small"><span><strong>Reçu à la date de paiement</strong></span>{(Object.keys(sums.inPer) as PayMethod[]).filter((m) => Math.round(sums.inPer[m])).map((m) => <span key={m}>{PAY_METHODS[m]} <strong className="num">{fmtAr(sums.inPer[m])}</strong></span>)}<span>Total <strong className="num">{fmtAr(Object.values(sums.inPer).reduce((a, b) => a + b, 0))}</strong></span></div>}
         {elsewhere.length > 0 && <p className="small muted" style={{ margin: 0 }}>Aussi trouvé dans : {elsewhere.map(({ t, n }, i) => <span key={t.key}>{i ? ', ' : ''}<button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => switchTab(t.key)}>{t.label} ({n})</button></span>)}</p>}
       </div>
       {regler && list.length > 0 && (
@@ -182,9 +190,9 @@ function OrderList({ tabKey }: { tabKey?: string }) {
             ...g.items.map((o) => regler ? (
             <li key={o.id} className="row-check">
               <input type="checkbox" aria-label={`Sélectionner ${o.number}`} checked={sel.includes(o.id)} onChange={(e) => setSel(e.target.checked ? [...sel, o.id] : sel.filter((x) => x !== o.id))} />
-              <ul className="list" style={{ flex: 1, minWidth: 0 }}><OrderRow o={o} /></ul>
+              <ul className="list" style={{ flex: 1, minWidth: 0 }}><OrderRow o={o} paidIn={payOn ? paidIn(o) : undefined} /></ul>
             </li>
-          ) : <OrderRow key={o.id} o={o} />)])}</ul>
+          ) : <OrderRow key={o.id} o={o} paidIn={payOn ? paidIn(o) : undefined} />)])}</ul>
         )}
       </div>
       </>}
@@ -195,7 +203,7 @@ function OrderList({ tabKey }: { tabKey?: string }) {
   );
 }
 
-export function OrderRow({ o }: { o: Order }) {
+export function OrderRow({ o, paidIn }: { o: Order; paidIn?: Payment[] }) {
   const zone = get<Zone>('zones', o.zoneId || '');
   const courier = get<Courier>('couriers', o.courierId || '');
   const firstV = o.lines[0] && get<Variant>('variants', o.lines[0].variantId);
@@ -214,6 +222,7 @@ export function OrderRow({ o }: { o: Order }) {
           </div>
           <p className="small muted">{o.number}{o.phone ? ` · ${fmtPhone(o.phone)}` : ''} · {zone?.name || 'Zone ?'}{o.place ? ` — ${o.place}` : ''}</p>
           <p className="small muted">{fmtNum(totalQty(o))} article(s){o.lines.some((l) => l.isChoice) ? ` + ${o.lines.filter((l) => l.isChoice).reduce((s, l) => s + l.qty, 0)} en choix` : ''}{courier ? ` · ${courier.name}` : ''} · {fmtDateTime(o.createdAt)}</p>
+          {paidIn && paidIn.length > 0 && <p className="small"><Badge tone="ok">Payé à cette date</Badge> {paidIn.map((p) => `${fmtAr(p.amount)} ${PAY_METHODS[p.method]}${restTag(o, p) ? ` (${restTag(o, p)})` : ''}`).join(' · ')}</p>}
           {needsSettlement(o) && <p className="small"><Badge tone="warn">À régler avec {courier?.name ?? 'le livreur'}</Badge> le livreur doit verser {fmtAr(settleRow(o).e)}</p>}
           {['delivered', 'partial', 'refused'].includes(o.status) && (() => { const fs = feeState(o); return fs !== 'none' ? <p className="small fee-line">Frais livreur {fmtAr(courierSplit(o).fee)} · <Badge tone={FEE_STATE[fs].tone}>{FEE_STATE[fs].label}</Badge></p> : null; })()}
         </div>
