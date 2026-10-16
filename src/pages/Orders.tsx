@@ -27,6 +27,8 @@ import { Zones } from './Deliveries';
 import { bucketOf, type Prospect } from '../lib/prospects';
 import { AdjustList, LotPicker, LotTag, lotPhoto } from './Lots';
 import { SettleModal, settleRow } from './Settle';
+import { payDay } from '../lib/situation';
+import { saleDay } from '../lib/handovers';
 import { allPages } from '../lib/boosts';
 import { isLot, lotAvailable, lotOpen } from '../lib/lots';
 
@@ -708,9 +710,9 @@ function OrderDetail({ id }: { id: string }) {
         <div className="card stack-s">
           <h2>Paiements</h2>
           <ul className="list">
-            {o.payments.map((p) => (
+            {o.payments.map((p) => { const tag = restTag(o, p); return (
               <li key={p.id} className="list-item" style={{ padding: '10px 0' }}>
-                <div className="list-item-main"><strong className="num">{fmtAr(p.amount)}</strong> · {PAY_METHODS[p.method]}{p.ref ? ` · réf. ${p.ref}` : ''}
+                <div className="list-item-main"><strong className="num">{fmtAr(p.amount)}</strong> · {PAY_METHODS[p.method]}{p.ref ? ` · réf. ${p.ref}` : ''}{tag ? <> <Badge tone="neutral">{tag}</Badge></> : null}
                   <p className="small muted">{fmtDateTime(p.at)} · {p.receivedBy === 'shop' ? 'reçu par la boutique' : `encaissé par ${get<Courier>('couriers', p.courierId || '')?.name || 'le livreur'}`}{p.userName ? ` · saisi par ${p.userName}` : ''}</p>
                   {p.note && <p className="small muted">{p.note}</p>}
                   {(p.edits || []).map((e, i) => <p key={i} className="small" style={{ color: 'var(--warn, #9a6700)' }}>Corrigé le {fmtDateTime(e.at)} par {e.user || '—'} : {payEditText(e)}{e.reason ? ` — ${e.reason}` : ''}</p>)}
@@ -718,7 +720,7 @@ function OrderDetail({ id }: { id: string }) {
                 </div>
                 {canFixPay && <IconButton icon="edit" label="Corriger ce paiement (montant, moyen, référence, reçu par)" onClick={() => setEditPay({ p })} />}
               </li>
-            ))}
+            ); })}
           </ul>
         </div>
       )}
@@ -884,6 +886,14 @@ export function PayFeeModal({ order, courier, amount, onClose }: { order: Order;
 }
 
 /** Texte d'une correction de paiement (ancien → nouveau). */
+/** « 1er paiement du reste » / « 2e paiement du reste » : paiement reçu après le jour de la vente. */
+function restTag(o: Order, p: Payment): string {
+  const day = saleDay(o); const d = payDay(o, p);
+  if (!d || d <= day || isWalkIn(o) && !o.createdAt) return '';
+  const later = [...new Set((o.payments || []).map((x) => payDay(o, x)).filter((x): x is string => !!x && x > day))].sort();
+  const i = later.indexOf(d);
+  return i === 0 ? '1er paiement du reste' : i > 0 ? `${i + 1}e paiement du reste` : '';
+}
 function payEditText(e: NonNullable<Payment['edits']>[number]) {
   const parts: string[] = [];
   if (e.fromAmount !== e.toAmount || e.fromMethod !== e.toMethod) parts.push(`${fmtAr(e.fromAmount)}${e.fromMethod !== e.toMethod ? ` (${PAY_METHODS[e.fromMethod]})` : ''} → ${fmtAr(e.toAmount)}${e.fromMethod !== e.toMethod ? ` (${PAY_METHODS[e.toMethod]})` : ''}`);

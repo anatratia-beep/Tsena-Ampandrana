@@ -338,6 +338,8 @@ function SituationCard({ from: f, to: t }: { from?: string; to?: string }) {
     { k: 'mvola', l: 'MVola', v: (r) => r.pay.mvola, money: true },
     { k: 'orange', l: 'Orange Money', v: (r) => r.pay.orange, money: true },
     { k: 'airtel', l: 'Airtel Money', v: (r) => r.pay.airtel, money: true },
+    { k: 'l1', l: '1er paiement du reste', v: (r) => r.later1, money: true },
+    { k: 'l2', l: '2e paiement du reste', v: (r) => r.later2, money: true },
     { k: 'rest', l: 'Reste à payer', v: (r) => r.rest, money: true, n: (r) => r.restN, cls: 'neg' },
     { k: 'exch', l: 'dont échange', v: (r) => r.exchange, money: true, n: (r) => r.exchangeN },
   ];
@@ -352,13 +354,15 @@ function SituationCard({ from: f, to: t }: { from?: string; to?: string }) {
           <a className="card stat" href="#/commandes/annulees" style={{ textDecoration: 'none', color: 'inherit' }}><span className="small muted">− Annulé</span><strong className="stat-value num">{fmtAr(T.cancelled)}</strong><span className="small muted">{T.cancelledN} commande(s)</span></a>
           <a className="card stat" href="#/commandes/attente" style={{ textDecoration: 'none', color: 'inherit' }}><span className="small muted">− Reporté</span><strong className="stat-value num">{fmtAr(T.reported)}</strong><span className="small muted">{T.reportedN} commande(s), passées à leur nouvelle date</span></a>
           <div className="card stat stat-strong"><span className="small muted">= Ventes</span><strong className="stat-value num">{fmtAr(T.sales)}</strong><span className="small muted">{fmtNum(T.qty)} produit(s) · {T.orders} vente(s){T.exchange ? ` · dont échange ${fmtAr(T.exchange)}` : ''}</span></div>
-          <div className="card stat"><span className="small muted">Espèces</span><strong className="stat-value num">{fmtAr(T.pay.cash)}</strong></div>
+          <div className="card stat"><span className="small muted">Espèces</span><strong className="stat-value num">{fmtAr(T.pay.cash)}</strong><span className="small muted">payé le jour de la vente</span></div>
           <div className="card stat"><span className="small muted">MVola</span><strong className="stat-value num">{fmtAr(T.pay.mvola)}</strong></div>
           <div className="card stat"><span className="small muted">Orange Money</span><strong className="stat-value num">{fmtAr(T.pay.orange)}</strong></div>
           <div className="card stat"><span className="small muted">Airtel Money</span><strong className="stat-value num">{fmtAr(T.pay.airtel)}</strong></div>
+          <div className="card stat"><span className="small muted">1er paiement du reste</span><strong className="stat-value num">{fmtAr(T.later1)}</strong><span className="small muted">payé le 1er jour suivant</span></div>
+          <div className="card stat"><span className="small muted">2e paiement du reste</span><strong className="stat-value num">{fmtAr(T.later2)}</strong><span className="small muted">payé les jours d’après</span></div>
           <a className="card stat" href="#/commandes/terminees" style={{ textDecoration: 'none', color: 'inherit' }}><span className="small muted">Reste à payer</span><strong className={`stat-value num ${T.rest ? 'neg' : ''}`}>{fmtAr(T.rest)}</strong><span className="small muted">{T.restN} commande(s)</span></a>
         </div>
-        <p className="small muted" style={{ margin: 0 }}>Total commandes − annulé − reporté = <strong>ventes</strong> ; ventes = espèces + MVola + Orange Money + Airtel Money + reste à payer. Une livraison reportée passe à sa nouvelle date ; un échange pris par le client compte dans les ventes, un échange non pris est retiré. Une commande avec des articles de plusieurs pages est répartie selon la valeur de chaque page.</p>
+        <p className="small muted" style={{ margin: 0 }}>Total commandes − annulé − reporté = <strong>ventes</strong> ; ventes = espèces + MVola + Orange Money + Airtel Money (payés le jour de la vente) + 1er paiement du reste + 2e paiement du reste + reste à payer. Une livraison reportée passe à sa nouvelle date ; un échange pris par le client compte dans les ventes, un échange non pris est retiré. Une commande avec des articles de plusieurs pages est répartie selon la valeur de chaque page.</p>
       </div>
       {sit.rows.length === 0 ? <p className="card-pad small muted">Aucune activité sur cette période.</p> : (
         <div className="table-wrap"><table className="table table-grid sit-table">

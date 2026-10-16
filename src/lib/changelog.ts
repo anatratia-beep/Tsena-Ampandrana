@@ -3,6 +3,9 @@
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
   { date: '2026-10-16', items: [
+    'Restes à payer (comme le Diary) : une vente de 100 000 Ar payée 20 000 Ar le jour laisse un reste de 80 000 Ar ; le 1er paiement du reste (premier jour suivant) et le 2e paiement du reste (jours d’après) sont suivis. Nouveau tableau « Restes à payer » dans Versements vendeurs (encore à payer / restes payés ce jour), colonnes 1er et 2e paiement dans Situation par page, et badge sur chaque paiement de la commande.',
+    'Dépenses : débitées de la caisse de la boutique, elles ne sont plus retirées du versement du vendeur ou du responsable.',
+    'L’argent encaissé par un livreur compte comme reçu le jour où il le verse ; avant, il reste dans « Reste à payer » (« chez le livreur »).',
     'Versements vendeurs : l’argent d’un colis compte le jour où le livreur le verse vraiment (règlement), plus le jour de la livraison. Nouvelle partie « Reste à encaisser » : reste d’hier (et d’avant) et ventes du jour pas encore payées, commande par commande (en livraison, argent chez le livreur, client qui doit encore). Les espèces du jour indiquent la part qui vient des ventes des jours précédents. Aussi dans « Mon rapport du jour ».',
     'Ventes : une commande partie hier puis annulée ou rendue ce matin est déduite des ventes d’hier (jour du départ), et plus d’aujourd’hui. Une commande annulée ne compte jamais comme vente.',
     'Accueil → Meilleures ventes : plus de montants négatifs. Les articles revenus ce jour-là (commande annulée ou rendue après être partie la veille) ne sont plus classés comme « meilleures ventes » ; ils restent déduits dans les chiffres de ventes.',

@@ -7,7 +7,7 @@
 // - argent encaissé ce jour-là sur ses commandes, par moyen : espèces, MVola, Orange Money, Airtel Money ;
 // - frais de livraison gardés par les livreurs (déjà retirés de l'argent qu'ils rapportent) ;
 // - dépenses qu'il a payées avec la caisse ;
-// - TOTAL À PAYER = espèces − frais gardés par les livreurs − dépenses.
+// - TOTAL À PAYER = espèces − frais gardés par les livreurs (les dépenses sont débitées de la caisse de la boutique).
 //   Le mobile money arrive sur les numéros de la boutique : il est affiché pour contrôle, mais pas à remettre.
 // Le responsable saisit le montant réellement reçu et valide : le versement est tracé (montant, écart, qui, quand).
 import { all, get, getMeta, save, type BaseRecord } from './db';
@@ -47,7 +47,7 @@ export interface SellerDay {
   shopCash: number; courierCash: number;   // détail des espèces : sur place / rapportées par les livreurs
   fees: number;                            // frais de livraison gardés par les livreurs
   expenses: number; expenseMoves: CashMove[];
-  toPay: number;                           // espèces − frais − dépenses
+  toPay: number;                           // espèces − frais (dépenses : caisse de la boutique)
   mobile: number;                          // MVola + Orange + Airtel (sur les numéros de la boutique)
   outParcels: number;                      // colis encore chez les livreurs
   /** Espèces encaissées ce jour-là pour des ventes des jours précédents (« reste d'hier »). */
@@ -105,7 +105,8 @@ export function sellerDay(u: User, date: string): SellerDay {
   const h = handoverOf(u.id, date);
   return {
     user: u, date, pages: list, sales, orders: seen.size, pay, shopCash, courierCash, fees, expenses, expenseMoves,
-    toPay: pay.cash - fees - expenses, mobile: pay.mvola + pay.orange + pay.airtel, outParcels, cashOld,
+    // Les dépenses sont débitées de la caisse de la boutique, pas du versement du vendeur.
+    toPay: pay.cash - fees, mobile: pay.mvola + pay.orange + pay.airtel, outParcels, cashOld,
     pending: pending.sort((a, b) => a.day.localeCompare(b.day) || (a.o.number || '').localeCompare(b.o.number || '')),
     handover: h?.status === 'received' ? h : undefined,
   };

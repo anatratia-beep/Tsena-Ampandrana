@@ -101,6 +101,8 @@ export function dayReportText(r: DayReport, who: string, company: string, note?:
   out.push(`Espèces : ${ar(T.pay.cash)}`, `MVola : ${ar(T.pay.mvola)}`);
   if (Math.round(T.pay.orange)) out.push(`Orange Money : ${ar(T.pay.orange)}`);
   if (Math.round(T.pay.airtel)) out.push(`Airtel Money : ${ar(T.pay.airtel)}`);
+  if (Math.round(T.later1)) out.push(`1er paiement du reste : ${ar(T.later1)}`);
+  if (Math.round(T.later2)) out.push(`2e paiement du reste : ${ar(T.later2)}`);
   out.push(`Reste à payer : ${ar(T.rest)}${T.restN ? ` (${T.restN} commande(s))` : ''}`);
   if (T.cancelledN) out.push(`Annulé : ${ar(T.cancelled)} (${T.cancelledN} commande(s))`);
   if (T.reportedN) out.push(`Reporté : ${ar(T.reported)} (${T.reportedN} commande(s))`);
@@ -108,7 +110,6 @@ export function dayReportText(r: DayReport, who: string, company: string, note?:
     out.push('', '*Espèces en main (à remettre)*', `Ventes sur place : ${ar(cash.shopCash)}`);
     if (Math.round(cash.courierCash)) out.push(`Rapportées par les livreurs : ${ar(cash.courierCash)}`);
     if (Math.round(cash.fees)) out.push(`− Frais gardés par les livreurs : ${ar(cash.fees)}`);
-    if (Math.round(cash.expenses)) out.push(`− Dépenses payées : ${ar(cash.expenses)}`);
     out.push(`*Total à remettre : ${ar(cash.toPay)}*`);
     if (Math.round(cash.cashOld ?? 0) > 0) out.push(`(dont ${ar(cash.cashOld!)} pour des ventes des jours précédents)`);
     const pend = cash.pending ?? [];

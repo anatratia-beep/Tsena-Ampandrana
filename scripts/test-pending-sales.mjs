@@ -34,7 +34,7 @@ await p.getByLabel("Nom d'utilisateur").fill('aina'); await p.locator('input[typ
 await p.goto('http://localhost:5173/#/versements'); await p.waitForTimeout(600);
 let tx = N(await p.locator('main').innerText());
 ok(/TOTAL À PAYER[^\n]*\n?[^\n]*40 000 Ar/.test(tx) || tx.includes('40 000 Ar'), 'aujourd’hui : 40 000 à remettre (vente sur place 20 000 + H3 réglé ce jour 20 000)');
-ok(tx.includes('dont 20 000 Ar pour des ventes des jours précédents'), 'dont 20 000 pour le reste d’hier');
+ok(tx.includes('dont 20 000 Ar pour des ventes des jours précédents'), 'dont 20 000 pour le reste d’hier'); if (!tx.includes('dont 20 000 Ar pour')) console.log(tx.slice(tx.indexOf('Espèces encaissées'), tx.indexOf('Espèces encaissées') + 300));
 ok(tx.includes('Reste à encaisser') && tx.includes('Reste d’hier') && tx.includes('H4') && tx.includes('H5') && !/\bH1\b/.test(tx.split('Reste à encaisser')[1] || ''), 'reste d’hier : H4 (chez le livreur) et H5 (en livraison)');
 if (!tx.includes('H4')) console.log(tx.slice(0, 2500));
 await p.goto('http://localhost:5173/#/mon-rapport'); await p.waitForTimeout(600);

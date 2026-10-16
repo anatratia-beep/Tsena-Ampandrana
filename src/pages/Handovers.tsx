@@ -10,6 +10,8 @@ import { fmtAr, parseNum, parseAr } from '../lib/catalog';
 import { addDays, today } from '../lib/money';
 import { cancelHandover, changedSince, handoverHistory, receiveHandover, sellerDay, sellersOfDay, type Handover, type PendingSale, type SellerDay } from '../lib/handovers';
 import { printA4, a4Table, arA4, h } from '../lib/a4';
+import { restLedger, type RestRow } from '../lib/situation';
+import { userPages } from '../lib/scope';
 import { Badge, Button, Confirm, Empty, Help, IconButton, Modal, PageHead, TextField, fmtDate, toast } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { exportTables, type Col } from '../ui/table';
@@ -35,8 +37,60 @@ export function HandoversPage() {
         {!isToday && <Button variant="quiet" onClick={() => setDate(today())}>Aujourd’hui</Button>}
       </div>
       {boss ? <Board date={date} /> : <Sheet d={sellerDay(me, date)} self />}
+      <Restes date={date} pages={boss ? undefined : userPages(me)} />
       <History userId={boss ? undefined : me.id} />
     </>
+  );
+}
+
+const dd = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+/**
+ * Restes à payer : ventes pas encore entièrement payées (vente de 100 000, payé 20 000 le jour → reste 80 000), avec
+ * le 1er paiement du reste et le 2e paiement du reste quand ils arrivent (le lendemain ou après).
+ */
+function Restes({ date, pages }: { date: string; pages?: string[] }) {
+  useTable('couriers');
+  const [view, setView] = useState<'open' | 'paid'>('open');
+  const all = restLedger('2000-01-01', date, pages);
+  const open = all.filter((r) => r.rest > 0.5);
+  const paid = all.filter((r) => r.p1?.day === date || r.p2?.day === date);
+  const list = view === 'open' ? open : paid;
+  const days = [...new Set(list.map((r) => r.day))];
+  const tot = (xs: RestRow[]) => xs.reduce((t, r) => t + (view === 'open' ? r.rest : (r.p1?.day === date ? r.p1.amount : 0) + (r.p2?.day === date ? r.p2.amount : 0)), 0);
+  const pageName = (id: string) => get<{ name: string }>('categories', id)?.name ?? 'Sans page';
+  return (
+    <div className="card card-flush">
+      <div className="card-pad stack-s">
+        <div className="row-between"><h2>Restes à payer</h2><strong className={`num ${view === 'open' && tot(list) > 0.5 ? 'neg' : ''}`}>{fmtAr(tot(list))}</strong></div>
+        <div className="row" style={{ gap: 6 }}>
+          <Button variant={view === 'open' ? 'primary' : 'ghost'} className="btn-sm" onClick={() => setView('open')}>Encore à payer ({open.length})</Button>
+          <Button variant={view === 'paid' ? 'primary' : 'ghost'} className="btn-sm" onClick={() => setView('paid')}>Restes payés ce jour ({paid.length})</Button>
+        </div>
+        <p className="small muted" style={{ margin: 0 }}>{view === 'open' ? 'Ventes pas encore entièrement payées à ce jour, par jour de vente. Ex. vente de 100 000 Ar, payé 20 000 Ar le jour : reste 80 000 Ar, payé ensuite en 1er puis 2e paiement.' : 'Restes de ventes des jours précédents reçus ce jour (1er ou 2e paiement du reste).'}</p>
+      </div>
+      {list.length === 0 ? <p className="card-pad small muted" style={{ paddingTop: 0 }}>{view === 'open' ? 'Aucun reste à payer.' : 'Aucun reste payé ce jour.'}</p> : (
+        <div className="table-wrap"><table className="table table-grid">
+          <thead><tr><th>Commande</th><th>Page</th><th className="t-num">Vente</th><th className="t-num">Payé le jour</th><th className="t-num">1er paiement du reste</th><th className="t-num">2e paiement du reste</th><th className="t-num">Reste à payer</th></tr></thead>
+          <tbody>{days.map((day) => {
+            const xs = list.filter((r) => r.day === day);
+            return [
+              <tr key={day} className="t-total"><td colSpan={6}>{day === date ? 'Ventes de ce jour' : day === addDays(date, -1) ? 'Ventes d’hier' : `Ventes du ${dd(day)}`} <span className="small muted">({xs.length})</span></td><td className="t-num">{fmtAr(tot(xs))}</td></tr>,
+              ...xs.map((r) => (
+                <tr key={r.o.id}>
+                  <td><a href={`#/commandes/${r.o.id}`}>{r.o.number}</a> <span className="small muted">{r.o.name || r.o.phone || ''}{r.o.createdByName ? ` · ${r.o.createdByName}` : ''}</span></td>
+                  <td className="small">{r.pages.map(pageName).join(', ')}</td>
+                  <td className="t-num">{fmtAr(r.value)}</td>
+                  <td className="t-num">{money(r.sameDay)}</td>
+                  <td className="t-num">{r.p1 ? <>{fmtAr(r.p1.amount)}<div className="small muted">{dd(r.p1.day)}</div></> : <span className="muted">—</span>}</td>
+                  <td className="t-num">{r.p2 ? <>{fmtAr(r.p2.amount)}<div className="small muted">{dd(r.p2.day)}{r.p2.times > 1 ? ` (${r.p2.times} fois)` : ''}</div></> : <span className="muted">—</span>}</td>
+                  <td className="t-num">{r.rest > 0.5 ? <><strong className="neg">{fmtAr(r.rest)}</strong>{r.atCourier > 0.5 ? <div className="small muted">dont {fmtAr(r.atCourier)} chez {get<{ name: string }>('couriers', r.o.courierId || '')?.name ?? 'le livreur'}</div> : null}</> : <span className="ok-text small">soldé</span>}</td>
+                </tr>
+              )),
+            ];
+          })}</tbody>
+        </table></div>
+      )}
+    </div>
   );
 }
 
@@ -59,7 +113,7 @@ function Board({ date }: { date: string }) {
     { key: 'or', label: 'Orange Money', value: (d) => Math.round(d.pay.orange), money: true, width: 13 },
     { key: 'ai', label: 'Airtel Money', value: (d) => Math.round(d.pay.airtel), money: true, width: 13 },
     { key: 'f', label: 'Frais livreurs', value: (d) => Math.round(d.fees), money: true, width: 13 },
-    { key: 'e', label: 'Dépenses', value: (d) => Math.round(d.expenses), money: true, width: 13 },
+    { key: 'e', label: 'Dépenses (caisse)', value: (d) => Math.round(d.expenses), money: true, width: 13 },
     { key: 't', label: 'Total à payer', value: (d) => Math.round(d.toPay), money: true, width: 14 },
     { key: 'r', label: 'Reçu', value: (d) => (d.handover ? Math.round(d.handover.amount) : ''), money: true, width: 13 },
     { key: 'g', label: 'Écart', value: (d) => (d.handover ? Math.round(d.handover.gap) : ''), money: true, width: 12 },
@@ -83,7 +137,7 @@ function Board({ date }: { date: string }) {
       <div className="card card-flush">
         <div className="card-pad row-between">
           <div><h2>Vendeur par vendeur</h2>
-            <Help>Total à payer = espèces encaissées (ventes sur place et argent des colis) − frais gardés par les livreurs − dépenses payées par le vendeur. Le mobile money arrive sur les numéros de la boutique : il est affiché pour contrôle, mais n’est pas à remettre. Touchez un vendeur pour voir ses pages et valider ce qu’il vous remet.</Help></div>
+            <Help>Total à payer = espèces encaissées (ventes sur place et argent des colis versé par les livreurs) − frais gardés par les livreurs. Les dépenses sont débitées de la caisse de la boutique, pas du versement. Le mobile money arrive sur les numéros de la boutique : il est affiché pour contrôle, mais n’est pas à remettre. Touchez un vendeur pour voir ses pages et valider ce qu’il vous remet.</Help></div>
           <div className="row" style={{ gap: 6 }}>
             <Button variant="ghost" className="btn-sm" icon="download" onClick={exportXls}>Excel</Button>
             <Button variant="ghost" className="btn-sm" icon="printer" onClick={exportPdf}>PDF A4</Button>
@@ -102,7 +156,7 @@ function Board({ date }: { date: string }) {
                   <td className="t-num">{money(d.pay.orange)}</td>
                   <td className="t-num">{money(d.pay.airtel)}</td>
                   <td className="t-num">{d.fees ? <span className="neg">− {fmtAr(d.fees)}</span> : money(0)}</td>
-                  <td className="t-num">{d.expenses ? <span className="neg">− {fmtAr(d.expenses)}</span> : money(0)}</td>
+                  <td className="t-num muted">{money(d.expenses)}</td>
                   <td className="t-num"><strong>{fmtAr(d.toPay)}</strong></td>
                   <td>{d.handover ? <><Badge tone={d.handover.gap ? 'warn' : 'ok'}>{fmtAr(d.handover.amount)}</Badge>{changedSince(d) && <div className="small neg">chiffres changés</div>}</>
                     : d.toPay || d.sales ? <Badge tone="danger">À recevoir</Badge> : <span className="small muted">—</span>}</td>
@@ -173,8 +227,8 @@ function Sheet({ d, self, onDone }: { d: SellerDay; self?: boolean; onDone?: () 
             <tr><td>Orange Money <span className="small muted">(numéro de la boutique)</span></td><td className="t-num">{fmtAr(d.pay.orange)}</td></tr>
             <tr><td>Airtel Money <span className="small muted">(numéro de la boutique)</span></td><td className="t-num">{fmtAr(d.pay.airtel)}</td></tr>
             {d.fees > 0 && <tr><td>Frais de livraison gardés par les livreurs</td><td className="t-num neg">− {fmtAr(d.fees)}</td></tr>}
-            <tr><td>Dépenses payées ({d.expenseMoves.length}){d.expenseMoves.length ? <div className="small muted">{d.expenseMoves.map((m) => `${m.label || 'Dépense'} ${fmtAr(-m.amount)}`).join(' · ')}</div> : null}</td><td className="t-num neg">{d.expenses ? `− ${fmtAr(d.expenses)}` : fmtAr(0)}</td></tr>
-            <tr className="t-total rc-grand"><td><strong>TOTAL À PAYER</strong> <span className="small muted">= espèces − frais livreurs − dépenses</span></td><td className="t-num"><strong>{fmtAr(d.toPay)}</strong></td></tr>
+            <tr className="t-total rc-grand"><td><strong>TOTAL À PAYER</strong> <span className="small muted">= espèces − frais livreurs</span></td><td className="t-num"><strong>{fmtAr(d.toPay)}</strong></td></tr>
+            {d.expenseMoves.length > 0 && <tr><td className="small muted">Dépenses payées ce jour ({d.expenseMoves.length}) : débitées de la caisse de la boutique, pas de ce versement<div>{d.expenseMoves.map((m) => `${m.label || 'Dépense'} ${fmtAr(-m.amount)}`).join(' · ')}</div></td><td className="t-num small muted">{fmtAr(d.expenses)}</td></tr>}
           </tbody>
         </table></div>
         {d.outParcels > 0 && <div className={`notice ${self ? 'card-pad' : ''}`}><Icon name="truck" /><span>{d.outParcels} colis encore chez les livreurs : leur argent comptera le jour où le livreur le verse.</span></div>}

@@ -125,7 +125,6 @@ export function MyDayReportPage() {
           <div><span>Ventes sur place (espèces)</span><strong className="num">{fmtAr(sd.shopCash)}</strong></div>
           {Math.round(sd.courierCash) !== 0 && <div><span>Rapportées par les livreurs</span><strong className="num">{fmtAr(sd.courierCash)}</strong></div>}
           {Math.round(sd.fees) !== 0 && <div><span>− Frais gardés par les livreurs</span><strong className="num">{fmtAr(sd.fees)}</strong></div>}
-          {Math.round(sd.expenses) !== 0 && <div><span>− Dépenses payées</span><strong className="num">{fmtAr(sd.expenses)}</strong></div>}
           <div className="ml-strong"><span>= Total à remettre</span><strong className="num">{fmtAr(sd.toPay)}</strong></div>
         </div>
         {sd.pending.length > 0 && <p className="small" style={{ margin: 0 }}>Reste à encaisser (ventes pas encore payées) : <strong className="neg">{fmtAr(sd.pending.reduce((t, x) => t + x.amount, 0))}</strong> · {sd.pending.length} commande(s) — détail dans <a href="#/versements">Versements vendeurs</a>.</p>}
