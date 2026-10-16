@@ -4,10 +4,11 @@
 // - Le vendeur voit sa propre feuille : ce qu'il doit remettre, et si le responsable l'a reçu.
 import { useState } from 'react';
 import { useCan, useCurrentUser } from '../lib/auth';
-import { useTable } from '../lib/db';
+import { get, useTable } from '../lib/db';
+import type { Courier } from '../lib/orders';
 import { fmtAr, parseNum, parseAr } from '../lib/catalog';
 import { addDays, today } from '../lib/money';
-import { cancelHandover, changedSince, handoverHistory, receiveHandover, sellerDay, sellersOfDay, type Handover, type SellerDay } from '../lib/handovers';
+import { cancelHandover, changedSince, handoverHistory, receiveHandover, sellerDay, sellersOfDay, type Handover, type PendingSale, type SellerDay } from '../lib/handovers';
 import { printA4, a4Table, arA4, h } from '../lib/a4';
 import { Badge, Button, Confirm, Empty, Help, IconButton, Modal, PageHead, TextField, fmtDate, toast } from '../ui/kit';
 import { Icon } from '../ui/icons';
@@ -117,6 +118,30 @@ function Board({ date }: { date: string }) {
   );
 }
 
+const WHY: Record<PendingSale['why'], string> = { out: 'en livraison', courier: 'livré, argent chez le livreur', client: 'le client doit encore' };
+/** Ventes pas encore encaissées (reste d'hier et d'avant, et du jour) : pour faire le compte avec le responsable. */
+function PendingList({ d }: { d: SellerDay }) {
+  const days = [...new Set(d.pending.map((x) => x.day))];
+  const total = d.pending.reduce((t, x) => t + x.amount, 0);
+  const label = (day: string) => day === d.date ? 'Ventes de ce jour' : day === addDays(d.date, -1) ? 'Reste d’hier' : `Reste du ${new Date(`${day}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}`;
+  return (
+    <div className="card card-flush">
+      <div className="card-pad row-between"><div><h2>Reste à encaisser</h2><p className="small muted" style={{ margin: 0 }}>Ventes pas encore payées à ce jour : elles compteront le jour où l’argent arrive.</p></div><strong className={`num ${total > 0.5 ? 'neg' : ''}`}>{fmtAr(total)}</strong></div>
+      {d.pending.length === 0 ? <p className="card-pad small muted" style={{ paddingTop: 0 }}>Tout est encaissé.</p> : (
+        <div className="table-wrap"><table className="table">
+          <tbody>{days.map((day) => {
+            const xs = d.pending.filter((x) => x.day === day);
+            return [
+              <tr key={day} className="t-total"><td>{label(day)} <span className="small muted">({xs.length} commande(s))</span></td><td className="t-num">{fmtAr(xs.reduce((t, x) => t + x.amount, 0))}</td></tr>,
+              ...xs.map((x) => <tr key={x.o.id}><td><a href={`#/commandes/${x.o.id}`}>{x.o.number}</a> {x.o.name || x.o.phone ? <span className="small muted">· {x.o.name || x.o.phone}</span> : null} <span className="small muted">· {WHY[x.why]}{x.o.courierId && x.why !== 'client' ? ` (${get<Courier>('couriers', x.o.courierId)?.name ?? 'livreur'})` : ''}</span></td><td className="t-num">{fmtAr(x.amount)}</td></tr>),
+            ];
+          })}</tbody>
+        </table></div>
+      )}
+    </div>
+  );
+}
+
 /** Feuille d'un vendeur pour un jour (et validation par le responsable). */
 function Sheet({ d, self, onDone }: { d: SellerDay; self?: boolean; onDone?: () => void }) {
   const can = useCan();
@@ -143,7 +168,7 @@ function Sheet({ d, self, onDone }: { d: SellerDay; self?: boolean; onDone?: () 
             {d.pages.length === 0 && <tr><td colSpan={2} className="small muted">Aucune vente ce jour.</td></tr>}
             {d.pages.map((p) => <tr key={p.pageId}><td>Ventes — {p.name}</td><td className="t-num">{fmtAr(p.sales)}</td></tr>)}
             <tr className="t-total"><td>Total des ventes <span className="small muted">({d.orders} vente(s), retours déduits)</span></td><td className="t-num">{fmtAr(d.sales)}</td></tr>
-            <tr><td>Espèces encaissées <span className="small muted">(sur place {fmtAr(d.shopCash)} · rapportées par les livreurs {fmtAr(d.courierCash)})</span></td><td className="t-num">{fmtAr(d.pay.cash)}</td></tr>
+            <tr><td>Espèces encaissées <span className="small muted">(clients {fmtAr(d.shopCash)} · versées par les livreurs {fmtAr(d.courierCash)}{Math.round(d.cashOld) > 0 ? <> · dont <strong>{fmtAr(d.cashOld)}</strong> pour des ventes des jours précédents</> : null})</span></td><td className="t-num">{fmtAr(d.pay.cash)}</td></tr>
             <tr><td>MVola <span className="small muted">(numéro de la boutique)</span></td><td className="t-num">{fmtAr(d.pay.mvola)}</td></tr>
             <tr><td>Orange Money <span className="small muted">(numéro de la boutique)</span></td><td className="t-num">{fmtAr(d.pay.orange)}</td></tr>
             <tr><td>Airtel Money <span className="small muted">(numéro de la boutique)</span></td><td className="t-num">{fmtAr(d.pay.airtel)}</td></tr>
@@ -152,8 +177,9 @@ function Sheet({ d, self, onDone }: { d: SellerDay; self?: boolean; onDone?: () 
             <tr className="t-total rc-grand"><td><strong>TOTAL À PAYER</strong> <span className="small muted">= espèces − frais livreurs − dépenses</span></td><td className="t-num"><strong>{fmtAr(d.toPay)}</strong></td></tr>
           </tbody>
         </table></div>
-        {d.outParcels > 0 && <div className={`notice ${self ? 'card-pad' : ''}`}><Icon name="truck" /><span>{d.outParcels} colis encore chez les livreurs : leur argent comptera le jour où le livreur le rapporte.</span></div>}
+        {d.outParcels > 0 && <div className={`notice ${self ? 'card-pad' : ''}`}><Icon name="truck" /><span>{d.outParcels} colis encore chez les livreurs : leur argent comptera le jour où le livreur le verse.</span></div>}
       </div>
+      <PendingList d={d} />
 
       {ho ? (
         <div className="card stack-s">

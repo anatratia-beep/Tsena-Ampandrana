@@ -92,7 +92,7 @@ const frDay = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR
 
 /** Texte WhatsApp du rapport. */
 /** Argent en main du vendeur ce jour-là (ventes qu'il a saisies, quelle que soit la page) : à remettre le soir. */
-export interface CashInHand { shopCash: number; courierCash: number; fees: number; expenses: number; toPay: number }
+export interface CashInHand { shopCash: number; courierCash: number; fees: number; expenses: number; toPay: number; cashOld?: number; pending?: { day: string; amount: number }[] }
 
 export function dayReportText(r: DayReport, who: string, company: string, note?: string, cash?: CashInHand): string {
   const T = r.sit.total;
@@ -110,6 +110,14 @@ export function dayReportText(r: DayReport, who: string, company: string, note?:
     if (Math.round(cash.fees)) out.push(`− Frais gardés par les livreurs : ${ar(cash.fees)}`);
     if (Math.round(cash.expenses)) out.push(`− Dépenses payées : ${ar(cash.expenses)}`);
     out.push(`*Total à remettre : ${ar(cash.toPay)}*`);
+    if (Math.round(cash.cashOld ?? 0) > 0) out.push(`(dont ${ar(cash.cashOld!)} pour des ventes des jours précédents)`);
+    const pend = cash.pending ?? [];
+    if (pend.length) {
+      const before = pend.filter((x) => x.day < r.date), todayP = pend.filter((x) => x.day === r.date);
+      out.push('', '*Reste à encaisser*');
+      if (before.length) out.push(`Jours précédents : ${ar(before.reduce((t, x) => t + x.amount, 0))} (${before.length} commande(s))`);
+      if (todayP.length) out.push(`Ventes du jour : ${ar(todayP.reduce((t, x) => t + x.amount, 0))} (${todayP.length} commande(s))`);
+    }
   }
   if (r.sit.rows.length > 1) { out.push('', '*Par page*'); for (const p of r.sit.rows) out.push(`• ${p.name} : ${ar(p.sales)} (${p.qty} pcs)`); }
   if (r.items.length) { out.push('', '*Articles vendus*'); for (const i of r.items) out.push(`• ${i.name} × ${i.qty} = ${ar(i.amount)}`); }

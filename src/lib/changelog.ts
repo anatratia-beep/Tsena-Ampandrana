@@ -3,6 +3,7 @@
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
   { date: '2026-10-16', items: [
+    'Versements vendeurs : l’argent d’un colis compte le jour où le livreur le verse vraiment (règlement), plus le jour de la livraison. Nouvelle partie « Reste à encaisser » : reste d’hier (et d’avant) et ventes du jour pas encore payées, commande par commande (en livraison, argent chez le livreur, client qui doit encore). Les espèces du jour indiquent la part qui vient des ventes des jours précédents. Aussi dans « Mon rapport du jour ».',
     'Ventes : une commande partie hier puis annulée ou rendue ce matin est déduite des ventes d’hier (jour du départ), et plus d’aujourd’hui. Une commande annulée ne compte jamais comme vente.',
     'Accueil → Meilleures ventes : plus de montants négatifs. Les articles revenus ce jour-là (commande annulée ou rendue après être partie la veille) ne sont plus classés comme « meilleures ventes » ; ils restent déduits dans les chiffres de ventes.',
     'Commandes : nouvel onglet « Toutes » et filtre « Paiement » (reste à payer, payées, argent chez le livreur, réglées avec le livreur, espèces, Mobile Money, Mobile Money sans référence). Les totaux de la liste s’affichent : total, payé, reste à payer, chez les livreurs.',

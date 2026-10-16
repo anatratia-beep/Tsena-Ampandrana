@@ -15,7 +15,7 @@ import { audit, currentUser, roleOf, type User } from './auth';
 import { salesLedger } from './analytics';
 import { rootOf } from './scope';
 import { dayOf, type CashMove } from './money';
-import { courierSplit, isPickupZone, isWalkIn, type Order, type PayMethod } from './orders';
+import { courierSplit, isPickupZone, isWalkIn, needsSettlement, remaining, type Order, type PayMethod } from './orders';
 import type { Category } from './catalog';
 import { COURIER_ROLE, SUPERADMIN_ROLE } from './permissions';
 
@@ -50,8 +50,15 @@ export interface SellerDay {
   toPay: number;                           // espèces − frais − dépenses
   mobile: number;                          // MVola + Orange + Airtel (sur les numéros de la boutique)
   outParcels: number;                      // colis encore chez les livreurs
+  /** Espèces encaissées ce jour-là pour des ventes des jours précédents (« reste d'hier »). */
+  cashOld: number;
+  /** Ventes pas encore encaissées (à ce jour) : colis en livraison, argent chez le livreur, client qui doit encore. */
+  pending: PendingSale[];
   handover?: Handover;
 }
+export interface PendingSale { o: Order; day: string; amount: number; why: 'out' | 'courier' | 'client' }
+/** Jour de la vente : départ avec le livreur, ou date de la vente sur place. */
+export const saleDay = (o: Order) => dayOf((isWalkIn(o) || !o.dispatchedAt ? o.createdAt : o.dispatchedAt) || o.createdAt);
 
 const pageLabel = (id: string) => (id === '_' ? 'Sans page' : get<Category>('categories', id)?.name ?? 'Page supprimée');
 
@@ -66,17 +73,31 @@ export function sellerDay(u: User, date: string): SellerDay {
     if (l.kind === 'sale') seen.add(l.order.id);
   }
   const pay: Record<PayMethod, number> = { cash: 0, mvola: 0, orange: 0, airtel: 0 };
-  let shopCash = 0, courierCash = 0, fees = 0, outParcels = 0;
+  let shopCash = 0, courierCash = 0, fees = 0, outParcels = 0, cashOld = 0;
+  const pending: PendingSale[] = [];
   for (const o of all<Order>('orders')) {
     if (!isMine(o, u)) continue;
+    const old = saleDay(o) < date;
     for (const p of o.payments || []) {
+      // Espèces encaissées par le livreur : comptées le jour où il les verse (règlement), pas le jour de la livraison.
+      if (p.method === 'cash' && p.receivedBy === 'courier') continue;
       if (dayOf(p.at) !== date) continue;
       pay[p.method] += p.amount;
-      if (p.method === 'cash') { if (p.receivedBy === 'courier') courierCash += p.amount; else shopCash += p.amount; }
+      if (p.method === 'cash') { shopCash += p.amount; if (old) cashOld += p.amount; }
+    }
+    if (o.courierSettledAt && dayOf(o.courierSettledAt) === date) {
+      const got = (o.payments || []).filter((p) => p.method === 'cash' && p.receivedBy === 'courier').reduce((t, p) => t + p.amount, 0);
+      pay.cash += got; courierCash += got; if (old) cashOld += got;
+      // Le livreur garde ses frais sur l'argent encaissé : ce que le vendeur reçoit est diminué d'autant.
+      if (!isPickupZone(o.zoneId) && o.feeStatus !== 'paid') { const f = courierSplit(o).feeKept; fees += f; if (old) cashOld -= f; }
     }
     if (o.status === 'out') outParcels++;
-    // Le livreur garde ses frais sur l'argent encaissé : ce que le vendeur reçoit est diminué d'autant.
-    if (!isWalkIn(o) && o.courierId && !isPickupZone(o.zoneId) && o.returnedAt && dayOf(o.returnedAt) === date && o.feeStatus !== 'paid') fees += courierSplit(o).feeKept;
+    // Ventes pas encore encaissées, jusqu'à ce jour
+    if (o.status === 'cancelled' || saleDay(o) > date) continue;
+    if (!isWalkIn(o) && !o.dispatchedAt) continue;
+    if (o.status === 'out') { const x = courierSplit(o).toCollect; if (x > 0.5) pending.push({ o, day: saleDay(o), amount: x, why: 'out' }); }
+    else if (needsSettlement(o)) { const x = courierSplit(o).toCollect; if (x > 0.5) pending.push({ o, day: saleDay(o), amount: x, why: 'courier' }); }
+    else { const r = remaining(o); if (r > 0.5 && o.status !== 'refused') pending.push({ o, day: saleDay(o), amount: r, why: 'client' }); }
   }
   const expenseMoves = all<CashMove>('cashMoves').filter((m) => m.type === 'expense' && m.account === 'cash' && m.userName === u.fullName && dayOf(m.at) === date).sort((a, b) => a.at.localeCompare(b.at));
   const expenses = expenseMoves.reduce((t, m) => t - m.amount, 0);
@@ -84,7 +105,8 @@ export function sellerDay(u: User, date: string): SellerDay {
   const h = handoverOf(u.id, date);
   return {
     user: u, date, pages: list, sales, orders: seen.size, pay, shopCash, courierCash, fees, expenses, expenseMoves,
-    toPay: pay.cash - fees - expenses, mobile: pay.mvola + pay.orange + pay.airtel, outParcels,
+    toPay: pay.cash - fees - expenses, mobile: pay.mvola + pay.orange + pay.airtel, outParcels, cashOld,
+    pending: pending.sort((a, b) => a.day.localeCompare(b.day) || (a.o.number || '').localeCompare(b.o.number || '')),
     handover: h?.status === 'received' ? h : undefined,
   };
 }

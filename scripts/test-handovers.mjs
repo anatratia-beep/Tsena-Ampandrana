@@ -31,7 +31,7 @@ await p.evaluate(async () => {
     shop('S1', 'u1', 'Aina', 'va', 2, 15000, 'cash'),
     shop('S2', 'u1', 'Aina', 'vb', 1, 10000, 'mvola'),
     { id: 'D1', number: 'D1', kind: 'order', channel: 'facebook', phone: '0340000000', zoneId: 'z1', courierId: 'c1', status: 'delivered', lines: [{ id: 'ld', variantId: 'va', qty: 1, unitPrice: 15000, qtyKept: 1, qtyReturned: 0 }], deliveryFee: 3000, feeCharged: 3000, discount: 0,
-      payments: [{ id: 'pd', at: now, amount: 18000, method: 'cash', receivedBy: 'courier', courierId: 'c1' }], dispatchedAt: now, returnedAt: now, createdBy: 'u1', createdByName: 'Aina', createdAt: now },
+      payments: [{ id: 'pd', at: now, amount: 18000, method: 'cash', receivedBy: 'courier', courierId: 'c1' }], dispatchedAt: now, returnedAt: now, courierSettledAt: now, createdBy: 'u1', createdByName: 'Aina', createdAt: now },
     shop('S3', 'u2', 'Bako', 'vb', 2, 10000, 'cash'),
   ]);
   await t.save('cashMoves', { at: now, account: 'cash', amount: -2000, type: 'expense', label: 'Taxi', userName: 'Aina' });

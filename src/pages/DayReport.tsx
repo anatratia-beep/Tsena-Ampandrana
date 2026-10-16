@@ -128,6 +128,7 @@ export function MyDayReportPage() {
           {Math.round(sd.expenses) !== 0 && <div><span>− Dépenses payées</span><strong className="num">{fmtAr(sd.expenses)}</strong></div>}
           <div className="ml-strong"><span>= Total à remettre</span><strong className="num">{fmtAr(sd.toPay)}</strong></div>
         </div>
+        {sd.pending.length > 0 && <p className="small" style={{ margin: 0 }}>Reste à encaisser (ventes pas encore payées) : <strong className="neg">{fmtAr(sd.pending.reduce((t, x) => t + x.amount, 0))}</strong> · {sd.pending.length} commande(s) — détail dans <a href="#/versements">Versements vendeurs</a>.</p>}
         {sd.handover && <p className="small ok-text" style={{ margin: 0 }}><Icon name="check" size={14} /> Remis : {fmtAr(sd.handover.amount)} à {sd.handover.byName}</p>}
       </section>
       <section className="card stack-s">
