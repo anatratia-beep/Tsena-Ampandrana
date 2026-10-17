@@ -1,6 +1,6 @@
 // Sélecteur de période réutilisé par tous les tableaux de bord et rapports.
 import type { ReactNode } from 'react';
-export type PeriodKey = 'today' | 'yesterday' | 'tomorrow' | 'day' | 'week' | 'month' | 'year' | '7d' | '30d' | 'all' | 'custom';
+export type PeriodKey = 'today' | 'yesterday' | 'beforeYesterday' | 'tomorrow' | 'day' | 'week' | 'month' | 'year' | '7d' | '30d' | 'all' | 'custom';
 export interface Period { key: PeriodKey; from?: string; to?: string } // dates AAAA-MM-JJ incluses
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -13,6 +13,7 @@ export function rangeOf(key: PeriodKey): { from?: string; to?: string } {
   switch (key) {
     case 'today': return { from: ymd(now), to: ymd(now) };
     case 'yesterday': return { from: d(y, m, day - 1), to: d(y, m, day - 1) };
+    case 'beforeYesterday': return { from: d(y, m, day - 2), to: d(y, m, day - 2) };
     case 'tomorrow': return { from: d(y, m, day + 1), to: d(y, m, day + 1) };
     case 'day': return { from: ymd(now), to: ymd(now) };
     case 'week': { const dow = (now.getDay() + 6) % 7; return { from: d(y, m, day - dow), to: ymd(now) }; }
@@ -36,6 +37,7 @@ export function inPeriod(iso: string | undefined, p: Period) {
 }
 
 const OPTIONS: { key: PeriodKey; label: string }[] = [
+  { key: 'beforeYesterday', label: 'Avant-hier' },
   { key: 'yesterday', label: 'Hier' },
   { key: 'today', label: "Aujourd'hui" },
   { key: 'tomorrow', label: 'Demain' },

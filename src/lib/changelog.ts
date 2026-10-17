@@ -2,6 +2,9 @@
 // La plus récente en premier. `date` : AAAA-MM-JJ.
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
+  { date: '2026-10-17', items: [
+    'Filtres de période : nouveau choix « Avant-hier » partout (commandes : date de la commande et date de paiement, accueil, ventes, rapports…).',
+  ] },
   { date: '2026-10-16', items: [
     'Commandes : deux filtres de date, « Date de la commande » et « Date de paiement ». Avec la date de paiement, le vendeur voit ce qui a été payé ce jour-là (ex. reste d’hier payé aujourd’hui, marqué « 1er paiement du reste ») et le total reçu par moyen, pour faire le compte du soir avec le responsable.',
     'Restes à payer (comme le Diary) : une vente de 100 000 Ar payée 20 000 Ar le jour laisse un reste de 80 000 Ar ; le 1er paiement du reste (premier jour suivant) et le 2e paiement du reste (jours d’après) sont suivis. Nouveau tableau « Restes à payer » dans Versements vendeurs (encore à payer / restes payés ce jour), colonnes 1er et 2e paiement dans Situation par page, et badge sur chaque paiement de la commande.',
