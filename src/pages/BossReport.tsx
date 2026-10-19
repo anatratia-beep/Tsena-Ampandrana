@@ -51,9 +51,10 @@ export function BossReport() {
   ];
   const m = r.money, pm = p.money;
   const dd = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
-  // Par moyen : deux cases l'une sous l'autre, sans texte (total, puis total − dépenses du même moyen).
+  // Par moyen : deux cases l'une sous l'autre, sans texte (total, puis total − dépenses du même moyen ; pour les espèces,
+  // + reste impayé de la semaine précédente). La case du bas des espèces a sa propre couleur.
   const pairs = [
-    { id: 'cash', strong: true, rows: [{ label: 'Total à verser patron', cur: m.cash.total }, { label: 'Total à verser − dépenses espèces', cur: m.cash.toPay }] },
+    { id: 'cash', strong: true, rows: [{ label: 'Total à verser patron', cur: m.cash.total }, { label: 'Total à verser − dépenses espèces + reste impayé semaine précédente', cur: m.cash.toPay, cls: 'boss-net' }] },
     { id: 'mvola', rows: [{ label: 'Total MVola', cur: m.mvola.sales }, { label: 'Total MVola − dépenses MVola', cur: m.mvola.toPay }] },
     { id: 'orange', rows: [{ label: 'Total Orange Money', cur: m.orange.sales }, { label: 'Total Orange Money − dépenses Orange Money', cur: m.orange.toPay }] },
   ];
@@ -94,7 +95,7 @@ export function BossReport() {
   }
   async function excel() {
     await exportTables(`rapport_${kind}_${per.from}.xlsx`, [
-      { name: 'Résultat', cols: [{ key: 'l', label: 'Ligne', value: (x: [string, number]) => x[0], width: 34 }, { key: 'v', label: 'Montant', value: (x: [string, number]) => x[1], money: true, width: 16 }], rows: [["Chiffre d'affaires", r.revenue], ['Dépenses', r.expenses], ['Reste', r.rest], ['Ventes espèces', m.cash.sales], ['Impayés', m.cash.unpaid], ['Total à verser patron', m.cash.total], ['Dépenses espèces', m.cash.expenses], ['Total à verser − dépenses espèces', m.cash.toPay], ['Total MVola', m.mvola.sales], ['Dépenses MVola', m.mvola.expenses], ['Total MVola − dépenses MVola', m.mvola.toPay], ['Total Orange Money', m.orange.sales], ['Dépenses Orange Money', m.orange.expenses], ['Total Orange Money − dépenses Orange Money', m.orange.toPay], ['Reste impayé semaine précédente', m.weekPrev.amount], ['Reste impayé semaine en cours', m.weekCur.amount], ['Coût des articles vendus', r.cost], ['Boost Facebook', r.boost], ['Bénéfice net sans boost', r.netNoBoost], ['Bénéfice net', r.net]] },
+      { name: 'Résultat', cols: [{ key: 'l', label: 'Ligne', value: (x: [string, number]) => x[0], width: 34 }, { key: 'v', label: 'Montant', value: (x: [string, number]) => x[1], money: true, width: 16 }], rows: [["Chiffre d'affaires", r.revenue], ['Dépenses', r.expenses], ['Reste', r.rest], ['Ventes espèces', m.cash.sales], ['Impayés', m.cash.unpaid], ['Total à verser patron', m.cash.total], ['Dépenses espèces', m.cash.expenses], ['Reste impayé semaine précédente (ajouté)', m.cash.prevUnpaid], ['Total à verser − dépenses espèces + reste impayé semaine précédente', m.cash.toPay], ['Total MVola', m.mvola.sales], ['Dépenses MVola', m.mvola.expenses], ['Total MVola − dépenses MVola', m.mvola.toPay], ['Total Orange Money', m.orange.sales], ['Dépenses Orange Money', m.orange.expenses], ['Total Orange Money − dépenses Orange Money', m.orange.toPay], ['Reste impayé semaine précédente', m.weekPrev.amount], ['Reste impayé semaine en cours', m.weekCur.amount], ['Coût des articles vendus', r.cost], ['Boost Facebook', r.boost], ['Bénéfice net sans boost', r.netNoBoost], ['Bénéfice net', r.net]] },
       { name: 'CA par page', cols: pageCols, rows: r.pages },
       { name: 'Stock par page', cols: stockCols, rows: r.stockPages },
     ]);
@@ -139,7 +140,7 @@ export function BossReport() {
           {pairs.map((g) => (
             <div key={g.id} className="boss-pair">
               {g.rows.map((t) => (
-                <div key={t.label} className={`card stat ${g.strong ? 'stat-strong' : ''}`}>
+                <div key={t.label} className={`card stat ${g.strong ? 'stat-strong' : ''} ${'cls' in t ? t.cls : ''}`}>
                   <span className="small muted">{t.label}</span>
                   <strong className={`stat-value num ${t.cur < 0 ? 'neg' : ''}`}>{fmtAr(t.cur)}</strong>
                 </div>
@@ -147,7 +148,7 @@ export function BossReport() {
             </div>
           ))}
           {toBoss.map((t) => (
-            <div key={t.id} className={`card stat ${t.strong ? 'stat-strong' : ''}`}>
+            <div key={t.id} className={`card stat boss-${t.id} ${t.strong ? 'stat-strong' : ''}`}>
               <span className="small muted">{t.label}</span>
               <strong className={`stat-value num ${t.cur < 0 ? 'neg' : ''}`}>{fmtAr(t.cur)}</strong>
               <span className="small muted"><Delta cur={t.cur} prev={t.prev} invert={t.invert} /> vs {isDay ? 'la veille' : 'période précédente'}</span>

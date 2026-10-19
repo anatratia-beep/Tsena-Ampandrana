@@ -57,7 +57,7 @@ export interface Report {
 export interface WeekUnpaid { from: string; to: string; amount: number; n: number }
 export interface BossMoney {
   sales: number; mobile: number; unpaid: number; unpaidN: number;
-  cash: { sales: number; expenses: number; unpaid: number; total: number; toPay: number };
+  cash: { sales: number; expenses: number; unpaid: number; total: number; prevUnpaid: number; toPay: number };
   mvola: { sales: number; expenses: number; toPay: number };
   orange: { sales: number; expenses: number; toPay: number };
   /** Reste impayé des ventes de la semaine en cours et de la semaine précédente (lundi → dimanche), par rapport à la fin
@@ -76,7 +76,7 @@ function salesWithUnpaid(from: string, to: string) {
 }
 
 /**
- * Total à verser au patron = ventes en espèces − impayés ; puis ce total − dépenses espèces,
+ * Total à verser au patron = ventes en espèces − impayés ; puis ce total − dépenses espèces + reste impayé de la semaine précédente,
  * où ventes en espèces = ventes de la période − ce qui a été payé en Mobile Money sur ces ventes.
  * MVola / Orange Money = payé avec ce moyen sur les ventes de la période − dépenses payées avec ce compte.
  * Une vente marquée « annulée » sort des ventes et des impayés.
@@ -94,12 +94,13 @@ export function bossMoney(from: string, to: string): BossMoney {
   const cashSales = s.sales - mobile;
   const end = to < today() ? to : today(), mon = mondayOf(end);
   const unpaidWeek = (from: string, to: string): WeekUnpaid => { const w = salesWithUnpaid(from, to); return { from, to, amount: w.unpaid, n: w.n }; };
+  const weekPrev = unpaidWeek(addDays(mon, -7), addDays(mon, -1)), total = cashSales - s.unpaid;
   return {
     sales: s.sales, mobile, unpaid: s.unpaid, unpaidN: s.n,
-    cash: { sales: cashSales, expenses: exp.cash, unpaid: s.unpaid, total: cashSales - s.unpaid, toPay: cashSales - s.unpaid - exp.cash },
+    cash: { sales: cashSales, expenses: exp.cash, unpaid: s.unpaid, total, prevUnpaid: weekPrev.amount, toPay: total - exp.cash + weekPrev.amount },
     mvola: { sales: paid.mvola, expenses: exp.mvola, toPay: paid.mvola - exp.mvola },
     orange: { sales: paid.orange, expenses: exp.orange, toPay: paid.orange - exp.orange },
-    weekCur: unpaidWeek(mon, end), weekPrev: unpaidWeek(addDays(mon, -7), addDays(mon, -1)),
+    weekCur: unpaidWeek(mon, end), weekPrev,
   };
 }
 
@@ -168,7 +169,7 @@ export function reportText(kind: PKind, label: string, r: Report, company: strin
   if (kind === 'day') out.push(`Bénéfice net (sans boost) : ${ar(r.netNoBoost)}`);
   else out.push(`Boost Facebook : ${ar(r.boost)}`, `Coût des articles vendus : ${ar(r.cost)}`, `*Bénéfice net : ${ar(r.net)}*`);
   const m = r.money;
-  out.push('', '*À verser au patron*', `Total à verser patron : ${ar(m.cash.total)}`, `Total à verser − dépenses espèces : ${ar(m.cash.toPay)}`,
+  out.push('', '*À verser au patron*', `Total à verser patron : ${ar(m.cash.total)}`, `Total à verser − dépenses espèces + reste impayé semaine précédente : ${ar(m.cash.toPay)}`,
     `Total MVola : ${ar(m.mvola.sales)}`, `Total MVola − dépenses MVola : ${ar(m.mvola.toPay)}`, `Total Orange Money : ${ar(m.orange.sales)}`, `Total Orange Money − dépenses Orange Money : ${ar(m.orange.toPay)}`,
     `Reste impayé semaine précédente : ${ar(m.weekPrev.amount)} (${m.weekPrev.n} vente(s))`, `Reste impayé semaine en cours : ${ar(m.weekCur.amount)} (${m.weekCur.n} vente(s))`);
   if (r.pages.length) { out.push('', '*CA par page*'); for (const p of r.pages) out.push(`• ${p.name} : ${ar(p.revenue)} (${p.qty} pcs)`); }

@@ -1,4 +1,4 @@
-// Rapport au patron, « À verser au patron » : total = ventes espèces − impayés, puis total − dépenses espèces ; MVola / Orange Money = total − dépenses ;
+// Rapport au patron, « À verser au patron » : total = ventes espèces − impayés, puis total − dépenses espèces + reste impayé semaine précédente ; MVola / Orange Money = total − dépenses ;
 // reste impayé de la semaine précédente et de la semaine en cours (les ventes annulées ne comptent pas).
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
@@ -39,11 +39,14 @@ await p.goto('http://localhost:5173/#/rapports/patron?p=day&a=2026-08-05'); awai
 const tx = N(await p.locator('main').innerText());
 if (process.env.DBG) console.log(tx.slice(0, 1500));
 // CA 90 000 (s6 annulée exclue) − Mobile Money 25 000 = 65 000 de ventes espèces ; − 5 000 de dépenses − 20 000 d'impayés = 40 000
-ok(/Total à verser patron\s*45 000 Ar\s*Total à verser − dépenses espèces\s*40 000 Ar/.test(tx), 'cases espèces l’une sous l’autre : total 65 000 − 20 000 = 45 000, puis − 5 000 = 40 000');
+ok(/Total à verser patron\s*45 000 Ar\s*Total à verser − dépenses espèces \+ reste impayé semaine précédente\s*52 000 Ar/.test(tx), 'cases espèces : total 65 000 − 20 000 = 45 000, puis − 5 000 + 12 000 (impayé semaine précédente) = 52 000');
 ok(/Total MVola\s*15 000 Ar\s*Total MVola − dépenses MVola\s*13 000 Ar/.test(tx), 'cases MVola l’une sous l’autre : 15 000, puis − 2 000 = 13 000');
 ok(/Total Orange Money\s*10 000 Ar\s*Total Orange Money − dépenses Orange Money\s*9 000 Ar/.test(tx), 'cases Orange Money l’une sous l’autre : 10 000, puis − 1 000 = 9 000');
 ok(/Reste impayé semaine précédente\s*12 000 Ar[\s\S]*?1 vente\(s\) du 27\/07 au 02\/08/.test(tx), 'reste impayé semaine précédente (lundi 27/07 → dimanche 02/08) : 12 000');
 ok(/Reste impayé semaine en cours\s*20 000 Ar[\s\S]*?1 vente\(s\) du 03\/08 au 05\/08/.test(tx), 'reste impayé semaine en cours (lundi 03/08 → 05/08) : 20 000, la vente annulée ne compte pas');
-ok(tx.includes('*À verser au patron*') && tx.includes('Total à verser patron : 45 000 Ar') && tx.includes('Total à verser − dépenses espèces : 40 000 Ar') && tx.includes('Total MVola − dépenses MVola : 13 000 Ar') && tx.includes('Total Orange Money − dépenses Orange Money : 9 000 Ar') && tx.includes('Reste impayé semaine précédente : 12 000 Ar') && tx.includes('Reste impayé semaine en cours : 20 000 Ar'), 'lignes dans le message WhatsApp');
+ok(tx.includes('*À verser au patron*') && tx.includes('Total à verser patron : 45 000 Ar') && tx.includes('Total à verser − dépenses espèces + reste impayé semaine précédente : 52 000 Ar') && tx.includes('Total MVola − dépenses MVola : 13 000 Ar') && tx.includes('Total Orange Money − dépenses Orange Money : 9 000 Ar') && tx.includes('Reste impayé semaine précédente : 12 000 Ar') && tx.includes('Reste impayé semaine en cours : 20 000 Ar'), 'lignes dans le message WhatsApp');
+const bg = async (sel) => p.locator(sel).evaluate((e) => getComputedStyle(e).backgroundImage + getComputedStyle(e).backgroundColor);
+ok(await bg('.boss-unpaidPrev') !== await bg('.boss-unpaidCur'), 'les 2 cases reste impayé n’ont pas la même couleur');
+ok(await bg('.boss-net') !== await bg('.boss-pair .stat-strong:not(.boss-net)'), 'les 2 cases espèces n’ont pas la même couleur');
 await b.close();
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); process.exit(fail ? 1 : 0);
