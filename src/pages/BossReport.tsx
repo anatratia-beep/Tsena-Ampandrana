@@ -46,6 +46,7 @@ export function BossReport() {
     { label: "Chiffre d'affaires", cur: r.revenue, prev: p.revenue, hint: `${r.orders} vente(s) · ${r.pieces} pièce(s)${goal ? ` · objectif ${fmtAr(goal)} (${Math.round((r.revenue / goal) * 100)} %)` : ''}` },
     { label: 'Dépenses', cur: r.expenses, prev: p.expenses, invert: true },
     { label: 'Reste (CA − dépenses)', cur: r.rest, prev: p.rest },
+    { label: 'Espèces à verser au patron', cur: r.cash.toPay, prev: p.cash.toPay, strong: true, hint: `Espèces encaissées ${fmtAr(r.cash.received)}${r.cash.fees ? ` − frais gardés par les livreurs ${fmtAr(r.cash.fees)}` : ''} − dépenses de la caisse ${fmtAr(r.cash.expenses)}${r.cash.mobile ? ` · Mobile Money ${fmtAr(r.cash.mobile)} non compris (sur les numéros de la boutique)` : ''}` },
     ...(isDay ? [] : [{ label: 'Boost Facebook', cur: r.boost, prev: p.boost, invert: true, hint: r.boostUsd ? `${r.boostUsd.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} $` : undefined }]),
     { label: isDay ? 'Bénéfice net (sans boost)' : 'Bénéfice net', cur: isDay ? r.netNoBoost : r.net, prev: isDay ? p.netNoBoost : p.net, strong: true, hint: isDay ? `CA − coût des articles (${fmtAr(r.cost)}) − dépenses` : `CA − coût des articles (${fmtAr(r.cost)}) − dépenses − boost` },
   ];
@@ -81,7 +82,7 @@ export function BossReport() {
   }
   async function excel() {
     await exportTables(`rapport_${kind}_${per.from}.xlsx`, [
-      { name: 'Résultat', cols: [{ key: 'l', label: 'Ligne', value: (x: [string, number]) => x[0], width: 34 }, { key: 'v', label: 'Montant', value: (x: [string, number]) => x[1], money: true, width: 16 }], rows: [["Chiffre d'affaires", r.revenue], ['Dépenses', r.expenses], ['Reste', r.rest], ['Coût des articles vendus', r.cost], ['Boost Facebook', r.boost], ['Bénéfice net sans boost', r.netNoBoost], ['Bénéfice net', r.net]] },
+      { name: 'Résultat', cols: [{ key: 'l', label: 'Ligne', value: (x: [string, number]) => x[0], width: 34 }, { key: 'v', label: 'Montant', value: (x: [string, number]) => x[1], money: true, width: 16 }], rows: [["Chiffre d'affaires", r.revenue], ['Dépenses', r.expenses], ['Reste', r.rest], ['Espèces encaissées', r.cash.received], ['Frais gardés par les livreurs', r.cash.fees], ['Dépenses de la caisse espèces', r.cash.expenses], ['Espèces à verser au patron', r.cash.toPay], ['Coût des articles vendus', r.cost], ['Boost Facebook', r.boost], ['Bénéfice net sans boost', r.netNoBoost], ['Bénéfice net', r.net]] },
       { name: 'CA par page', cols: pageCols, rows: r.pages },
       { name: 'Stock par page', cols: stockCols, rows: r.stockPages },
     ]);
