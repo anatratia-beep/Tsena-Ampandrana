@@ -15,7 +15,7 @@ import { audit, currentUser, roleOf, type User } from './auth';
 import { salesLedger } from './analytics';
 import { rootOf } from './scope';
 import { dayOf, type CashMove } from './money';
-import { courierSplit, isPickupZone, isWalkIn, needsSettlement, remaining, type Order, type PayMethod } from './orders';
+import { courierSplit, isPickupZone, isWalkIn, unpaidOf, type Order, type PayMethod } from './orders';
 import type { Category } from './catalog';
 import { COURIER_ROLE, SUPERADMIN_ROLE } from './permissions';
 
@@ -95,9 +95,7 @@ export function sellerDay(u: User, date: string): SellerDay {
     // Ventes pas encore encaissées, jusqu'à ce jour
     if (o.status === 'cancelled' || saleDay(o) > date) continue;
     if (!isWalkIn(o) && !o.dispatchedAt) continue;
-    if (o.status === 'out') { const x = courierSplit(o).toCollect; if (x > 0.5) pending.push({ o, day: saleDay(o), amount: x, why: 'out' }); }
-    else if (needsSettlement(o)) { const x = courierSplit(o).toCollect; if (x > 0.5) pending.push({ o, day: saleDay(o), amount: x, why: 'courier' }); }
-    else { const r = remaining(o); if (r > 0.5 && o.status !== 'refused') pending.push({ o, day: saleDay(o), amount: r, why: 'client' }); }
+    const left = unpaidOf(o); if (left) pending.push({ o, day: saleDay(o), ...left });
   }
   const expenseMoves = all<CashMove>('cashMoves').filter((m) => m.type === 'expense' && m.account === 'cash' && m.userName === u.fullName && dayOf(m.at) === date).sort((a, b) => a.at.localeCompare(b.at));
   const expenses = expenseMoves.reduce((t, m) => t - m.amount, 0);

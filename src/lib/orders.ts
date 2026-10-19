@@ -220,6 +220,14 @@ export function courierSplit(o: Order) {
 }
 /** Commande revenue du livreur (retour confirmé) mais pas encore réglée avec lui. */
 export const needsSettlement = (o: Order) => ['delivered', 'partial', 'refused'].includes(o.status) && !!o.courierId && !!o.dispatchedAt && !o.courierSettledAt && !isPickupZone(o.zoneId) && !isWalkIn(o);
+/** Reste à encaisser d'une vente (colis en livraison, argent chez le livreur, client qui doit encore), ou rien. */
+export function unpaidOf(o: Order): { amount: number; why: 'out' | 'courier' | 'client' } | undefined {
+  if (o.status === 'cancelled') return undefined;
+  if (o.status === 'out') { const x = courierSplit(o).toCollect; return x > 0.5 ? { amount: x, why: 'out' } : undefined; }
+  if (needsSettlement(o)) { const x = courierSplit(o).toCollect; return x > 0.5 ? { amount: x, why: 'courier' } : undefined; }
+  const r = remaining(o); return r > 0.5 && o.status !== 'refused' ? { amount: r, why: 'client' } : undefined;
+}
+
 export const totalQty = (o: Order) => sellingLines(o).reduce((s, l) => s + l.qty, 0);
 
 /** Prix de gros : automatique à partir du seuil (3 pièces), ou forcé par le vendeur. */
