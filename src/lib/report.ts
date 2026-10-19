@@ -4,8 +4,9 @@ import { all, get } from './db';
 import { variantCost, type Category, type Product, type StockMove, type Variant } from './catalog';
 import { moneyOut, salesLedger } from './analytics';
 import { rootOf } from './scope';
-import { addDays, dayOf, mondayOf, today } from './money';
+import { addDays, dayOf, mondayOf, today, type CashMove } from './money';
 import { grid, usdRate } from './payouts';
+import { unpaidOf, type Order } from './orders';
 
 export type PKind = 'day' | 'week' | 'month' | 'year' | 'custom';
 export const PKIND: Record<PKind, string> = { day: 'Jour', week: 'Semaine', month: 'Mois', year: 'Année', custom: 'Période' };
@@ -49,6 +50,55 @@ export interface Report {
   pages: PageRow[];
   stock: { start: number; in: number; end: number; out: number; sold: number; other: number };
   stockPages: StockRow[];
+  /** À verser au patron : espèces, MVola, Orange Money, et ventes encore impayées. */
+  money: BossMoney;
+}
+
+export interface BossMoney {
+  sales: number; mobile: number; unpaid: number; unpaidN: number;
+  cash: { sales: number; expenses: number; unpaid: number; total: number; toPay: number };
+  mvola: { sales: number; expenses: number; toPay: number };
+  orange: { sales: number; expenses: number; toPay: number };
+  /** Reste impayé des ventes des 7 jours qui finissent avec la période (les ventes annulées ne comptent pas). */
+  week: { from: string; to: string; amount: number; n: number };
+}
+
+/** Ventes de la période (même règle que le CA), avec ce qui reste à encaisser sur ces ventes. */
+function salesWithUnpaid(from: string, to: string) {
+  const lines = salesLedger(from, to);
+  const orders = new Map<string, Order>();
+  for (const l of lines) if (l.kind === 'sale') orders.set(l.order.id, l.order);
+  let unpaid = 0, n = 0;
+  for (const o of orders.values()) { const u = unpaidOf(o); if (u) { unpaid += u.amount; n++; } }
+  return { sales: lines.reduce((t, l) => t + l.amount, 0), orders: [...orders.values()], unpaid, n };
+}
+
+/**
+ * Total à verser au patron = ventes en espèces − impayés ; puis ce total − dépenses espèces,
+ * où ventes en espèces = ventes de la période − ce qui a été payé en Mobile Money sur ces ventes.
+ * MVola / Orange Money = payé avec ce moyen sur les ventes de la période − dépenses payées avec ce compte.
+ * Une vente marquée « annulée » sort des ventes et des impayés.
+ */
+export function bossMoney(from: string, to: string): BossMoney {
+  const s = salesWithUnpaid(from, to);
+  const paid = { mvola: 0, orange: 0, airtel: 0 };
+  for (const o of s.orders) for (const p of o.payments || []) if (p.method !== 'cash') paid[p.method] += p.amount;
+  const exp = { cash: 0, mvola: 0, orange: 0 };
+  for (const m of all<CashMove>('cashMoves')) {
+    if (m.type !== 'expense' || !(m.account in exp)) continue;
+    const d = dayOf(m.at); if (d >= from && d <= to) exp[m.account as keyof typeof exp] -= m.amount;
+  }
+  const mobile = paid.mvola + paid.orange + paid.airtel;
+  const cashSales = s.sales - mobile;
+  const wTo = to < today() ? to : today(), wFrom = addDays(wTo, -6);
+  const w = salesWithUnpaid(wFrom, wTo);
+  return {
+    sales: s.sales, mobile, unpaid: s.unpaid, unpaidN: s.n,
+    cash: { sales: cashSales, expenses: exp.cash, unpaid: s.unpaid, total: cashSales - s.unpaid, toPay: cashSales - s.unpaid - exp.cash },
+    mvola: { sales: paid.mvola, expenses: exp.mvola, toPay: paid.mvola - exp.mvola },
+    orange: { sales: paid.orange, expenses: exp.orange, toPay: paid.orange - exp.orange },
+    week: { from: wFrom, to: wTo, amount: w.unpaid, n: w.n },
+  };
 }
 
 /** Valeur du stock (au prix de revient) à la fin d'une journée, par page, et entrées pendant la période. */
@@ -101,6 +151,7 @@ export function bossReport(from: string, to: string): Report {
     revenue, expenses, rest: revenue - expenses, cost, boostUsd, boost, netNoBoost, net: netNoBoost - boost,
     orders: new Set(lines.filter((l) => l.kind === 'sale').map((l) => l.order.id)).size, pieces: lines.reduce((t, l) => t + l.qty, 0),
     pages, stock: { start: st.start, in: st.in, end: st.end, out: st.out, sold: cost, other: st.out - cost }, stockPages: st.rows,
+    money: bossMoney(from, to),
   };
 }
 
@@ -114,6 +165,10 @@ export function reportText(kind: PKind, label: string, r: Report, company: strin
   out.push(`CA : ${ar(r.revenue)}`, `Dépenses : ${ar(r.expenses)}`, `Reste : ${ar(r.rest)}`);
   if (kind === 'day') out.push(`Bénéfice net (sans boost) : ${ar(r.netNoBoost)}`);
   else out.push(`Boost Facebook : ${ar(r.boost)}`, `Coût des articles vendus : ${ar(r.cost)}`, `*Bénéfice net : ${ar(r.net)}*`);
+  const m = r.money;
+  out.push('', '*À verser au patron*', `Total à verser patron : ${ar(m.cash.total)}`, `Total à verser − dépenses espèces : ${ar(m.cash.toPay)}`,
+    `Total MVola : ${ar(m.mvola.sales)}`, `Total MVola − dépenses MVola : ${ar(m.mvola.toPay)}`, `Total Orange Money : ${ar(m.orange.sales)}`, `Total Orange Money − dépenses Orange Money : ${ar(m.orange.toPay)}`,
+    `Reste impayé (7 derniers jours) : ${ar(m.week.amount)} (${m.week.n} vente(s))`);
   if (r.pages.length) { out.push('', '*CA par page*'); for (const p of r.pages) out.push(`• ${p.name} : ${ar(p.revenue)} (${p.qty} pcs)`); }
   if (kind !== 'day' && r.stockPages.length) {
     out.push('', '*Stock (prix de revient)*', `Début : ${ar(r.stock.start)}`, `+ Entrées : ${ar(r.stock.in)}`, `Fin : ${ar(r.stock.end)}`, `= Sorti : ${ar(r.stock.out)} (vendu ${ar(r.stock.sold)})`);
