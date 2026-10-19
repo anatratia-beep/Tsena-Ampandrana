@@ -56,7 +56,7 @@ export interface Report {
 
 export interface BossMoney {
   sales: number; mobile: number; unpaid: number; unpaidN: number;
-  cash: { sales: number; expenses: number; unpaid: number; toPay: number };
+  cash: { sales: number; expenses: number; unpaid: number; total: number; toPay: number };
   mvola: { sales: number; expenses: number; toPay: number };
   orange: { sales: number; expenses: number; toPay: number };
   /** Reste impayé des ventes des 7 jours qui finissent avec la période (les ventes annulées ne comptent pas). */
@@ -74,7 +74,7 @@ function salesWithUnpaid(from: string, to: string) {
 }
 
 /**
- * Espèces à verser = ventes en espèces − dépenses espèces − impayés,
+ * Total à verser au patron = ventes en espèces − impayés ; puis ce total − dépenses espèces,
  * où ventes en espèces = ventes de la période − ce qui a été payé en Mobile Money sur ces ventes.
  * MVola / Orange Money = payé avec ce moyen sur les ventes de la période − dépenses payées avec ce compte.
  * Une vente marquée « annulée » sort des ventes et des impayés.
@@ -94,7 +94,7 @@ export function bossMoney(from: string, to: string): BossMoney {
   const w = salesWithUnpaid(wFrom, wTo);
   return {
     sales: s.sales, mobile, unpaid: s.unpaid, unpaidN: s.n,
-    cash: { sales: cashSales, expenses: exp.cash, unpaid: s.unpaid, toPay: cashSales - exp.cash - s.unpaid },
+    cash: { sales: cashSales, expenses: exp.cash, unpaid: s.unpaid, total: cashSales - s.unpaid, toPay: cashSales - s.unpaid - exp.cash },
     mvola: { sales: paid.mvola, expenses: exp.mvola, toPay: paid.mvola - exp.mvola },
     orange: { sales: paid.orange, expenses: exp.orange, toPay: paid.orange - exp.orange },
     week: { from: wFrom, to: wTo, amount: w.unpaid, n: w.n },
@@ -166,7 +166,7 @@ export function reportText(kind: PKind, label: string, r: Report, company: strin
   if (kind === 'day') out.push(`Bénéfice net (sans boost) : ${ar(r.netNoBoost)}`);
   else out.push(`Boost Facebook : ${ar(r.boost)}`, `Coût des articles vendus : ${ar(r.cost)}`, `*Bénéfice net : ${ar(r.net)}*`);
   const m = r.money;
-  out.push('', '*À verser au patron*', `Espèces : ${ar(m.cash.toPay)} (ventes ${ar(m.cash.sales)} − dépenses ${ar(m.cash.expenses)} − impayés ${ar(m.cash.unpaid)})`,
+  out.push('', '*À verser au patron*', `Total à verser patron : ${ar(m.cash.total)}`, `Total à verser − dépenses espèces : ${ar(m.cash.toPay)}`,
     `MVola : ${ar(m.mvola.toPay)} (${ar(m.mvola.sales)} − dépenses ${ar(m.mvola.expenses)})`, `Orange Money : ${ar(m.orange.toPay)} (${ar(m.orange.sales)} − dépenses ${ar(m.orange.expenses)})`,
     `Reste impayé (7 derniers jours) : ${ar(m.week.amount)} (${m.week.n} vente(s))`);
   if (r.pages.length) { out.push('', '*CA par page*'); for (const p of r.pages) out.push(`• ${p.name} : ${ar(p.revenue)} (${p.qty} pcs)`); }

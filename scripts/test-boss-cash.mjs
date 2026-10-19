@@ -1,4 +1,4 @@
-// Rapport au patron, « À verser au patron » : espèces = ventes espèces − dépenses espèces − impayés ; MVola / Orange Money = total − dépenses ;
+// Rapport au patron, « À verser au patron » : total = ventes espèces − impayés, puis total − dépenses espèces ; MVola / Orange Money = total − dépenses ;
 // reste impayé sur 1 semaine (les ventes annulées ne comptent pas).
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
@@ -37,10 +37,10 @@ await p.goto('http://localhost:5173/#/rapports/patron?p=day&a=2026-08-05'); awai
 const tx = N(await p.locator('main').innerText());
 if (process.env.DBG) console.log(tx.slice(0, 1500));
 // CA 90 000 (s6 annulée exclue) − Mobile Money 25 000 = 65 000 de ventes espèces ; − 5 000 de dépenses − 20 000 d'impayés = 40 000
-ok(/Espèces à verser au patron\s*40 000 Ar[\s\S]*?Ventes espèces 65 000 Ar − dépenses espèces 5 000 Ar − impayés 20 000 Ar/.test(tx), 'espèces : 65 000 − 5 000 − 20 000 = 40 000');
+ok(/Total à verser patron\s*45 000 Ar\s*Total à verser − dépenses espèces\s*40 000 Ar/.test(tx), 'cases espèces l’une sous l’autre : total 65 000 − 20 000 = 45 000, puis − 5 000 = 40 000');
 ok(/MVola\s*13 000 Ar[\s\S]*?Total MVola 15 000 Ar − dépenses MVola 2 000 Ar/.test(tx), 'MVola : 15 000 − 2 000 = 13 000');
 ok(/Orange Money\s*9 000 Ar[\s\S]*?Total Orange Money 10 000 Ar − dépenses Orange Money 1 000 Ar/.test(tx), 'Orange Money : 10 000 − 1 000 = 9 000');
 ok(/Reste impayé \(1 semaine\)\s*20 000 Ar[\s\S]*?1 vente\(s\) du 30\/07 au 05\/08/.test(tx), 'reste impayé sur 1 semaine : 20 000 (la vente annulée ne compte pas)');
-ok(tx.includes('*À verser au patron*') && tx.includes('Espèces : 40 000 Ar') && tx.includes('MVola : 13 000 Ar') && tx.includes('Orange Money : 9 000 Ar') && tx.includes('Reste impayé (7 derniers jours) : 20 000 Ar'), 'lignes dans le message WhatsApp');
+ok(tx.includes('*À verser au patron*') && tx.includes('Total à verser patron : 45 000 Ar') && tx.includes('Total à verser − dépenses espèces : 40 000 Ar') && tx.includes('MVola : 13 000 Ar') && tx.includes('Orange Money : 9 000 Ar') && tx.includes('Reste impayé (7 derniers jours) : 20 000 Ar'), 'lignes dans le message WhatsApp');
 await b.close();
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); process.exit(fail ? 1 : 0);
