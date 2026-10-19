@@ -1006,6 +1006,10 @@ tr.row-error td { background: var(--danger-soft); }
 .period-label::first-letter { text-transform: uppercase; }
 .boss-report .stat-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
 .boss-pair { display: grid; gap: 12px; }
+/* Couleurs distinctes : case du bas des espèces (vert), reste impayé semaine précédente (rose) / en cours (bleu-vert). */
+.stat-grid .card.stat-strong.boss-net { background: linear-gradient(140deg, #2F9A5A, #1D6B3D); box-shadow: 0 18px 34px -20px #1D6B3D; }
+.stat-grid .card.stat.boss-unpaidPrev { --c: var(--p-pink); background: var(--p-pink-soft); }
+.stat-grid .card.stat.boss-unpaidCur { --c: var(--p-teal); background: var(--p-teal-soft); }
 .rank { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--brand-soft); color: var(--brand); font-size: .72rem; font-weight: 800; margin-right: 4px; }
 .stock-flow { max-width: 560px; }
 .goal-track { position: relative; height: 12px; border-radius: 999px; background: var(--surface-2); overflow: visible; margin: 6px 0 2px; }
