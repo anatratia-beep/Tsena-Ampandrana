@@ -167,7 +167,7 @@ export function reportText(kind: PKind, label: string, r: Report, company: strin
   else out.push(`Boost Facebook : ${ar(r.boost)}`, `Coût des articles vendus : ${ar(r.cost)}`, `*Bénéfice net : ${ar(r.net)}*`);
   const m = r.money;
   out.push('', '*À verser au patron*', `Total à verser patron : ${ar(m.cash.total)}`, `Total à verser − dépenses espèces : ${ar(m.cash.toPay)}`,
-    `MVola : ${ar(m.mvola.toPay)} (${ar(m.mvola.sales)} − dépenses ${ar(m.mvola.expenses)})`, `Orange Money : ${ar(m.orange.toPay)} (${ar(m.orange.sales)} − dépenses ${ar(m.orange.expenses)})`,
+    `Total MVola : ${ar(m.mvola.sales)}`, `Total MVola − dépenses MVola : ${ar(m.mvola.toPay)}`, `Total Orange Money : ${ar(m.orange.sales)}`, `Total Orange Money − dépenses Orange Money : ${ar(m.orange.toPay)}`,
     `Reste impayé (7 derniers jours) : ${ar(m.week.amount)} (${m.week.n} vente(s))`);
   if (r.pages.length) { out.push('', '*CA par page*'); for (const p of r.pages) out.push(`• ${p.name} : ${ar(p.revenue)} (${p.qty} pcs)`); }
   if (kind !== 'day' && r.stockPages.length) {
