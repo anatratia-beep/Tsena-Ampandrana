@@ -21,7 +21,7 @@ await p.evaluate(async () => {
     o('PART', { status: 'partial', returnedAt: T, lines: [{ id: 'b', variantId: 'v1', qty: 1, unitPrice: 55000, qtyKept: 0, qtyReturned: 1 }, { id: 'c', variantId: 'v2', qty: 1, unitPrice: 55000, qtyKept: 1, qtyReturned: 0 }], payments: [{ id: 'p', at: T, amount: 55000, method: 'cash', receivedBy: 'courier', courierId: 'k1' }] }),
   ]);
 });
-const situ = async (label) => { await p.goto('http://localhost:5173/#/'); await p.waitForTimeout(500); const sel = p.locator('.situation-card select').first(); await sel.selectOption({ label }); await p.waitForTimeout(400); return N(await p.locator('.situation-card').innerText()); };
+const situ = async (label) => { await p.goto('http://localhost:5173/#/'); await p.waitForTimeout(500); const sel = p.locator('.situation-card select').first(); await sel.selectOption(label === 'Hier' ? 'yesterday' : label === "Aujourd'hui" ? 'today' : { label }); await p.waitForTimeout(400); return N(await p.locator('.situation-card').innerText()); };
 let tx = await situ('Hier');
 ok(/= Ventes\s*55 000 Ar/.test(tx), 'hier : ventes 55 000 Ar (annulée et article revenu déduits)');
 if (!/= Ventes\s*55 000 Ar/.test(tx)) console.log(tx.slice(0, 700));

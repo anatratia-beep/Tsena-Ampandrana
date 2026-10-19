@@ -152,7 +152,7 @@ await p.getByLabel('Période').first().selectOption('yesterday'); await p.waitFo
 tx = N(await p.locator('main').innerText());
 ok(tx.includes('Taxi hier') && !tx.includes('Eau aujourd’hui'), 'dépenses : filtre « Hier »');
 const opts = await p.getByLabel('Période').first().locator('option').allInnerTexts();
-ok(['Hier', "Aujourd'hui", 'Demain', 'Jour défini…', 'Période (du … au …)'].every((o) => opts.includes(o)), 'choix : hier, aujourd’hui, demain, jour défini, période');
+ok(["Aujourd'hui", 'Demain', 'Jour défini…', 'Période (du … au …)'].every((o) => opts.includes(o)) && opts.some((o) => o.startsWith('Hier (')) && opts.some((o) => o.startsWith('Il y a 7 jours')), 'choix : 7 derniers jours, hier, aujourd’hui, demain, jour défini, période');
 await p.getByLabel('Période').first().selectOption('day'); await p.waitForTimeout(200);
 ok(await p.getByLabel('Jour').count() === 1, '« Jour défini » : un seul jour à choisir');
 for (const [path, name] of [['/commandes', 'commandes'], ['/achats', 'achats'], ['/receptions', 'réceptions'], ['/clients', 'clients'], ['/stock/mouvements', 'mouvements de stock'], ['/vente', 'ventes']]) {

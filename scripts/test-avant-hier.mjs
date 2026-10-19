@@ -24,4 +24,12 @@ await p.getByLabel('Date de la commande', { exact: true }).selectOption('all');
 await p.getByLabel('Date de paiement', { exact: true }).selectOption('yesterday'); await p.waitForTimeout(300);
 tx = N(await p.locator('main').innerText());
 ok(tx.includes('AH-1') && /Total 10 000 Ar/.test(tx.split('Reçu à la date de paiement')[1] || ''), 'commande d’avant-hier payée hier');
+// Il y a 3 jours (ex. lundi → vendredi)
+await p.evaluate(async () => { const t = window.__tsena; await t.save('orders', [{ id: 'V3', number: 'V3-J', kind: 'order', channel: 'facebook', phone: '0341119999', name: 'Client V', status: 'confirmed', createdAt: new Date(Date.now() - 3 * 86400000).toISOString(), discount: 0, deliveryFee: 0, lines: [{ id: 'lv', variantId: 'v1', qty: 1, unitPrice: 10000 }], payments: [] }]); });
+await p.getByLabel('Date de paiement', { exact: true }).selectOption('all');
+await p.getByLabel('Date de la commande', { exact: true }).selectOption('d3'); await p.waitForTimeout(300);
+tx = N(await p.locator('main').innerText());
+ok(tx.includes('V3-J') && !tx.includes('AH-1'), 'il y a 3 jours');
+const labels = await p.getByLabel('Date de la commande', { exact: true }).locator('option').allInnerTexts();
+ok(labels[0].startsWith('Il y a 7 jours (') && labels.includes('La semaine dernière'), 'choix : 7 jours en arrière avec le nom du jour, semaine dernière');
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);

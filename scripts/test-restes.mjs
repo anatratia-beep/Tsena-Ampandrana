@@ -22,7 +22,7 @@ await p.evaluate(async () => {
 });
 // Situation d'hier
 await p.goto('http://localhost:5173/#/'); await p.waitForTimeout(500);
-await p.locator('.situation-card select').first().selectOption({ label: 'Hier' }); await p.waitForTimeout(400);
+await p.locator('.situation-card select').first().selectOption('yesterday'); await p.waitForTimeout(400);
 let tx = N(await p.locator('.situation-card').innerText());
 ok(/Espèces\s*20 000 Ar/.test(tx) && /1er paiement du reste\s*30 000 Ar/.test(tx) && /Reste à payer\s*50 000 Ar/.test(tx), 'situation d’hier : espèces 20 000, 1er paiement du reste 30 000, reste 50 000');
 if (!/1er paiement du reste\s*30 000 Ar/.test(tx)) console.log(tx.slice(0, 900));

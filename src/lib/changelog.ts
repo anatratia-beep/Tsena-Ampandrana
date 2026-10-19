@@ -2,6 +2,9 @@
 // La plus récente en premier. `date` : AAAA-MM-JJ.
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
+  { date: '2026-10-19', items: [
+    'Filtres de période : on peut revenir jour par jour sur toute la semaine passée (« Il y a 3 jours (vendredi 16/10) » … « Il y a 7 jours »), et « La semaine dernière ».',
+  ] },
   { date: '2026-10-17', items: [
     'Filtres de période : nouveau choix « Avant-hier » partout (commandes : date de la commande et date de paiement, accueil, ventes, rapports…).',
   ] },

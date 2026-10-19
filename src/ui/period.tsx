@@ -1,6 +1,6 @@
 // Sélecteur de période réutilisé par tous les tableaux de bord et rapports.
 import type { ReactNode } from 'react';
-export type PeriodKey = 'today' | 'yesterday' | 'beforeYesterday' | 'tomorrow' | 'day' | 'week' | 'month' | 'year' | '7d' | '30d' | 'all' | 'custom';
+export type PeriodKey = 'today' | 'yesterday' | 'beforeYesterday' | 'd3' | 'd4' | 'd5' | 'd6' | 'd7' | 'lastWeek' | 'tomorrow' | 'day' | 'week' | 'month' | 'year' | '7d' | '30d' | 'all' | 'custom';
 export interface Period { key: PeriodKey; from?: string; to?: string } // dates AAAA-MM-JJ incluses
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -14,6 +14,8 @@ export function rangeOf(key: PeriodKey): { from?: string; to?: string } {
     case 'today': return { from: ymd(now), to: ymd(now) };
     case 'yesterday': return { from: d(y, m, day - 1), to: d(y, m, day - 1) };
     case 'beforeYesterday': return { from: d(y, m, day - 2), to: d(y, m, day - 2) };
+    case 'd3': case 'd4': case 'd5': case 'd6': case 'd7': { const n = Number(key.slice(1)); return { from: d(y, m, day - n), to: d(y, m, day - n) }; }
+    case 'lastWeek': { const dow = (now.getDay() + 6) % 7; return { from: d(y, m, day - dow - 7), to: d(y, m, day - dow - 1) }; }
     case 'tomorrow': return { from: d(y, m, day + 1), to: d(y, m, day + 1) };
     case 'day': return { from: ymd(now), to: ymd(now) };
     case 'week': { const dow = (now.getDay() + 6) % 7; return { from: d(y, m, day - dow), to: ymd(now) }; }
@@ -36,13 +38,21 @@ export function inPeriod(iso: string | undefined, p: Period) {
   return (!r.from || local >= r.from) && (!r.to || local <= r.to);
 }
 
-const OPTIONS: { key: PeriodKey; label: string }[] = [
-  { key: 'beforeYesterday', label: 'Avant-hier' },
-  { key: 'yesterday', label: 'Hier' },
+/** Jour d'il y a n jours, avec son nom (« vendredi 16/10 ») : pour revenir sur toute la semaine passée. */
+const dayAgo = (n: number) => { const t = new Date(); t.setDate(t.getDate() - n); return t.toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: '2-digit' }); };
+const OPTIONS: { key: PeriodKey; label: string | (() => string) }[] = [
+  { key: 'd7', label: () => `Il y a 7 jours (${dayAgo(7)})` },
+  { key: 'd6', label: () => `Il y a 6 jours (${dayAgo(6)})` },
+  { key: 'd5', label: () => `Il y a 5 jours (${dayAgo(5)})` },
+  { key: 'd4', label: () => `Il y a 4 jours (${dayAgo(4)})` },
+  { key: 'd3', label: () => `Il y a 3 jours (${dayAgo(3)})` },
+  { key: 'beforeYesterday', label: () => `Avant-hier (${dayAgo(2)})` },
+  { key: 'yesterday', label: () => `Hier (${dayAgo(1)})` },
   { key: 'today', label: "Aujourd'hui" },
   { key: 'tomorrow', label: 'Demain' },
   { key: 'day', label: 'Jour défini…' },
   { key: 'week', label: 'Cette semaine' },
+  { key: 'lastWeek', label: 'La semaine dernière' },
   { key: 'month', label: 'Ce mois' },
   { key: 'year', label: 'Cette année' },
   { key: '7d', label: '7 jours' },
@@ -74,7 +84,7 @@ export function PeriodPicker({ value, onChange, allowFuture = true, label = 'Pé
       <div className="field">
         <label htmlFor={`${idp}-key`}>{label}</label>
         <select id={`${idp}-key`} aria-label={label} value={value.key} onChange={(e) => { const k = e.target.value as PeriodKey; onChange(k === 'custom' ? { key: 'custom', from: value.from ?? ymd(new Date()), to: value.to ?? ymd(new Date()) } : k === 'day' ? { key: 'day', from: value.from ?? ymd(new Date()), to: value.from ?? ymd(new Date()) } : defaultPeriod(k)); }}>
-          {OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+          {OPTIONS.map((o) => <option key={o.key} value={o.key}>{typeof o.label === 'function' ? o.label() : o.label}</option>)}
         </select>
       </div>
       <div className="period-arrows">
