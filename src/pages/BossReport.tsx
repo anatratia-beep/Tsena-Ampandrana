@@ -58,7 +58,8 @@ export function BossReport() {
     { id: 'orange', rows: [{ label: 'Total Orange Money', cur: m.orange.sales }, { label: 'Total Orange Money − dépenses Orange Money', cur: m.orange.toPay }] },
   ];
   const toBoss: { id: string; label: string; cur: number; prev: number; hint: string; strong?: boolean; invert?: boolean }[] = [
-    { id: 'unpaid', label: 'Reste impayé (1 semaine)', cur: m.week.amount, prev: pm.week.amount, invert: true, hint: `${m.week.n} vente(s) du ${dd(m.week.from)} au ${dd(m.week.to)} pas encore payée(s) · les ventes annulées ne comptent pas` },
+    { id: 'unpaidPrev', label: 'Reste impayé semaine précédente', cur: m.weekPrev.amount, prev: pm.weekPrev.amount, invert: true, hint: `${m.weekPrev.n} vente(s) du ${dd(m.weekPrev.from)} au ${dd(m.weekPrev.to)} pas encore payée(s)` },
+    { id: 'unpaidCur', label: 'Reste impayé semaine en cours', cur: m.weekCur.amount, prev: pm.weekCur.amount, invert: true, hint: `${m.weekCur.n} vente(s) du ${dd(m.weekCur.from)} au ${dd(m.weekCur.to)} pas encore payée(s)` },
   ];
   const pageCols: Col<PageRow>[] = [
     { key: 'n', label: 'Page', value: (x) => x.name, render: (x) => <strong>{x.name}</strong>, width: 22 },
@@ -93,7 +94,7 @@ export function BossReport() {
   }
   async function excel() {
     await exportTables(`rapport_${kind}_${per.from}.xlsx`, [
-      { name: 'Résultat', cols: [{ key: 'l', label: 'Ligne', value: (x: [string, number]) => x[0], width: 34 }, { key: 'v', label: 'Montant', value: (x: [string, number]) => x[1], money: true, width: 16 }], rows: [["Chiffre d'affaires", r.revenue], ['Dépenses', r.expenses], ['Reste', r.rest], ['Ventes espèces', m.cash.sales], ['Impayés', m.cash.unpaid], ['Total à verser patron', m.cash.total], ['Dépenses espèces', m.cash.expenses], ['Total à verser − dépenses espèces', m.cash.toPay], ['Total MVola', m.mvola.sales], ['Dépenses MVola', m.mvola.expenses], ['Total MVola − dépenses MVola', m.mvola.toPay], ['Total Orange Money', m.orange.sales], ['Dépenses Orange Money', m.orange.expenses], ['Total Orange Money − dépenses Orange Money', m.orange.toPay], ['Reste impayé (7 derniers jours)', m.week.amount], ['Coût des articles vendus', r.cost], ['Boost Facebook', r.boost], ['Bénéfice net sans boost', r.netNoBoost], ['Bénéfice net', r.net]] },
+      { name: 'Résultat', cols: [{ key: 'l', label: 'Ligne', value: (x: [string, number]) => x[0], width: 34 }, { key: 'v', label: 'Montant', value: (x: [string, number]) => x[1], money: true, width: 16 }], rows: [["Chiffre d'affaires", r.revenue], ['Dépenses', r.expenses], ['Reste', r.rest], ['Ventes espèces', m.cash.sales], ['Impayés', m.cash.unpaid], ['Total à verser patron', m.cash.total], ['Dépenses espèces', m.cash.expenses], ['Total à verser − dépenses espèces', m.cash.toPay], ['Total MVola', m.mvola.sales], ['Dépenses MVola', m.mvola.expenses], ['Total MVola − dépenses MVola', m.mvola.toPay], ['Total Orange Money', m.orange.sales], ['Dépenses Orange Money', m.orange.expenses], ['Total Orange Money − dépenses Orange Money', m.orange.toPay], ['Reste impayé semaine précédente', m.weekPrev.amount], ['Reste impayé semaine en cours', m.weekCur.amount], ['Coût des articles vendus', r.cost], ['Boost Facebook', r.boost], ['Bénéfice net sans boost', r.netNoBoost], ['Bénéfice net', r.net]] },
       { name: 'CA par page', cols: pageCols, rows: r.pages },
       { name: 'Stock par page', cols: stockCols, rows: r.stockPages },
     ]);
