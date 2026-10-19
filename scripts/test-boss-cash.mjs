@@ -31,8 +31,8 @@ const tx = N(await p.locator('main').innerText());
 if (process.env.DBG) console.log(tx.slice(0, 1500));
 // 30 000 + 18 000 − 3 000 − 5 000 = 40 000
 ok(/Espèces à verser au patron\s*40 000 Ar/.test(tx), 'carte : 30 000 + 18 000 − 3 000 (frais livreur) − 5 000 (dépense) = 40 000');
-ok(tx.includes('Espèces encaissées 48 000 Ar') && tx.includes('frais gardés par les livreurs 3 000 Ar') && tx.includes('dépenses de la caisse 5 000 Ar'), 'détail du calcul sous la carte');
-ok(tx.includes('Mobile Money 15 000 Ar non compris'), 'Mobile Money signalé, pas compté');
+ok(tx.includes('Encaissé 48 000 Ar − frais livreurs 3 000 Ar − dépenses 5 000 Ar'), 'détail du calcul sous la carte');
+ok(tx.includes('hors Mobile Money (15 000 Ar)'), 'Mobile Money signalé, pas compté');
 ok(/\*Espèces à verser : 40 000 Ar\*/.test(tx), 'ligne dans le message WhatsApp');
 await b.close();
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); process.exit(fail ? 1 : 0);
