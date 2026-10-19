@@ -4,7 +4,7 @@ import { all, get } from './db';
 import { variantCost, type Category, type Product, type StockMove, type Variant } from './catalog';
 import { moneyOut, salesLedger } from './analytics';
 import { rootOf } from './scope';
-import { addDays, dayOf, mondayOf, today } from './money';
+import { addDays, dayOf, mondayOf, today, type CashMove } from './money';
 import { grid, usdRate } from './payouts';
 import { courierSplit, isPickupZone, type Order } from './orders';
 
@@ -50,33 +50,37 @@ export interface Report {
   pages: PageRow[];
   stock: { start: number; in: number; end: number; out: number; sold: number; other: number };
   stockPages: StockRow[];
-  cash: CashToBoss;
+  /** Par moyen de paiement : ventes encaissées − dépenses payées avec ce moyen. */
+  money: Record<BossMethod, MethodNet>;
 }
 
-/** Espèces à verser au patron sur la période (même règle que les versements des vendeurs, tous vendeurs confondus). */
-export interface CashToBoss { received: number; fees: number; expenses: number; mobile: number; toPay: number }
+export type BossMethod = 'cash' | 'mvola' | 'orange';
+export const BOSS_METHODS: { id: BossMethod; label: string }[] = [{ id: 'cash', label: 'Espèces' }, { id: 'mvola', label: 'MVola' }, { id: 'orange', label: 'Orange Money' }];
+export interface MethodNet { sales: number; expenses: number; toPay: number }
 
 /**
- * Espèces encaissées (sur place le jour du paiement ; par les livreurs le jour où ils les rapportent)
- * − frais de livraison gardés par les livreurs − dépenses payées avec la caisse commune (« Caisse espèces »).
- * Le mobile money arrive sur les numéros de la boutique : affiché pour info, pas à verser.
+ * Montants à verser au patron, par moyen : ventes encaissées sur la période avec ce moyen − dépenses payées avec ce moyen.
+ * Espèces : sur place le jour du paiement, par les livreurs le jour où ils les rapportent, moins les frais de livraison
+ * qu'ils gardent (ce n'est pas une vente). Dépenses : compte « Caisse espèces », « MVola » ou « Orange Money ».
  */
-export function cashToBoss(from: string, to: string): CashToBoss {
+export function moneyToBoss(from: string, to: string): Record<BossMethod, MethodNet> {
   const inP = (iso?: string) => { if (!iso) return false; const d = dayOf(iso); return d >= from && d <= to; };
-  let received = 0, fees = 0, mobile = 0;
+  const sales: Record<BossMethod, number> = { cash: 0, mvola: 0, orange: 0 };
+  const expenses: Record<BossMethod, number> = { cash: 0, mvola: 0, orange: 0 };
+  const isBoss = (m: string): m is BossMethod => m in sales;
   for (const o of all<Order>('orders')) {
     for (const p of o.payments || []) {
       if (p.method === 'cash' && p.receivedBy === 'courier') continue;
-      if (!inP(p.at)) continue;
-      if (p.method === 'cash') received += p.amount; else mobile += p.amount;
+      if (inP(p.at) && isBoss(p.method)) sales[p.method] += p.amount;
     }
     if (inP(o.courierSettledAt)) {
-      received += (o.payments || []).filter((p) => p.method === 'cash' && p.receivedBy === 'courier').reduce((t, p) => t + p.amount, 0);
-      if (!isPickupZone(o.zoneId) && o.feeStatus !== 'paid') fees += courierSplit(o).feeKept;
+      sales.cash += (o.payments || []).filter((p) => p.method === 'cash' && p.receivedBy === 'courier').reduce((t, p) => t + p.amount, 0);
+      if (!isPickupZone(o.zoneId) && o.feeStatus !== 'paid') sales.cash -= courierSplit(o).feeKept;
     }
   }
-  const expenses = grid(from, to).expensesTotal;
-  return { received, fees, expenses, mobile, toPay: received - fees - expenses };
+  for (const m of all<CashMove>('cashMoves')) if (m.type === 'expense' && isBoss(m.account) && inP(m.at)) expenses[m.account] -= m.amount;
+  const net = (k: BossMethod) => ({ sales: sales[k], expenses: expenses[k], toPay: sales[k] - expenses[k] });
+  return { cash: net('cash'), mvola: net('mvola'), orange: net('orange') };
 }
 
 /** Valeur du stock (au prix de revient) à la fin d'une journée, par page, et entrées pendant la période. */
@@ -129,7 +133,7 @@ export function bossReport(from: string, to: string): Report {
     revenue, expenses, rest: revenue - expenses, cost, boostUsd, boost, netNoBoost, net: netNoBoost - boost,
     orders: new Set(lines.filter((l) => l.kind === 'sale').map((l) => l.order.id)).size, pieces: lines.reduce((t, l) => t + l.qty, 0),
     pages, stock: { start: st.start, in: st.in, end: st.end, out: st.out, sold: cost, other: st.out - cost }, stockPages: st.rows,
-    cash: cashToBoss(from, to),
+    money: moneyToBoss(from, to),
   };
 }
 
@@ -140,9 +144,10 @@ const ar = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} Ar`;
 /** Texte court pour WhatsApp. */
 export function reportText(kind: PKind, label: string, r: Report, company: string) {
   const out = [`*${company} — Rapport ${kind === 'day' ? 'du jour' : kind === 'week' ? 'de la semaine' : kind === 'month' ? 'du mois' : kind === 'year' ? "de l'année" : 'de la période'}*`, label, ''];
-  out.push(`CA : ${ar(r.revenue)}`, `Dépenses : ${ar(r.expenses)}`, `Reste : ${ar(r.rest)}`, `*Espèces à verser : ${ar(r.cash.toPay)}*`);
+  out.push(`CA : ${ar(r.revenue)}`, `Dépenses : ${ar(r.expenses)}`, `Reste : ${ar(r.rest)}`);
   if (kind === 'day') out.push(`Bénéfice net (sans boost) : ${ar(r.netNoBoost)}`);
   else out.push(`Boost Facebook : ${ar(r.boost)}`, `Coût des articles vendus : ${ar(r.cost)}`, `*Bénéfice net : ${ar(r.net)}*`);
+  out.push('', '*À verser au patron*', ...BOSS_METHODS.map((m) => `${m.label} : ${ar(r.money[m.id].toPay)} (ventes ${ar(r.money[m.id].sales)} − dépenses ${ar(r.money[m.id].expenses)})`));
   if (r.pages.length) { out.push('', '*CA par page*'); for (const p of r.pages) out.push(`• ${p.name} : ${ar(p.revenue)} (${p.qty} pcs)`); }
   if (kind !== 'day' && r.stockPages.length) {
     out.push('', '*Stock (prix de revient)*', `Début : ${ar(r.stock.start)}`, `+ Entrées : ${ar(r.stock.in)}`, `Fin : ${ar(r.stock.end)}`, `= Sorti : ${ar(r.stock.out)} (vendu ${ar(r.stock.sold)})`);
