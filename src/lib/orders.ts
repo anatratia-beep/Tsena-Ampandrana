@@ -5,6 +5,7 @@ import { addMoves, nextNumber, stockOf, variantLabel, type Product, type StockMo
 import { DEFAULT_COMPANY, type Company } from './settings';
 import { assertOpenNow } from './closed';
 import { adjustsKeptTotal, adjustsTotal, computeAdjusts, type Adjust } from './lots';
+import type { Rectification, RectifyRequest } from './rectify';
 
 export interface Zone extends BaseRecord { name: string; fee: number; order?: number; active: boolean; pickup?: boolean }
 /** Zone « Sur boutique » : le client vient chercher, pas de frais ni de livreur. */
@@ -96,6 +97,11 @@ export interface Order extends BaseRecord {
   pickedUp?: boolean;
   /** Livraisons reportées à la demande du client (au plus 3 fois, ensuite la commande est annulée). */
   reports?: { at: string; to?: string; reason?: string; user?: string; courierId?: string }[];
+  /** Qui a annulé (pour « Rectifier une annulation » : le vendeur rectifie ses propres annulations). */
+  cancelledById?: string; cancelledByName?: string;
+  /** Annulations rectifiées (annulée par erreur) : historique, et demande en attente du super-admin. */
+  rectifications?: Rectification[];
+  rectifyRequest?: RectifyRequest;
 }
 
 export const ORDER_STATUS: Record<OrderStatus, { label: string; tone: 'neutral' | 'brand' | 'warn' | 'ok' | 'danger' }> = {
@@ -466,7 +472,8 @@ export async function cancelOrder(o: Order, reason: string) {
   for (const m of all<StockMove>('stockMoves')) if (m.refType === 'order' && m.refId === o.id) net.set(m.variantId, (net.get(m.variantId) ?? 0) + m.qty);
   const back = [...net.entries()].filter(([, q]) => q);
   if (back.length) await addMoves(back.map(([variantId, q]) => ({ variantId, qty: -q, type: (o.status === 'out' ? 'delivery_return' : 'return') as StockMove['type'], refType: 'order', refId: o.id, reason: `${o.number} annulée — retour en boutique`, at: bizNow() })));
-  await setStatus(o, 'cancelled', { notes: [o.notes, `Annulée : ${reason}`].filter(Boolean).join('\n') });
+  const u = currentUser();
+  await setStatus(o, 'cancelled', { notes: [o.notes, `Annulée : ${reason}`].filter(Boolean).join('\n'), cancelledById: u?.id, cancelledByName: u?.fullName });
 }
 
 /** Correction d'un paiement (erreur de saisie : montant, moyen, référence, reçu par) : tout est gardé dans l'historique. */

@@ -2,6 +2,10 @@
 // La plus récente en premier. `date` : AAAA-MM-JJ.
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
+  { date: '2026-10-20', items: [
+    'Commandes : nouveau bouton « Rectifier une annulation » sur une commande annulée par erreur (ex. 3 articles, le client en garde 2, mais « Annuler » touché pour toute la commande). On indique ce qui a vraiment été livré : seuls les articles annulés restent en stock, les articles livrés sortent du stock (une seule fois), le montant de la vente et le reste à payer sont recalculés, et l’Accueil, la Situation par page et « À verser au patron » suivent. Les paiements ne changent pas (« Modifier paiement » reste là pour eux).',
+    'Le vendeur rectifie ses propres annulations tant que la semaine n’est pas clôturée (versement au patron) ; après la clôture, sa demande attend la validation du super-admin. Chaque rectification est gardée dans l’historique de la commande et le journal d’activité.',
+  ] },
   { date: '2026-10-19', items: [
     'Filtres de période : on peut revenir jour par jour sur toute la semaine passée (« Il y a 3 jours (vendredi 16/10) » … « Il y a 7 jours »), et « La semaine dernière ».',
   ] },
