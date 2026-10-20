@@ -3,7 +3,7 @@
 import { all, get } from './db';
 import { salesLedger } from './analytics';
 import { rootOf, variantPage } from './scope';
-import { dayOf } from './money';
+import { addDays, dayOf } from './money';
 import type { Order, PayMethod } from './orders';
 import type { Category } from './catalog';
 
@@ -15,7 +15,7 @@ export interface PageSit {
   sales: number; qty: number; orders: number;
   /** Payé le jour de la vente, par moyen. */
   pay: Record<PayMethod, number>; paid: number;
-  /** Reste payé plus tard : 1er paiement du reste (premier paiement après le jour de la vente), 2ème paiement (tout ce qui règle le reste ensuite). */
+  /** Reste payé plus tard : 1er paiement du reste (jour de travail suivant la vente), 2ème paiement (jours d'après). */
   later1: number; later2: number;
   /** Reste encore à payer aujourd'hui. */
   rest: number; restN: number;
@@ -44,16 +44,19 @@ export function payDay(o: Order, p: { at: string; method: PayMethod; receivedBy?
   if (p.method === 'cash' && p.receivedBy === 'courier') return o.courierSettledAt ? dayOf(o.courierSettledAt) : null;
   return dayOf(p.at);
 }
-/** Ordre des paiements du reste : jour de réception, puis heure du paiement (un paiement réparti sur plusieurs moyens a la même heure). */
-const laterKey = (day: string, at: string) => `${day}|${at}`;
+/** Jour du 1er paiement du reste : le jour de travail qui suit la vente (le dimanche n'est pas travaillé : samedi → lundi). */
+export function firstPayDay(day: string): string {
+  const d = addDays(day, 1);
+  return new Date(`${d}T12:00:00`).getDay() === 0 ? addDays(d, 1) : d;
+}
 const itemsValue = (o: Order) => o.lines.reduce((s, l) => s + (l.isChoice ? 0 : l.qty * l.unitPrice), 0) - (o.discount || 0);
 
 /**
  * Situation d'une période, par page (`pages` : pages du vendeur ; vide = toutes) :
  * - Ventes = ce qui est vendu (sur place, livré ; retours déduits ; un échange pris par le client compte comme une vente,
  *   un échange non pris est simplement retiré). Elles se répartissent exactement en espèces + MVola + Orange Money +
- *   Airtel Money (payés le jour de la vente) + 1er paiement du reste + 2ème paiement du reste + reste à payer. Le reste
- *   impayé après le 1er paiement passe au 2ème paiement dès qu'il est réglé.
+ *   Airtel Money (payés le jour de la vente) + 1er paiement du reste + 2ème paiement du reste + reste à payer. 1er paiement :
+ *   le jour de travail suivant la vente (samedi → lundi, le dimanche n'est pas travaillé) ; 2ème paiement : les jours d'après.
  * - Annulé : commandes de la période annulées (retirées du total).
  * - Reporté : livraisons reportées ce jour-là (retirées du total ; la commande passe à la date du report).
  * - Total des commandes = ventes + annulé + reporté.
@@ -81,20 +84,17 @@ export function situation(from: string, to: string, pages?: string[]) {
     for (const [p, q] of qty) if (keep(p)) row(p).qty += q;
     if (sold <= 0.5) { for (const [p, a] of pg) if (keep(p)) row(p).sales += a; continue; } // retour d'une vente d'un autre jour
     // Paiements de cette vente : ceux du jour de la vente (par moyen), puis le reste payé plus tard
-    // (1er paiement : le premier paiement après le jour de la vente ; 2ème paiement : tout ce qui règle ensuite le reste
-    // impayé après le 1er paiement, même le jour même — il n'apparaît plus en « reste à payer »). Ce qui dépasse la
-    // valeur des articles (frais de livraison) n'est pas compté.
+    // (1er paiement : le jour de travail suivant, samedi → lundi ; 2ème paiement : les jours d'après — le reste réglé
+    // n'apparaît plus en « reste à payer »). Ce qui dépasse la valeur des articles (frais de livraison) n'est pas compté.
     const byM: Record<PayMethod, number> = { cash: 0, mvola: 0, orange: 0, airtel: 0 };
     let l1 = 0, l2 = 0;
-    const later: { key: string; amount: number }[] = [];
+    const p1Day = firstPayDay(day);
     for (const pay of o.payments || []) {
       const d = payDay(o, pay);
       if (!d) continue; // espèces encore chez le livreur : pas encore reçues
       if (d <= day) { byM[pay.method] = (byM[pay.method] ?? 0) + pay.amount; continue; }
-      later.push({ key: laterKey(d, pay.at), amount: pay.amount });
+      if (d <= p1Day) l1 += pay.amount; else l2 += pay.amount;
     }
-    const first = later.reduce((k, x) => (!k || x.key < k ? x.key : k), '');
-    for (const x of later) if (x.key === first) l1 += x.amount; else l2 += x.amount;
     const sameTot = Math.max(0, Object.values(byM).reduce((s, x) => s + x, 0));
     const counted = Math.max(0, Math.min(sameTot + l1 + l2, sold));
     const takeSame = Math.min(sameTot, counted);
@@ -169,21 +169,20 @@ export function restLedger(from: string, to: string, pages?: string[]): RestRow[
   for (const { o, day, value, pages: pg } of byOrder.values()) {
     if (value <= 0.5) continue;
     if (only && ![...pg].some((p) => only.has(p))) continue;
-    let same = 0, atCourier = 0; const later = new Map<string, { day: string; amount: number }>();
+    let same = 0, atCourier = 0; const later = new Map<string, number>();
     for (const p of o.payments || []) {
       const d = payDay(o, p);
       if (!d) { atCourier += p.amount; continue; }
-      if (d <= day) { same += p.amount; continue; }
-      const k = laterKey(d, p.at); const e = later.get(k);
-      if (e) e.amount += p.amount; else later.set(k, { day: d, amount: p.amount });
+      if (d <= day) same += p.amount; else later.set(d, (later.get(d) ?? 0) + p.amount);
     }
     let left = value;
     const sameDay = Math.max(0, Math.min(same, left)); left -= sameDay;
-    // 1er paiement du reste = premier paiement après le jour de la vente ; tout le reste réglé ensuite = 2ème paiement.
-    const pays = [...later.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([, x]) => x);
+    // 1er paiement du reste = jour de travail suivant la vente (samedi → lundi) ; les jours d'après = 2ème paiement.
+    const p1Day = firstPayDay(day);
+    const d1 = [...later.keys()].filter((d) => d <= p1Day).sort(), d2 = [...later.keys()].filter((d) => d > p1Day).sort();
     let p1: RestRow['p1'], p2: RestRow['p2'];
-    if (pays.length && left > 0.5) { const a = Math.max(0, Math.min(pays[0].amount, left)); left -= a; if (a > 0.5) p1 = { day: pays[0].day, amount: a }; }
-    if (pays.length > 1 && left > 0.5) { const tot = pays.slice(1).reduce((t, x) => t + x.amount, 0); const a = Math.max(0, Math.min(tot, left)); left -= a; if (a > 0.5) p2 = { day: pays[pays.length - 1].day, amount: a, times: pays.length - 1 }; }
+    if (d1.length && left > 0.5) { const a = Math.max(0, Math.min(d1.reduce((t, d) => t + later.get(d)!, 0), left)); left -= a; if (a > 0.5) p1 = { day: d1[d1.length - 1], amount: a }; }
+    if (d2.length && left > 0.5) { const tot = d2.reduce((t, d) => t + later.get(d)!, 0); const a = Math.max(0, Math.min(tot, left)); left -= a; if (a > 0.5) p2 = { day: d2[d2.length - 1], amount: a, times: d2.length }; }
     if (!p1 && !p2 && left <= 0.5 && sameDay >= value - 0.5) continue; // payé entièrement le jour même : pas de reste
     out.push({ o, day, pages: [...pg], value, sameDay, p1, p2, rest: Math.max(0, left), atCourier: Math.min(Math.max(0, atCourier), Math.max(0, left)) });
   }
