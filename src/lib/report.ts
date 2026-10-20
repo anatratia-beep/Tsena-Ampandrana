@@ -6,7 +6,8 @@ import { moneyOut, salesLedger } from './analytics';
 import { rootOf } from './scope';
 import { addDays, dayOf, mondayOf, today, type CashMove } from './money';
 import { grid, usdRate } from './payouts';
-import { unpaidOf, type Order } from './orders';
+import { courierSplit, isPickupZone, isWalkIn, unpaidOf, type Order } from './orders';
+import { saleDay } from './handovers';
 
 export type PKind = 'day' | 'week' | 'month' | 'year' | 'custom';
 export const PKIND: Record<PKind, string> = { day: 'Jour', week: 'Semaine', month: 'Mois', year: 'Année', custom: 'Période' };
@@ -57,11 +58,13 @@ export interface Report {
 export interface WeekUnpaid { from: string; to: string; amount: number; n: number }
 export interface BossMoney {
   sales: number; mobile: number; unpaid: number; unpaidN: number;
-  cash: { sales: number; expenses: number; unpaid: number; total: number; prevUnpaid: number; toPay: number };
+  /** total = ventes espèces − impayés ; toPay = total − dépenses espèces + anciens impayés encaissés pendant la période. */
+  cash: { sales: number; expenses: number; unpaid: number; total: number; prevPaid: number; prevPaidN: number; toPay: number };
   mvola: { sales: number; expenses: number; toPay: number };
   orange: { sales: number; expenses: number; toPay: number };
   /** Reste impayé des ventes de la semaine en cours et de la semaine précédente (lundi → dimanche), par rapport à la fin
-   *  de la période ; les ventes annulées ne comptent pas. */
+   *  de la période ; les ventes annulées ou reportées ne comptent pas. Celui de la semaine précédente est figé au comptage
+   *  du lundi : un encaissement après ce comptage ne le diminue pas (il va dans « Impayé précédent à verser »). */
   weekCur: WeekUnpaid; weekPrev: WeekUnpaid;
 }
 
@@ -75,9 +78,42 @@ function salesWithUnpaid(from: string, to: string) {
   return { sales: lines.reduce((t, l) => t + l.amount, 0), orders: [...orders.values()], unpaid, n };
 }
 
+/** Encaissements d'une vente, par jour : paiements reçus en boutique, et argent du livreur le jour où il le verse. */
+function cashIns(o: Order): { day: string; amount: number }[] {
+  const out = (o.payments || []).filter((p) => !(p.receivedBy === 'courier' && !isWalkIn(o) && !isPickupZone(o.zoneId))).map((p) => ({ day: dayOf(p.at), amount: p.amount }));
+  if (o.courierSettledAt && !isWalkIn(o) && !isPickupZone(o.zoneId)) out.push({ day: dayOf(o.courierSettledAt), amount: courierSplit(o).toCollect });
+  return out;
+}
+
+/** Reste impayé d'une semaine tel qu'il était au comptage du lundi `count` : ce qui reste aujourd'hui + ce qui a été
+ *  encaissé depuis. Seules une annulation ou un report (la vente sort de la semaine) le font baisser. */
+function frozenUnpaid(from: string, to: string, count: string): WeekUnpaid {
+  let amount = 0, n = 0;
+  for (const o of salesWithUnpaid(from, to).orders) {
+    if (o.status === 'cancelled') continue;
+    const x = (unpaidOf(o)?.amount ?? 0) + cashIns(o).filter((c) => c.day >= count).reduce((t, c) => t + c.amount, 0);
+    if (x > 0.5) { amount += x; n++; }
+  }
+  return { from, to, amount, n };
+}
+
+/** Anciens impayés encaissés pendant la période : ventes d'une semaine déjà comptée (et d'avant la période), payées
+ *  entre `from` et `to`. Ils s'ajoutent à la 2e case « À verser au patron ». */
+function prevUnpaidPaid(from: string, to: string) {
+  let amount = 0; const ids = new Set<string>();
+  for (const o of all<Order>('orders')) {
+    if (o.status === 'cancelled' || (!isWalkIn(o) && !o.dispatchedAt)) continue;
+    const sd = saleDay(o);
+    if (sd >= from) continue;
+    for (const c of cashIns(o)) if (c.day >= from && c.day <= to && mondayOf(sd) < mondayOf(c.day)) { amount += c.amount; ids.add(o.id); }
+  }
+  return { amount, n: ids.size };
+}
+
 /**
- * Total à verser au patron = ventes en espèces − impayés ; puis ce total − dépenses espèces + reste impayé de la semaine précédente,
- * où ventes en espèces = ventes de la période − ce qui a été payé en Mobile Money sur ces ventes.
+ * 1re case : Total à verser = ventes en espèces − impayés (sans dépenses ni anciens impayés).
+ * 2e case : Total à verser − dépenses espèces + anciens impayés encaissés pendant la période (« Impayé précédent à verser »).
+ * Ventes en espèces = ventes de la période − ce qui a été payé en Mobile Money sur ces ventes.
  * MVola / Orange Money = payé avec ce moyen sur les ventes de la période − dépenses payées avec ce compte.
  * Une vente marquée « annulée » sort des ventes et des impayés.
  */
@@ -94,10 +130,11 @@ export function bossMoney(from: string, to: string): BossMoney {
   const cashSales = s.sales - mobile;
   const end = to < today() ? to : today(), mon = mondayOf(end);
   const unpaidWeek = (from: string, to: string): WeekUnpaid => { const w = salesWithUnpaid(from, to); return { from, to, amount: w.unpaid, n: w.n }; };
-  const weekPrev = unpaidWeek(addDays(mon, -7), addDays(mon, -1)), total = cashSales - s.unpaid;
+  const weekPrev = frozenUnpaid(addDays(mon, -7), addDays(mon, -1), mon), total = cashSales - s.unpaid;
+  const prev = prevUnpaidPaid(from, end);
   return {
     sales: s.sales, mobile, unpaid: s.unpaid, unpaidN: s.n,
-    cash: { sales: cashSales, expenses: exp.cash, unpaid: s.unpaid, total, prevUnpaid: weekPrev.amount, toPay: total - exp.cash + weekPrev.amount },
+    cash: { sales: cashSales, expenses: exp.cash, unpaid: s.unpaid, total, prevPaid: prev.amount, prevPaidN: prev.n, toPay: total - exp.cash + prev.amount },
     mvola: { sales: paid.mvola, expenses: exp.mvola, toPay: paid.mvola - exp.mvola },
     orange: { sales: paid.orange, expenses: exp.orange, toPay: paid.orange - exp.orange },
     weekCur: unpaidWeek(mon, end), weekPrev,
@@ -169,7 +206,8 @@ export function reportText(kind: PKind, label: string, r: Report, company: strin
   if (kind === 'day') out.push(`Bénéfice net (sans boost) : ${ar(r.netNoBoost)}`);
   else out.push(`Boost Facebook : ${ar(r.boost)}`, `Coût des articles vendus : ${ar(r.cost)}`, `*Bénéfice net : ${ar(r.net)}*`);
   const m = r.money;
-  out.push('', '*À verser au patron*', `Total à verser patron : ${ar(m.cash.total)}`, `Total à verser − dépenses espèces + reste impayé semaine précédente : ${ar(m.cash.toPay)}`,
+  out.push('', '*À verser au patron*', `Total à verser : ${ar(m.cash.total)}`, `Dépenses espèces : ${ar(m.cash.expenses)}`, `Impayé précédent à verser : ${ar(m.cash.prevPaid)}`,
+    `*Total à verser après dépenses et anciens impayés encaissés : ${ar(m.cash.toPay)}*`,
     `Total MVola : ${ar(m.mvola.sales)}`, `Total MVola − dépenses MVola : ${ar(m.mvola.toPay)}`, `Total Orange Money : ${ar(m.orange.sales)}`, `Total Orange Money − dépenses Orange Money : ${ar(m.orange.toPay)}`,
     `Reste impayé semaine précédente : ${ar(m.weekPrev.amount)} (${m.weekPrev.n} vente(s))`, `Reste impayé semaine en cours : ${ar(m.weekCur.amount)} (${m.weekCur.n} vente(s))`);
   if (r.pages.length) { out.push('', '*CA par page*'); for (const p of r.pages) out.push(`• ${p.name} : ${ar(p.revenue)} (${p.qty} pcs)`); }
