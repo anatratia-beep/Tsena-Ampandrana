@@ -65,7 +65,8 @@ export interface BossMoney {
   mvola: { sales: number; expenses: number; toPay: number };
   orange: { sales: number; expenses: number; toPay: number };
   /** Reste impayé des ventes de la semaine en cours et de la semaine précédente (lundi → dimanche), par rapport à la fin
-   *  de la période ; les ventes annulées ou reportées ne comptent pas. Celui de la semaine précédente est figé au comptage
+   *  de la période, sans frais de livraison (l'argent remis au livreur compte comme payé) ; les ventes annulées ou
+   *  reportées ne comptent pas. Celui de la semaine en cours suit les paiements ; celui de la semaine précédente est figé au comptage
    *  du lundi : un encaissement après ce comptage ne le diminue pas (il va dans « Impayé précédent à verser »). */
   weekCur: WeekUnpaid; weekPrev: WeekUnpaid;
 }
@@ -138,7 +139,6 @@ export function bossMoney(from: string, to: string): BossMoney {
   }
   const mobile = paid.mvola + paid.orange + paid.airtel;
   const end = to < today() ? to : today(), mon = mondayOf(end);
-  const unpaidWeek = (from: string, to: string): WeekUnpaid => { const w = salesWithUnpaid(from, to); return { from, to, amount: w.unpaid, n: w.n }; };
   const weekPrev = frozenUnpaid(addDays(mon, -7), addDays(mon, -1), mon), total = pay.cash;
   const prev = prevUnpaidPaid(from, end);
   return {
@@ -146,7 +146,7 @@ export function bossMoney(from: string, to: string): BossMoney {
     cash: { expenses: exp.cash, total, prevPaid: prev.amount, prevPaidN: prev.n, toPay: total - exp.cash + prev.amount },
     mvola: { sales: paid.mvola, expenses: exp.mvola, toPay: paid.mvola - exp.mvola },
     orange: { sales: paid.orange, expenses: exp.orange, toPay: paid.orange - exp.orange },
-    weekCur: unpaidWeek(mon, end), weekPrev,
+    weekCur: frozenUnpaid(mon, end, addDays(end, 1)), weekPrev,
   };
 }
 
