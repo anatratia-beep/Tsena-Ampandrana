@@ -102,7 +102,7 @@ export function dayReportText(r: DayReport, who: string, company: string, note?:
   if (Math.round(T.pay.orange)) out.push(`Orange Money : ${ar(T.pay.orange)}`);
   if (Math.round(T.pay.airtel)) out.push(`Airtel Money : ${ar(T.pay.airtel)}`);
   if (Math.round(T.later1)) out.push(`1er paiement du reste : ${ar(T.later1)}`);
-  if (Math.round(T.later2)) out.push(`2e paiement du reste : ${ar(T.later2)}`);
+  if (Math.round(T.later2)) out.push(`2ème paiement du reste : ${ar(T.later2)}`);
   out.push(`Reste à payer : ${ar(T.rest)}${T.restN ? ` (${T.restN} commande(s))` : ''}`);
   if (T.cancelledN) out.push(`Annulé : ${ar(T.cancelled)} (${T.cancelledN} commande(s))`);
   if (T.reportedN) out.push(`Reporté : ${ar(T.reported)} (${T.reportedN} commande(s))`);
