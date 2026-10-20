@@ -46,7 +46,7 @@ export function HandoversPage() {
 const dd = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' });
 /**
  * Restes à payer : ventes pas encore entièrement payées (vente de 100 000, payé 20 000 le jour → reste 80 000), avec
- * le 1er paiement du reste et le 2e paiement du reste quand ils arrivent (le lendemain ou après).
+ * le 1er paiement du reste et le 2ème paiement du reste quand ils arrivent (le lendemain ou après).
  */
 function Restes({ date, pages }: { date: string; pages?: string[] }) {
   useTable('couriers');
@@ -66,11 +66,11 @@ function Restes({ date, pages }: { date: string; pages?: string[] }) {
           <Button variant={view === 'open' ? 'primary' : 'ghost'} className="btn-sm" onClick={() => setView('open')}>Encore à payer ({open.length})</Button>
           <Button variant={view === 'paid' ? 'primary' : 'ghost'} className="btn-sm" onClick={() => setView('paid')}>Restes payés ce jour ({paid.length})</Button>
         </div>
-        <p className="small muted" style={{ margin: 0 }}>{view === 'open' ? 'Ventes pas encore entièrement payées à ce jour, par jour de vente. Ex. vente de 100 000 Ar, payé 20 000 Ar le jour : reste 80 000 Ar, payé ensuite en 1er puis 2e paiement.' : 'Restes de ventes des jours précédents reçus ce jour (1er ou 2e paiement du reste).'}</p>
+        <p className="small muted" style={{ margin: 0 }}>{view === 'open' ? 'Ventes pas encore entièrement payées à ce jour, par jour de vente. Ex. vente de 100 000 Ar, payé 20 000 Ar le jour : reste 80 000 Ar, payé ensuite en 1er puis 2ème paiement.' : 'Restes de ventes des jours précédents reçus ce jour (1er ou 2ème paiement du reste).'}</p>
       </div>
       {list.length === 0 ? <p className="card-pad small muted" style={{ paddingTop: 0 }}>{view === 'open' ? 'Aucun reste à payer.' : 'Aucun reste payé ce jour.'}</p> : (
         <div className="table-wrap"><table className="table table-grid">
-          <thead><tr><th>Commande</th><th>Page</th><th className="t-num">Vente</th><th className="t-num">Payé le jour</th><th className="t-num">1er paiement du reste</th><th className="t-num">2e paiement du reste</th><th className="t-num">Reste à payer</th></tr></thead>
+          <thead><tr><th>Commande</th><th>Page</th><th className="t-num">Vente</th><th className="t-num">Payé le jour</th><th className="t-num">1er paiement du reste</th><th className="t-num">2ème paiement du reste</th><th className="t-num">Reste à payer</th></tr></thead>
           <tbody>{days.map((day) => {
             const xs = list.filter((r) => r.day === day);
             return [
