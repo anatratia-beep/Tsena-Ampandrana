@@ -59,7 +59,7 @@ export function BossReport() {
   ];
   const toBoss: { id: string; label: string; cur: number; prev: number; hint: string; invert?: boolean }[] = [
     { id: 'prevPaid', label: 'Impayé précédent à verser', cur: m.cash.prevPaid, prev: pm.cash.prevPaid, hint: `${m.cash.prevPaidN} ancienne(s) vente(s) payée(s) après le comptage` },
-    { id: 'unpaidPrev', label: 'Reste impayé semaine précédente', cur: m.weekPrev.amount, prev: pm.weekPrev.amount, invert: true, hint: `${m.weekPrev.n} vente(s) du ${dd(m.weekPrev.from)} au ${dd(m.weekPrev.to)}, figé au comptage du lundi` },
+    { id: 'unpaidPrev', label: 'Reste impayé semaine précédente', cur: m.weekPrev.amount, prev: pm.weekPrev.amount, invert: true, hint: `${m.weekPrev.n} vente(s) du ${dd(m.weekPrev.from)} au ${dd(m.weekPrev.to)} pas encore payée(s)` },
     { id: 'unpaidCur', label: 'Reste impayé semaine en cours', cur: m.weekCur.amount, prev: pm.weekCur.amount, invert: true, hint: `${m.weekCur.n} vente(s) du ${dd(m.weekCur.from)} au ${dd(m.weekCur.to)} pas encore payée(s)` },
   ];
   const mobile = [
