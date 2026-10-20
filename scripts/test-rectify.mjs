@@ -106,7 +106,6 @@ await p.goto('http://localhost:5173/#/commandes/K1'); await p.waitForTimeout(500
 await p.getByRole('button', { name: 'Rectifier une annulation' }).click(); await p.waitForTimeout(300);
 dlg = p.getByRole('dialog');
 await dlg.getByLabel('Livré KP2').fill('0');
-await dlg.getByLabel('Motif de la rectification').fill('le client a pris 1 kapa');
 ok(await dlg.getByLabel('Argent reçu du client pour les articles livrés (Ar)').inputValue() === '15000', 'kapa : 15 000 Ar proposés (article pris)');
 await dlg.getByRole('button', { name: 'Rectifier', exact: true }).click(); await p.waitForTimeout(600);
 o = await order('K1');

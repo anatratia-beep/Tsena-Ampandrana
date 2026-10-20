@@ -82,6 +82,9 @@ export function planRectify(o: Order, r: Pick<RectifyInput, 'kept' | 'feeCharged
   return { lines, status, keptAny, stock, after, total, items: keptTotal(after), paid: paidTotal(o), rest: total - paidTotal(o) };
 }
 
+/** Motif par défaut : le motif n'est pas obligatoire (tout est déjà dans l'historique : qui, quand, quoi). */
+const DEFAULT_REASON = 'Annulée par erreur';
+
 const inFlight = new Set<string>();
 
 async function apply(o: Order, r: RectifyInput, req?: RectifyRequest) {
@@ -91,8 +94,7 @@ async function apply(o: Order, r: RectifyInput, req?: RectifyRequest) {
     // Toujours repartir de la commande enregistrée : si elle a déjà été rectifiée (autre appareil, double clic), on s'arrête.
     const fresh = get<Order>('orders', o.id);
     if (!fresh || fresh.status !== 'cancelled') throw new Error('Cette commande n’est plus annulée : elle a déjà été rectifiée.');
-    const reason = r.reason.trim();
-    if (!reason) throw new Error('Indiquez le motif de la rectification.');
+    const reason = r.reason.trim() || DEFAULT_REASON;
     const plan = planRectify(fresh, r);
     if (!plan.keptAny) throw new Error('Indiquez au moins un article livré : si rien n’a été livré, l’annulation est juste.');
     await pointBefore(`rectification de l’annulation de ${fresh.number}`);
@@ -150,11 +152,10 @@ export async function rectifyCancellation(o: Order, r: RectifyInput) {
 export async function requestRectify(o: Order, r: RectifyInput) {
   const right = rectifyRight(o);
   if (right.mode === 'none') throw new Error(right.why || 'Vous ne pouvez pas rectifier cette annulation.');
-  if (!r.reason.trim()) throw new Error('Indiquez le motif de la rectification.');
   if (!planRectify(o, r).keptAny) throw new Error('Indiquez au moins un article livré : si rien n’a été livré, l’annulation est juste.');
   const u = currentUser();
   const at = bizNow();
-  const req: RectifyRequest = { kept: r.kept, feeCharged: r.feeCharged, reason: r.reason.trim(), ...(r.collected?.amount ? { collected: r.collected } : {}), at, byId: u?.id, byName: u?.fullName };
+  const req: RectifyRequest = { kept: r.kept, feeCharged: r.feeCharged, reason: r.reason.trim() || DEFAULT_REASON, ...(r.collected?.amount ? { collected: r.collected } : {}), at, byId: u?.id, byName: u?.fullName };
   await save('orders', { id: o.id, rectifyRequest: req, events: [...(o.events || []), { at, text: `Rectification de l’annulation demandée (à valider par le super-admin) — ${req.reason}`, user: u?.fullName }] });
   await audit('Rectification demandée', `${o.number} — ${req.reason}`, 'orders', o.id, 'high');
 }

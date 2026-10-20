@@ -1091,7 +1091,8 @@ function RectifyModal({ order: o, onClose }: { order: Order; onClose: () => void
   const request = right.mode === 'request';
   return (
     <Modal title={`Rectifier une annulation — ${o.number}`} onClose={onClose} wide
-      footer={<><Button variant="ghost" onClick={onClose}>Fermer</Button><Button busy={busy} disabled={!plan.keptAny || !reason.trim()} onClick={async () => {
+      footer={<><Button variant="ghost" onClick={onClose}>Fermer</Button><Button busy={busy} onClick={async () => {
+        if (!plan.keptAny) { toast('Indiquez au moins 1 article livré (colonne « Livré »).', 'error'); return; }
         setBusy(true);
         try {
           const input = { kept: keptNum, feeCharged: parseNum(fee) ?? 0, reason, collected: amountVal > 0 ? { amount: amountVal, method, ref: ref.trim() || undefined, receivedBy: by } : undefined };
@@ -1141,8 +1142,8 @@ function RectifyModal({ order: o, onClose }: { order: Order; onClose: () => void
         </div>
         {plan.stock.length > 0 && <p className="small muted">Stock : {plan.stock.map((m) => `${get<Variant>('variants', m.variantId)?.sku ?? '?'} ${m.qty > 0 ? `+${m.qty} (remis)` : `${m.qty} (livré)`}`).join(' ; ')}.</p>}
         {refunds.length > 0 && <p className="small" style={{ color: 'var(--warn, #9a6700)' }}>L’annulation avait enregistré un remboursement ({refunds.map((p) => fmtAr(-p.amount)).join(', ')}). S’il n’a pas eu lieu, corrigez-le ensuite avec le crayon du paiement (« Modifier paiement »).</p>}
-        {!plan.keptAny && <p className="small muted">Aucun article livré : l’annulation est juste, rien à rectifier.</p>}
-        <TextField label="Motif de la rectification" value={reason} onChange={setReason} placeholder="Ex. le client a gardé 2 articles, « Annuler » touché par erreur" required />
+        {!plan.keptAny && <div className="notice notice-danger"><Icon name="alert" /><span>Aucun article livré : indiquez dans la colonne « Livré » le nombre de pièces que le client a gardées.</span></div>}
+        <TextField label="Motif de la rectification" value={reason} onChange={setReason} placeholder="Annulée par erreur" hint="Facultatif" />
       </div>
     </Modal>
   );
