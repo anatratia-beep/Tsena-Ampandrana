@@ -8,7 +8,7 @@ import { addDays, dayOf, mondayOf, today, type CashMove } from './money';
 import { grid, usdRate } from './payouts';
 import { isWalkIn, unpaidOf, type Order } from './orders';
 import { saleDay } from './handovers';
-import { payDay, situation } from './situation';
+import { situation } from './situation';
 
 export type PKind = 'day' | 'week' | 'month' | 'year' | 'custom';
 export const PKIND: Record<PKind, string> = { day: 'Jour', week: 'Semaine', month: 'Mois', year: 'Année', custom: 'Période' };
@@ -80,15 +80,15 @@ function salesWithUnpaid(from: string, to: string) {
   return { sales: lines.reduce((t, l) => t + l.amount, 0), orders: [...orders.values()], unpaid, n };
 }
 
-/** Encaissements d'une vente, par jour où l'argent arrive à la boutique (même règle que l'accueil : l'argent du livreur
- *  arrive le jour où il le verse). */
-const cashIns = (o: Order) => (o.payments || []).map((p) => ({ day: payDay(o, p), amount: p.amount })).filter((c): c is { day: string; amount: number } => !!c.day);
+/** Paiements d'une vente, au jour où le client a payé (en boutique ou au livreur) : l'argent déjà donné au livreur n'est
+ *  pas un impayé du client, même si le livreur le verse plus tard. */
+const cashIns = (o: Order) => (o.payments || []).map((p) => ({ day: dayOf(p.at), amount: p.amount }));
 
 /** Valeur des articles d'une vente (sans les frais de livraison) : un paiement n'est compté que jusqu'à cette valeur. */
 const itemsValue = (o: Order) => o.lines.reduce((t, l) => t + (l.isChoice ? 0 : (l.qtyKept ?? l.qty) * l.unitPrice), 0) - (o.discount || 0);
 
-/** Reste impayé d'une semaine tel qu'il était au comptage du lundi `count`, calculé comme le « Reste à payer » de
- *  l'accueil : valeur vendue − paiements arrivés à la boutique avant le lundi (frais de livraison non comptés).
+/** Reste impayé d'une semaine tel qu'il était au comptage du lundi `count` : valeur vendue − ce que les clients ont payé
+ *  avant le lundi (frais de livraison non comptés ; l'argent remis au livreur compte comme payé).
  *  Un paiement après le comptage ne le baisse pas ; seules une annulation ou un report (la vente sort de la semaine) le font. */
 function frozenUnpaid(from: string, to: string, count: string): WeekUnpaid {
   const sold = new Map<string, { o: Order; v: number }>();
