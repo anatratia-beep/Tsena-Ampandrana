@@ -65,8 +65,8 @@ export interface BossMoney {
   mvola: { sales: number; expenses: number; toPay: number };
   orange: { sales: number; expenses: number; toPay: number };
   /** Reste impayé des ventes de la semaine en cours et de la semaine précédente (lundi → dimanche), par rapport à la fin
-   *  de la période, sans frais de livraison (l'argent remis au livreur compte comme payé) ; les ventes annulées ou
-   *  reportées ne comptent pas. Celui de la semaine en cours suit les paiements ; celui de la semaine précédente est figé au comptage
+   *  de la période ; les ventes annulées ou reportées ne comptent pas. Celui de la semaine en cours = « Reste à payer » de
+   *  l'accueil ; celui de la semaine précédente (sans frais, l'argent remis au livreur compte comme payé) est figé au comptage
    *  du lundi : un encaissement après ce comptage ne le diminue pas (il va dans « Impayé précédent à verser »). */
   weekCur: WeekUnpaid; weekPrev: WeekUnpaid;
 }
@@ -122,6 +122,13 @@ function prevUnpaidPaid(from: string, to: string) {
   return { amount, n: ids.size };
 }
 
+/** Reste impayé de la semaine en cours : exactement le « Reste à payer » de « Situation par page » (accueil) sur la
+ *  même période (sans frais de livraison ; l'argent encore chez le livreur reste à payer jusqu'à son versement). */
+function restLikeAccueil(from: string, to: string): WeekUnpaid {
+  const t = situation(from, to).total;
+  return { from, to, amount: t.rest, n: t.restN };
+}
+
 /**
  * Paiements repris de « Situation par page » (accueil) : espèces, MVola, Orange Money payés le jour de la vente.
  * 1re case : Total à verser = espèces (sans dépenses ni anciens impayés).
@@ -146,7 +153,7 @@ export function bossMoney(from: string, to: string): BossMoney {
     cash: { expenses: exp.cash, total, prevPaid: prev.amount, prevPaidN: prev.n, toPay: total - exp.cash + prev.amount },
     mvola: { sales: paid.mvola, expenses: exp.mvola, toPay: paid.mvola - exp.mvola },
     orange: { sales: paid.orange, expenses: exp.orange, toPay: paid.orange - exp.orange },
-    weekCur: frozenUnpaid(mon, end, addDays(end, 1)), weekPrev,
+    weekCur: restLikeAccueil(mon, end), weekPrev,
   };
 }
 
