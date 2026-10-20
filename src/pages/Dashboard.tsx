@@ -155,7 +155,8 @@ const pct = (n: number) => (Math.abs(n) < 0.0005 ? 0 : n * 100).toLocaleString('
 
 function usePeriod() {
   const saved = useMeta<Period | null>('dashPeriod', null);
-  const p = saved?.key && saved.key !== 'custom' ? defaultPeriod(saved.key) : saved ?? defaultPeriod('today');
+  // Jour défini ou dates libres : on garde les dates choisies ; sinon la période relative est recalculée (aujourd'hui, hier…).
+  const p = saved?.key && saved.key !== 'custom' && saved.key !== 'day' ? defaultPeriod(saved.key) : saved ?? defaultPeriod('today');
   return [p, (v: Period) => setMeta('dashPeriod', v)] as const;
 }
 
@@ -358,11 +359,11 @@ function SituationCard({ from: f, to: t }: { from?: string; to?: string }) {
           <div className="card stat"><span className="small muted">MVola</span><strong className="stat-value num">{fmtAr(T.pay.mvola)}</strong></div>
           <div className="card stat"><span className="small muted">Orange Money</span><strong className="stat-value num">{fmtAr(T.pay.orange)}</strong></div>
           <div className="card stat"><span className="small muted">Airtel Money</span><strong className="stat-value num">{fmtAr(T.pay.airtel)}</strong></div>
-          <div className="card stat"><span className="small muted">1er paiement du reste</span><strong className="stat-value num">{fmtAr(T.later1)}</strong><span className="small muted">1er paiement après le jour de la vente</span></div>
-          <div className="card stat"><span className="small muted">2ème paiement du reste</span><strong className="stat-value num">{fmtAr(T.later2)}</strong><span className="small muted">reste réglé après le 1er paiement</span></div>
+          <div className="card stat"><span className="small muted">1er paiement du reste</span><strong className="stat-value num">{fmtAr(T.later1)}</strong><span className="small muted">payé le jour de travail suivant</span></div>
+          <div className="card stat"><span className="small muted">2ème paiement du reste</span><strong className="stat-value num">{fmtAr(T.later2)}</strong><span className="small muted">payé les jours d’après</span></div>
           <a className="card stat" href="#/commandes/terminees" style={{ textDecoration: 'none', color: 'inherit' }}><span className="small muted">Reste à payer</span><strong className={`stat-value num ${T.rest ? 'neg' : ''}`}>{fmtAr(T.rest)}</strong><span className="small muted">{T.restN} commande(s)</span></a>
         </div>
-        <p className="small muted" style={{ margin: 0 }}>Total commandes − annulé − reporté = <strong>ventes</strong> ; ventes = espèces + MVola + Orange Money + Airtel Money (payés le jour de la vente) + 1er paiement du reste + <strong>2ème paiement du reste</strong> + reste à payer.<br />Le <strong>reste impayé</strong> après le <strong>1er paiement</strong> passe automatiquement au <strong>2ème paiement</strong> quand il est réglé (il n’apparaît plus séparément en « reste impayé » mais est comptabilisé dans le 2ème paiement).<br />Une livraison reportée passe à sa nouvelle date ; un échange pris par le client compte dans les ventes, un échange non pris est retiré.<br />Une commande avec des articles de plusieurs pages est répartie selon la valeur de chaque page.</p>
+        <p className="small muted" style={{ margin: 0 }}>Total commandes − annulé − reporté = <strong>ventes</strong> ; ventes = espèces + MVola + Orange Money + Airtel Money (payés le jour de la vente) + 1er paiement du reste + <strong>2ème paiement du reste</strong> + reste à payer.<br />Le <strong>reste impayé</strong> après le <strong>1er paiement</strong> passe automatiquement au <strong>2ème paiement</strong> quand il est réglé les jours d’après (il n’apparaît plus séparément en « reste impayé » mais est comptabilisé dans le 2ème paiement). Le 1er paiement est le jour de travail suivant la vente (le dimanche n’est pas travaillé : vente du samedi → 1er paiement le lundi).<br />Une livraison reportée passe à sa nouvelle date ; un échange pris par le client compte dans les ventes, un échange non pris est retiré.<br />Une commande avec des articles de plusieurs pages est répartie selon la valeur de chaque page.</p>
       </div>
       {sit.rows.length === 0 ? <p className="card-pad small muted">Aucune activité sur cette période.</p> : (
         <div className="table-wrap"><table className="table table-grid sit-table">
