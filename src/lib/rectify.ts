@@ -12,11 +12,15 @@ import { SUPERADMIN_ROLE } from './permissions';
 import { type StockMove } from './catalog';
 import { closedBy } from './closed';
 import { netMoves } from './corrections';
-import { isWalkIn, keptTotal, ORDER_STATUS, orderTotal, paidTotal, type Order, type OrderLine, type OrderStatus } from './orders';
+import { isWalkIn, keptTotal, ORDER_STATUS, PAY_METHODS, orderTotal, paidTotal, type Order, type OrderLine, type OrderStatus, type PayMethod, type Payment } from './orders';
 import { pointBefore } from './restorePoints';
 
 /** Ce que le vendeur indique : pièces livrées (gardées par le client) par ligne, frais facturés, motif. */
-export interface RectifyInput { kept: Record<string, number>; feeCharged: number; reason: string }
+export interface RectifyInput {
+  kept: Record<string, number>; feeCharged: number; reason: string;
+  /** Argent reçu du client pour les articles livrés (comme au retour du livreur) : non enregistré à cause de l'annulation. */
+  collected?: { amount: number; method: PayMethod; ref?: string; receivedBy: 'shop' | 'courier' };
+}
 /** Demande envoyée au super-admin quand la semaine est déjà clôturée. */
 export interface RectifyRequest extends RectifyInput { at: string; byId?: string; byName?: string }
 /** Historique d'une rectification : avant / après, stock bougé, qui l'a demandée et validée. */
@@ -106,6 +110,15 @@ async function apply(o: Order, r: RectifyInput, req?: RectifyRequest) {
     const dispatchedAt = fresh.dispatchedAt || (walkIn ? fresh.createdAt : cancelAt);
     const returnedAt = fresh.returnedAt || (walkIn ? fresh.createdAt : cancelAt);
     const beforeTotal = orderTotal(fresh);
+    // Argent encaissé pour les articles livrés : daté d'aujourd'hui (reçu maintenant) : pour une vente d'un jour passé, il
+    // compte en « 1er / 2ème paiement du reste » et s'ajoute aux espèces à verser du jour. Identifiant fixe : jamais deux fois.
+    const c = r.collected;
+    const byCourier = c?.receivedBy === 'courier' && !!fresh.courierId && !walkIn;
+    const pay: Payment[] = c && c.amount > 0 ? [{
+      id: `rect-pay-${fresh.id}-${n}`, at, amount: Math.round(c.amount), method: c.method, ref: c.ref?.trim() || undefined,
+      receivedBy: byCourier ? 'courier' : 'shop', ...(byCourier ? { courierId: fresh.courierId } : {}), userName: u?.fullName, note: 'Encaissé — annulation rectifiée',
+    }] : [];
+    const payments = [...(fresh.payments || []).filter((x) => !pay.some((y) => y.id === x.id)), ...pay];
     const rec: Rectification = {
       at, user: u?.fullName, userId: u?.id, reason,
       before: { status: 'cancelled', total: beforeTotal },
@@ -114,9 +127,9 @@ async function apply(o: Order, r: RectifyInput, req?: RectifyRequest) {
       ...(req ? { requestedBy: req.byName, requestedAt: req.at, approvedBy: u?.fullName } : {}),
     };
     const kept = plan.lines.reduce((t, l) => t + (l.qtyKept ?? 0), 0), back = plan.lines.reduce((t, l) => t + (l.qtyReturned ?? 0), 0);
-    const text = `Annulation rectifiée${req ? ` (demandée par ${req.byName || '?'}, validée par le super-admin)` : ''} : ${kept} pièce(s) livrée(s), ${back} annulée(s) — ${ORDER_STATUS[plan.status].label}, total ${plan.total.toLocaleString('fr-FR')} Ar — ${reason}`;
+    const text = `Annulation rectifiée${req ? ` (demandée par ${req.byName || '?'}, validée par le super-admin)` : ''} : ${kept} pièce(s) livrée(s), ${back} annulée(s) — ${ORDER_STATUS[plan.status].label}, total ${plan.total.toLocaleString('fr-FR')} Ar${pay.length ? `, encaissé ${pay[0].amount.toLocaleString('fr-FR')} Ar (${PAY_METHODS[pay[0].method]}, ${byCourier ? 'livreur' : 'boutique'})` : ''} — ${reason}`;
     await save('orders', {
-      id: fresh.id, status: plan.status, lines: plan.lines, feeCharged: plan.after.feeCharged, dispatchedAt, returnedAt,
+      id: fresh.id, status: plan.status, lines: plan.lines, feeCharged: plan.after.feeCharged, dispatchedAt, returnedAt, payments,
       statusDates: { ...(fresh.statusDates || {}), [plan.status]: at },
       rectifications: [...(fresh.rectifications || []), rec], rectifyRequest: null as unknown as undefined,
       notes: [fresh.notes, `Annulation rectifiée : ${reason}`].filter(Boolean).join('\n'),
@@ -141,7 +154,7 @@ export async function requestRectify(o: Order, r: RectifyInput) {
   if (!planRectify(o, r).keptAny) throw new Error('Indiquez au moins un article livré : si rien n’a été livré, l’annulation est juste.');
   const u = currentUser();
   const at = bizNow();
-  const req: RectifyRequest = { kept: r.kept, feeCharged: r.feeCharged, reason: r.reason.trim(), at, byId: u?.id, byName: u?.fullName };
+  const req: RectifyRequest = { kept: r.kept, feeCharged: r.feeCharged, reason: r.reason.trim(), ...(r.collected?.amount ? { collected: r.collected } : {}), at, byId: u?.id, byName: u?.fullName };
   await save('orders', { id: o.id, rectifyRequest: req, events: [...(o.events || []), { at, text: `Rectification de l’annulation demandée (à valider par le super-admin) — ${req.reason}`, user: u?.fullName }] });
   await audit('Rectification demandée', `${o.number} — ${req.reason}`, 'orders', o.id, 'high');
 }

@@ -1078,6 +1078,14 @@ function RectifyModal({ order: o, onClose }: { order: Order; onClose: () => void
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const plan = planRectify(o, { kept: keptNum, feeCharged: parseNum(fee) ?? 0 });
+  // Argent reçu pour les articles livrés (non saisi à cause de l'annulation) : comme au retour du livreur.
+  const hasCourier = !!o.courierId && !isWalkIn(o) && !isPickupZone(o.zoneId);
+  const [amount, setAmount] = useState<string | null>(null);
+  const [method, setMethod] = useState<PayMethod>('cash');
+  const [by, setBy] = useState<'shop' | 'courier'>('shop');
+  const [ref, setRef] = useState('');
+  const amountVal = amount == null ? Math.max(0, plan.rest) : parseAr(amount) ?? 0;
+  const restAfter = plan.rest - amountVal;
   const refunds = (o.payments || []).filter((p) => p.amount < 0);
   const who = cancelledBy(o).name;
   const request = right.mode === 'request';
@@ -1086,7 +1094,7 @@ function RectifyModal({ order: o, onClose }: { order: Order; onClose: () => void
       footer={<><Button variant="ghost" onClick={onClose}>Fermer</Button><Button busy={busy} disabled={!plan.keptAny || !reason.trim()} onClick={async () => {
         setBusy(true);
         try {
-          const input = { kept: keptNum, feeCharged: parseNum(fee) ?? 0, reason };
+          const input = { kept: keptNum, feeCharged: parseNum(fee) ?? 0, reason, collected: amountVal > 0 ? { amount: amountVal, method, ref: ref.trim() || undefined, receivedBy: by } : undefined };
           if (request) { await requestRectify(o, input); toast('Demande envoyée : le super-admin doit la valider'); }
           else { await rectifyCancellation(o, input); toast(`${o.number} rouverte : ${ORDER_STATUS[plan.status].label}`); }
           onClose();
@@ -1122,7 +1130,14 @@ function RectifyModal({ order: o, onClose }: { order: Order; onClose: () => void
           {!isWalkIn(o) && <div><span>Frais de livraison facturés</span><input className="cell-input num-input" inputMode="numeric" aria-label="Frais de livraison facturés (Ar)" value={fee} onChange={(e) => setFee(e.target.value)} /></div>}
           <div className="ml-total"><span>= Montant de la vente</span><strong className="num">{fmtAr(plan.total)}</strong></div>
           <div><span>Déjà payé (paiements inchangés)</span><strong className="num">{fmtAr(plan.paid)}</strong></div>
-          <div className="ml-strong"><span>{plan.rest >= 0 ? 'Reste à payer' : 'Trop perçu'}</span><strong className="num">{fmtAr(Math.abs(plan.rest))}</strong></div>
+          <div><span>Encaissé maintenant</span><strong className="num">{amountVal ? '− ' + fmtAr(amountVal) : '—'}</strong></div>
+          <div className="ml-strong"><span>{restAfter >= 0 ? 'Reste à payer' : 'Trop perçu'}</span><strong className="num">{fmtAr(Math.abs(restAfter))}</strong></div>
+        </div>
+        <div className="grid-2">
+          <TextField label="Argent reçu du client pour les articles livrés (Ar)" value={amount ?? String(amountVal)} onChange={setAmount} inputMode="numeric" hint="0 si le client n’a encore rien payé : il restera dans « Reste à payer »." />
+          <SelectField label="Payé en" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />
+          {hasCourier && <SelectField label="Reçu par" value={by} onChange={(v) => setBy(v as 'shop' | 'courier')} options={[{ value: 'shop', label: 'La boutique / le vendeur (reçu maintenant)' }, { value: 'courier', label: `Encore chez le livreur (${get<Courier>('couriers', o.courierId || '')?.name || '?'}) : compté à son règlement` }]} />}
+          {method !== 'cash' && <TextField label="Référence de la transaction" value={ref} onChange={setRef} />}
         </div>
         {plan.stock.length > 0 && <p className="small muted">Stock : {plan.stock.map((m) => `${get<Variant>('variants', m.variantId)?.sku ?? '?'} ${m.qty > 0 ? `+${m.qty} (remis)` : `${m.qty} (livré)`}`).join(' ; ')}.</p>}
         {refunds.length > 0 && <p className="small" style={{ color: 'var(--warn, #9a6700)' }}>L’annulation avait enregistré un remboursement ({refunds.map((p) => fmtAr(-p.amount)).join(', ')}). S’il n’a pas eu lieu, corrigez-le ensuite avec le crayon du paiement (« Modifier paiement »).</p>}

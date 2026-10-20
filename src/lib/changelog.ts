@@ -3,6 +3,7 @@
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
   { date: '2026-10-20', items: [
+    'Rectifier une annulation : on saisit aussi l’argent reçu pour les articles livrés (montant proposé, moyen, reçu par la boutique ou encore chez le livreur). Il est enregistré aujourd’hui : pour une vente d’un jour passé, il passe en « 1er / 2ème paiement du reste » et s’ajoute aux espèces à verser du jour. L’article vraiment annulé reste dans « Annulé » de la Situation par page (ex. kapa PVC : 20 000 Ar annulé, 15 000 Ar vendu et payé).',
     'Commandes : nouveau bouton « Rectifier une annulation » sur une commande annulée par erreur (ex. 3 articles, le client en garde 2, mais « Annuler » touché pour toute la commande). On indique ce qui a vraiment été livré : seuls les articles annulés restent en stock, les articles livrés sortent du stock (une seule fois), le montant de la vente et le reste à payer sont recalculés, et l’Accueil, la Situation par page et « À verser au patron » suivent. Les paiements ne changent pas (« Modifier paiement » reste là pour eux).',
     'Le vendeur rectifie ses propres annulations tant que la semaine n’est pas clôturée (versement au patron) ; après la clôture, sa demande attend la validation du super-admin. Chaque rectification est gardée dans l’historique de la commande et le journal d’activité.',
   ] },

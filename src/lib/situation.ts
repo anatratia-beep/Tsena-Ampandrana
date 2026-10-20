@@ -4,7 +4,7 @@ import { all, get } from './db';
 import { salesLedger } from './analytics';
 import { rootOf, variantPage } from './scope';
 import { addDays, dayOf } from './money';
-import type { Order, PayMethod } from './orders';
+import { isWalkIn, type Order, type PayMethod } from './orders';
 import type { Category } from './catalog';
 
 export interface PageSit {
@@ -121,6 +121,15 @@ export function situation(from: string, to: string, pages?: string[]) {
     if (o.status === 'cancelled' && inRange(o.createdAt, from, to)) {
       let mine = false;
       for (const [p, f] of sh) { if (!keep(p)) continue; mine = true; const r = row(p); r.cancelled += val * f; r.cancelledN++; }
+      if (mine) uniq.cancelled.add(o.id);
+    }
+    // 2 bis. Annulation rectifiée : les articles vraiment annulés restent dans « annulé », le jour de la vente
+    //    (ils sont déjà déduits des ventes de ce jour) ; les articles livrés sont dans les ventes.
+    if (o.status !== 'cancelled' && (o.rectifications || []).length && inRange(isWalkIn(o) || !o.dispatchedAt ? o.createdAt : o.dispatchedAt, from, to)) {
+      const back = new Map<string, number>();
+      for (const l of o.lines) if (!l.isChoice && l.qtyReturned) { const p = variantPage(l.variantId) || '_'; back.set(p, (back.get(p) ?? 0) + l.qtyReturned * l.unitPrice); }
+      let mine = false;
+      for (const [p, a] of back) { if (!keep(p) || a <= 0) continue; mine = true; const r = row(p); r.cancelled += a; r.cancelledN++; }
       if (mine) uniq.cancelled.add(o.id);
     }
     // 3. Reporté : la livraison devait se faire ce jour-là et a été reportée (une fois par commande sur la période ;
