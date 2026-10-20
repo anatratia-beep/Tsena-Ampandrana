@@ -1008,16 +1008,13 @@ tr.row-error td { background: var(--danger-soft); }
 /* À verser au patron : rangées alignées (2 cases principales, 3 cases impayés, MVola / Orange Money), cases de même hauteur. */
 .boss-report .stat-grid.boss-main { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .boss-report .stat-grid.boss-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.boss-report .stat-grid.boss-same { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.boss-report .stat-grid.boss-mobile { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .boss-report .boss-main .stat-value { font-size: 1.9rem; }
-.boss-report .boss-same > .boss-mvola { --c: var(--p-orange); --c-soft: var(--p-orange-soft); }
-.boss-report .boss-same > .boss-orange { --c: var(--p-violet); --c-soft: var(--p-violet-soft); }
-.boss-report .boss-same > .boss-later1 { --c: var(--p-yellow); --c-soft: var(--p-yellow-soft); }
-.boss-report .boss-same > .boss-later2 { --c: var(--p-pink); --c-soft: var(--p-pink-soft); }
-.boss-report .boss-same > .boss-rest { --c: var(--p-teal); --c-soft: var(--p-teal-soft); }
-@media (max-width: 1400px) { .boss-report .stat-grid.boss-same { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.boss-pair { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.boss-report .boss-mobile .boss-mvola > .stat { --c: var(--p-green); --c-soft: var(--p-green-soft); }
+.boss-report .boss-mobile .boss-orange > .stat { --c: var(--p-yellow); --c-soft: var(--p-yellow-soft); }
 @media (max-width: 760px) {
-  .boss-report .stat-grid.boss-main, .boss-report .stat-grid.boss-row, .boss-report .stat-grid.boss-same { grid-template-columns: 1fr; }
+  .boss-report .stat-grid.boss-main, .boss-report .stat-grid.boss-row, .boss-report .stat-grid.boss-mobile { grid-template-columns: 1fr; }
 }
 /* Couleurs distinctes : 2e case (vert), impayé précédent à verser (jaune), reste impayé semaine précédente (rose) / en cours (bleu-vert). */
 .stat-grid .card.stat-strong.boss-net { background: linear-gradient(140deg, #2F9A5A, #1D6B3D); box-shadow: 0 18px 34px -20px #1D6B3D; }
