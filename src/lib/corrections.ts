@@ -53,7 +53,7 @@ export async function voidOrder(o: Order, reason: string, refund?: { amount: num
   const u = currentUser();
   const pays: Payment[] = refund && refund.amount > 0 ? [{ id: newId(), at, amount: -refund.amount, method: refund.method, receivedBy: 'shop', note: `Annulation ${o.number}`, userName: u?.fullName }] : [];
   await save('orders', {
-    id: o.id, status: 'cancelled', statusDates: { ...(o.statusDates || {}), cancelled: at }, payments: [...(o.payments || []), ...pays],
+    id: o.id, status: 'cancelled', statusDates: { ...(o.statusDates || {}), cancelled: at }, cancelledById: u?.id, cancelledByName: u?.fullName, payments: [...(o.payments || []), ...pays],
     notes: [o.notes, `Annulée : ${reason}`].filter(Boolean).join('\n'),
     events: [...(o.events || []), { at, text: `Annulée (${reason}) : ${pcs} pièce(s) remises en stock${pays.length ? `, ${refund!.amount.toLocaleString('fr-FR')} Ar rendus` : ''}`, user: u?.fullName }],
   });

@@ -13,6 +13,7 @@ import {
 } from '../lib/orders';
 import { useCompany } from '../lib/settings';
 import { correctWalkInSale, netMoves, refundSuggested, voidOrder } from '../lib/corrections';
+import { approveRectify, cancelledBy, isSuper, planRectify, rectifyCancellation, rectifyRight, rejectRectify, requestRectify } from '../lib/rectify';
 import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, feeState, payDeferredFees, settleCourier, type AccountId } from '../lib/money';
 import { Help, DiscountField, Badge, Button, Confirm, Empty, FilterSelect, IconButton, Modal, MoreMatches, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute, DateSort, type DateOrder, useKeep } from '../ui/kit';
 import { Icon } from '../ui/icons';
@@ -93,6 +94,8 @@ export function OrderStatusBadge({ o }: { o: Order }) {
   return <>
     <Badge tone={st.tone}>{o.kind === 'exchange' ? `Échange · ${st.label}` : st.label}</Badge>
     {hasPendingChoice(o) && <Badge tone="danger">Choix à préciser ({choiceQty(o)})</Badge>}
+    {o.status === 'cancelled' && o.rectifyRequest && <Badge tone="warn">Rectification à valider</Badge>}
+    {o.status !== 'cancelled' && (o.rectifications || []).length > 0 && <Badge>Annulation rectifiée</Badge>}
     {reportCount(o) > 0 && o.status !== 'cancelled' && <Badge tone={reportCount(o) >= MAX_REPORTS ? 'danger' : 'warn'}>Reportée {reportCount(o)}/{MAX_REPORTS}{o.wantedDate && ['new', 'confirmed', 'ready'].includes(o.status) ? ` · au ${new Date(`${o.wantedDate}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}` : ''}</Badge>}
   </>;
 }
@@ -152,6 +155,7 @@ function OrderList({ tabKey }: { tabKey?: string }) {
       <PageHead title="Commandes" subtitle="Commandes Facebook, téléphone et autres, jusqu’à la livraison et au règlement du livreur."
         actions={can('orders.create') && <><Button variant="ghost" icon="users" onClick={() => setFollowing(true)}>Client à suivre</Button><Button icon="plus" onClick={() => setCreating(true)}>Nouvelle commande</Button></>} />
       <ScopeBar scope={scope} mineLabel="Mes commandes" text={scope.locked ? 'Vous voyez seulement les commandes de vos pages (toutes les livraisons sont dans « Livraisons »)' : "Vous voyez les commandes que vous avez enregistrées. Les livraisons du jour restent visibles par tous dans Livraisons."} />
+      {isSuper(currentUser()) && (() => { const n = orders.filter((o) => o.status === 'cancelled' && o.rectifyRequest).length; return n ? <div className="notice"><Icon name="alert" /><span style={{ flex: 1 }}><strong>{n} rectification(s) d’annulation à valider</strong> (semaine déjà clôturée) : ouvrez l’onglet « Annulées » et la commande marquée « Rectification à valider ».</span></div> : null; })()}
       <div className="tabs" role="tablist">
         {(() => { const n = prospects.filter((x) => x.status === 'open' && scope.mine({ createdBy: x.ownerId, createdByName: x.ownerName }) && bucketOf(x) !== 'later').length; return <button role="tab" aria-selected={tabKey === 'suivre'} onClick={() => switchTab('suivre')}>À suivre{n ? <span className="tab-count tab-count-hot">{n}</span> : null}</button>; })()}
         {TABS.map((t) => {
@@ -609,7 +613,7 @@ function OrderDetail({ id }: { id: string }) {
   const o = orders.find((x) => x.id === id);
   const [editPay, setEditPay] = useState<{ p: Payment; refOnly?: boolean } | null>(null);
   const canFixPay = can('users.manage') || can('records.correct') || can('handover.receive');
-  const [modal, setModal] = useState<'' | 'edit' | 'dispatch' | 'return' | 'pay' | 'cancel' | 'exchange' | 'shop' | 'pickup' | 'reassign' | 'settle' | 'postpone'>('');
+  const [modal, setModal] = useState<'' | 'edit' | 'dispatch' | 'return' | 'pay' | 'cancel' | 'exchange' | 'shop' | 'pickup' | 'reassign' | 'settle' | 'postpone' | 'void' | 'correct' | 'rectify' | 'rejectRect'>('');
   const [payFee, setPayFee] = useState(false);
   if (!o) return <Empty icon="list" title="Commande introuvable"><Button variant="ghost" onClick={() => navigate('/commandes')}>Retour</Button></Empty>;
   const zone = get<Zone>('zones', o.zoneId || '');
@@ -663,7 +667,17 @@ function OrderDetail({ id }: { id: string }) {
           {closed && isWalkIn(o) && can('records.correct') && <Button variant="ghost" icon="edit" onClick={() => setModal('correct')}>Modifier / corriger la vente</Button>}
           {closed && can('records.correct') && <Button variant="danger" icon="trash" onClick={() => setModal('void')}>Annuler / supprimer la vente</Button>}
           {closed && !can('records.correct') && <span className="small muted">Erreur sur cette vente ? Le gérant ou le super-admin peut la corriger ou l’annuler.</span>}
+          {o.status === 'cancelled' && !o.rectifyRequest && (() => { const r = rectifyRight(o); return r.mode !== 'none'
+            ? <Button variant="ghost" icon="refresh" onClick={() => setModal('rectify')}>Rectifier une annulation</Button>
+            : r.why && o.kind !== 'exchange' ? <span className="small muted">{r.why}</span> : null; })()}
         </div>
+        {o.status === 'cancelled' && o.rectifyRequest && (() => { const rq = o.rectifyRequest; const pl = planRectify(o, rq); return (
+          <div className="notice"><Icon name="alert" /><div className="stack-s" style={{ flex: 1 }}>
+            <span><strong>Rectification demandée</strong> par {rq.byName || '?'} le {fmtDateTime(rq.at)} — {rq.reason}. Semaine clôturée : en attente de la validation du super-admin.</span>
+            <span className="small">Après validation : {ORDER_STATUS[pl.status].label}, {pl.lines.reduce((t, l) => t + (l.qtyKept ?? 0), 0)} pièce(s) livrée(s), {pl.lines.reduce((t, l) => t + (l.qtyReturned ?? 0), 0)} annulée(s), total {fmtAr(pl.total)}, reste à payer {fmtAr(Math.max(0, pl.rest))}.</span>
+            {isSuper(currentUser()) && <div className="row"><Button icon="check" onClick={async () => { try { await approveRectify(o); toast('Rectification validée : commande rouverte'); } catch (e: any) { toast(e.message, 'error'); } }}>Valider la rectification</Button><Button variant="ghost" onClick={() => setModal('rejectRect')}>Refuser</Button></div>}
+          </div></div>
+        ); })()}
       </div>
 
       <div className="card card-flush">
@@ -734,6 +748,21 @@ function OrderDetail({ id }: { id: string }) {
         </div>
       )}
 
+      {(o.rectifications || []).length > 0 && (
+        <div className="card stack-s">
+          <h2>Rectifications d’annulation</h2>
+          <ul className="list">
+            {o.rectifications!.map((r, i) => (
+              <li key={i} className="list-item" style={{ padding: '10px 0' }}><div className="list-item-main">
+                <strong>{fmtDateTime(r.at)}</strong> · {r.user || '—'}{r.approvedBy ? ` (demandée par ${r.requestedBy || '?'}, validée par ${r.approvedBy})` : ''} — {r.reason}
+                <p className="small muted">Annulée → {ORDER_STATUS[r.after.status].label} · total {fmtAr(r.before.total)} → {fmtAr(r.after.total)} · {r.after.kept.map((k) => { const l = o.lines.find((x) => x.id === k.lineId); const v = l && get<Variant>('variants', l.variantId); return `${v?.sku ?? '?'} : ${k.kept}/${k.qty} livré(s)`; }).join(' ; ')}</p>
+                {r.stock.length > 0 && <p className="small muted">Stock : {r.stock.map((m) => `${get<Variant>('variants', m.variantId)?.sku ?? '?'} ${m.qty > 0 ? '+' : ''}${m.qty}`).join(' ; ')}</p>}
+              </div></li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="card stack-s">
         <h2>Historique</h2>
         <ul className="timeline">
@@ -758,6 +787,8 @@ function OrderDetail({ id }: { id: string }) {
       {modal === 'postpone' && <PostponeModal order={o} onClose={() => setModal('')} />}
       {modal === 'void' && <VoidModal order={o} onClose={() => setModal('')} />}
       {modal === 'correct' && <CorrectSaleModal order={o} onClose={() => setModal('')} />}
+      {modal === 'rectify' && <RectifyModal order={o} onClose={() => setModal('')} />}
+      {modal === 'rejectRect' && <RejectRectifyModal order={o} onClose={() => setModal('')} />}
     </>
   );
 }
@@ -1032,6 +1063,82 @@ function VoidModal({ order: o, onClose }: { order: Order; onClose: () => void })
         {refund && <div className="grid-2"><TextField label="Montant rendu (Ar)" value={amount} onChange={setAmount} inputMode="numeric" /><SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} /></div>}
       </div>}
       onConfirm={async () => { if (!why) throw new Error('Indiquez le motif.'); await voidOrder(o, why, refund ? { amount: parseAr(amount) || 0, method } : undefined); toast(`${o.number} annulée : stock remis`); }} />
+  );
+}
+
+/**
+ * Rectifier une annulation faite par erreur : on indique ce qui a vraiment été livré et ce qui a vraiment été annulé.
+ * Le stock, le montant de la vente, le reste à payer et les rapports suivent ; les paiements ne changent pas.
+ */
+function RectifyModal({ order: o, onClose }: { order: Order; onClose: () => void }) {
+  const right = rectifyRight(o);
+  const [kept, setKept] = useState<Record<string, string>>(() => Object.fromEntries(o.lines.map((l) => [l.id, String(l.qtyKept ?? (l.isChoice ? 0 : l.qty))])));
+  const keptNum = Object.fromEntries(o.lines.map((l) => [l.id, Math.max(0, Math.min(l.qty, parseNum(kept[l.id]) ?? 0))]));
+  const [fee, setFee] = useState(String(isWalkIn(o) ? 0 : o.feeCharged || o.deliveryFee || 0));
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const plan = planRectify(o, { kept: keptNum, feeCharged: parseNum(fee) ?? 0 });
+  const refunds = (o.payments || []).filter((p) => p.amount < 0);
+  const who = cancelledBy(o).name;
+  const request = right.mode === 'request';
+  return (
+    <Modal title={`Rectifier une annulation — ${o.number}`} onClose={onClose} wide
+      footer={<><Button variant="ghost" onClick={onClose}>Fermer</Button><Button busy={busy} disabled={!plan.keptAny || !reason.trim()} onClick={async () => {
+        setBusy(true);
+        try {
+          const input = { kept: keptNum, feeCharged: parseNum(fee) ?? 0, reason };
+          if (request) { await requestRectify(o, input); toast('Demande envoyée : le super-admin doit la valider'); }
+          else { await rectifyCancellation(o, input); toast(`${o.number} rouverte : ${ORDER_STATUS[plan.status].label}`); }
+          onClose();
+        } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
+      }}>{request ? 'Envoyer au super-admin' : 'Rectifier'}</Button></>}>
+      <div className="stack">
+        <p>Commande annulée{who ? ` par ${who}` : ''}{o.statusDates?.cancelled ? ` le ${fmtDateTime(o.statusDates.cancelled)}` : ''}. Indiquez combien de pièces le client a <strong>vraiment gardées</strong> : elles sortent du stock et comptent comme vendues ; le reste reste annulé (en stock).</p>
+        {request && <div className="notice"><Icon name="alert" /><span>{right.why} Rien ne change avant sa validation.</span></div>}
+        <div className="row">
+          <Button variant="ghost" onClick={() => setKept(Object.fromEntries(o.lines.map((l) => [l.id, String(l.isChoice ? 0 : l.qty)])))}>Tout livré</Button>
+        </div>
+        <div className="table-wrap">
+          <table className="table lines-table return-lines">
+            <thead><tr><th>Article</th><th className="t-num">Qté</th><th style={{ width: 110 }}>Livré</th><th className="t-num">Annulé (en stock)</th></tr></thead>
+            <tbody>
+              {o.lines.map((l) => {
+                const v = get<Variant>('variants', l.variantId); const p = v && get<Product>('products', v.productId);
+                return (
+                  <tr key={l.id}>
+                    <td><strong>{p?.code}</strong> {variantLabel(v)} {l.isChoice && <Badge tone="warn">choix</Badge>}<div className="small muted">{fmtAr(l.unitPrice)}</div><LotTag l={l} /></td>
+                    <td className="t-num num" data-label="Qté">{l.qty}</td>
+                    <td data-label="Livré"><input className="cell-input" inputMode="numeric" aria-label={`Livré ${v?.sku ?? ''}`.trim()} value={kept[l.id]} onChange={(e) => setKept({ ...kept, [l.id]: e.target.value })} /></td>
+                    <td className="t-num num" data-label="Annulé (en stock)">{l.qty - keptNum[l.id]}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="money-lines">
+          <div><span>Articles livrés{o.discount ? ' (avant remise)' : ''}</span><strong className="num">{fmtAr(plan.items)}</strong></div>
+          {o.discount > 0 && <div><span>Remise</span><strong className="num">− {fmtAr(o.discount)}</strong></div>}
+          {!isWalkIn(o) && <div><span>Frais de livraison facturés</span><input className="cell-input num-input" inputMode="numeric" aria-label="Frais de livraison facturés (Ar)" value={fee} onChange={(e) => setFee(e.target.value)} /></div>}
+          <div className="ml-total"><span>= Montant de la vente</span><strong className="num">{fmtAr(plan.total)}</strong></div>
+          <div><span>Déjà payé (paiements inchangés)</span><strong className="num">{fmtAr(plan.paid)}</strong></div>
+          <div className="ml-strong"><span>{plan.rest >= 0 ? 'Reste à payer' : 'Trop perçu'}</span><strong className="num">{fmtAr(Math.abs(plan.rest))}</strong></div>
+        </div>
+        {plan.stock.length > 0 && <p className="small muted">Stock : {plan.stock.map((m) => `${get<Variant>('variants', m.variantId)?.sku ?? '?'} ${m.qty > 0 ? `+${m.qty} (remis)` : `${m.qty} (livré)`}`).join(' ; ')}.</p>}
+        {refunds.length > 0 && <p className="small" style={{ color: 'var(--warn, #9a6700)' }}>L’annulation avait enregistré un remboursement ({refunds.map((p) => fmtAr(-p.amount)).join(', ')}). S’il n’a pas eu lieu, corrigez-le ensuite avec le crayon du paiement (« Modifier paiement »).</p>}
+        {!plan.keptAny && <p className="small muted">Aucun article livré : l’annulation est juste, rien à rectifier.</p>}
+        <TextField label="Motif de la rectification" value={reason} onChange={setReason} placeholder="Ex. le client a gardé 2 articles, « Annuler » touché par erreur" required />
+      </div>
+    </Modal>
+  );
+}
+
+function RejectRectifyModal({ order: o, onClose }: { order: Order; onClose: () => void }) {
+  const [why, setWhy] = useState('');
+  return (
+    <Confirm title={`Refuser la rectification — ${o.number}`} confirmLabel="Refuser" onClose={onClose}
+      message={<TextField label="Motif du refus" value={why} onChange={setWhy} />}
+      onConfirm={async () => { await rejectRectify(o, why.trim()); toast('Rectification refusée'); }} />
   );
 }
 
