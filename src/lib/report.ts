@@ -8,7 +8,7 @@ import { addDays, dayOf, mondayOf, today, type CashMove } from './money';
 import { grid, usdRate } from './payouts';
 import { isWalkIn, unpaidOf, type Order } from './orders';
 import { saleDay } from './handovers';
-import { payDay, situation } from './situation';
+import { situation } from './situation';
 
 export type PKind = 'day' | 'week' | 'month' | 'year' | 'custom';
 export const PKIND: Record<PKind, string> = { day: 'Jour', week: 'Semaine', month: 'Mois', year: 'Année', custom: 'Période' };
@@ -80,31 +80,43 @@ function salesWithUnpaid(from: string, to: string) {
   return { sales: lines.reduce((t, l) => t + l.amount, 0), orders: [...orders.values()], unpaid, n };
 }
 
-/** Encaissements d'une vente, par jour où l'argent arrive à la boutique (même règle que l'accueil : l'argent du livreur
- *  arrive le jour où il le verse). */
-const cashIns = (o: Order) => (o.payments || []).map((p) => ({ day: payDay(o, p), amount: p.amount })).filter((c): c is { day: string; amount: number } => !!c.day);
+/** Paiements d'une vente, au jour où le client a payé (en boutique ou au livreur) : l'argent déjà donné au livreur n'est
+ *  pas un impayé du client, même si le livreur le verse plus tard. */
+const cashIns = (o: Order) => (o.payments || []).map((p) => ({ day: dayOf(p.at), amount: p.amount }));
 
-/** Reste impayé d'une semaine tel qu'il était au comptage du lundi `count` : ce qui reste aujourd'hui + ce qui a été
- *  encaissé depuis. Seules une annulation ou un report (la vente sort de la semaine) le font baisser. */
+/** Valeur des articles d'une vente (sans les frais de livraison) : un paiement n'est compté que jusqu'à cette valeur. */
+const itemsValue = (o: Order) => o.lines.reduce((t, l) => t + (l.isChoice ? 0 : (l.qtyKept ?? l.qty) * l.unitPrice), 0) - (o.discount || 0);
+
+/** Reste impayé d'une semaine tel qu'il était au comptage du lundi `count` : valeur vendue − ce que les clients ont payé
+ *  avant le lundi (frais de livraison non comptés ; l'argent remis au livreur compte comme payé).
+ *  Un paiement après le comptage ne le baisse pas ; seules une annulation ou un report (la vente sort de la semaine) le font. */
 function frozenUnpaid(from: string, to: string, count: string): WeekUnpaid {
+  const sold = new Map<string, { o: Order; v: number }>();
+  for (const l of salesLedger(from, to)) { const e = sold.get(l.order.id) ?? { o: l.order, v: 0 }; e.v += l.amount; sold.set(l.order.id, e); }
   let amount = 0, n = 0;
-  for (const o of salesWithUnpaid(from, to).orders) {
-    if (o.status === 'cancelled') continue;
-    const x = (unpaidOf(o)?.amount ?? 0) + cashIns(o).filter((c) => c.day >= count).reduce((t, c) => t + c.amount, 0);
+  for (const { o, v } of sold.values()) {
+    if (o.status === 'cancelled' || v <= 0.5) continue;
+    const before = cashIns(o).filter((c) => c.day < count).reduce((t, c) => t + c.amount, 0);
+    const x = v - Math.min(before, v);
     if (x > 0.5) { amount += x; n++; }
   }
   return { from, to, amount, n };
 }
 
 /** Anciens impayés encaissés pendant la période : ventes d'une semaine déjà comptée (et d'avant la période), payées
- *  entre `from` et `to`. Ils s'ajoutent à la 2e case « À verser au patron ». */
+ *  entre `from` et `to`, sans dépasser ce qui restait dû sur les articles. Ils s'ajoutent à la 2e case « À verser au patron ». */
 function prevUnpaidPaid(from: string, to: string) {
   let amount = 0; const ids = new Set<string>();
   for (const o of all<Order>('orders')) {
     if (o.status === 'cancelled' || (!isWalkIn(o) && !o.dispatchedAt)) continue;
     const sd = saleDay(o);
     if (sd >= from) continue;
-    for (const c of cashIns(o)) if (c.day >= from && c.day <= to && mondayOf(sd) < mondayOf(c.day)) { amount += c.amount; ids.add(o.id); }
+    const ins = cashIns(o);
+    const late = ins.filter((c) => c.day >= from && c.day <= to && mondayOf(sd) < mondayOf(c.day)).reduce((t, c) => t + c.amount, 0);
+    if (late <= 0.5) continue;
+    const before = ins.filter((c) => c.day < from).reduce((t, c) => t + c.amount, 0);
+    const a = Math.min(late, Math.max(0, itemsValue(o) - before));
+    if (a > 0.5) { amount += a; ids.add(o.id); }
   }
   return { amount, n: ids.size };
 }
