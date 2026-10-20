@@ -65,8 +65,8 @@ export interface BossMoney {
   mvola: { sales: number; expenses: number; toPay: number };
   orange: { sales: number; expenses: number; toPay: number };
   /** Reste impayé des ventes de la semaine en cours et de la semaine précédente (lundi → dimanche), par rapport à la fin
-   *  de la période ; les ventes annulées ou reportées ne comptent pas. Quand un client de la semaine précédente paie, le
-   *  montant quitte « Reste impayé semaine précédente » et s'ajoute à « Impayé précédent à verser ». */
+   *  de la période ; les ventes annulées ou reportées ne comptent pas. Celui de la semaine précédente est figé au comptage
+   *  du lundi : un encaissement après ce comptage ne le diminue pas (il va dans « Impayé précédent à verser »). */
   weekCur: WeekUnpaid; weekPrev: WeekUnpaid;
 }
 
@@ -87,16 +87,16 @@ const cashIns = (o: Order) => (o.payments || []).map((p) => ({ day: dayOf(p.at),
 /** Valeur des articles d'une vente (sans les frais de livraison) : un paiement n'est compté que jusqu'à cette valeur. */
 const itemsValue = (o: Order) => o.lines.reduce((t, l) => t + (l.isChoice ? 0 : (l.qtyKept ?? l.qty) * l.unitPrice), 0) - (o.discount || 0);
 
-/** Reste impayé d'une semaine : valeur vendue − ce que les clients ont payé jusqu'au jour `upTo` (frais de livraison non
- *  comptés ; l'argent remis au livreur compte comme payé). Quand un client paie, le montant quitte cette case et passe
- *  dans « Impayé précédent à verser ». */
-function clientUnpaid(from: string, to: string, upTo: string): WeekUnpaid {
+/** Reste impayé d'une semaine tel qu'il était au comptage du lundi `count` : valeur vendue − ce que les clients ont payé
+ *  avant le lundi (frais de livraison non comptés ; l'argent remis au livreur compte comme payé).
+ *  Un paiement après le comptage ne le baisse pas ; seules une annulation ou un report (la vente sort de la semaine) le font. */
+function frozenUnpaid(from: string, to: string, count: string): WeekUnpaid {
   const sold = new Map<string, { o: Order; v: number }>();
   for (const l of salesLedger(from, to)) { const e = sold.get(l.order.id) ?? { o: l.order, v: 0 }; e.v += l.amount; sold.set(l.order.id, e); }
   let amount = 0, n = 0;
   for (const { o, v } of sold.values()) {
     if (o.status === 'cancelled' || v <= 0.5) continue;
-    const before = cashIns(o).filter((c) => c.day <= upTo).reduce((t, c) => t + c.amount, 0);
+    const before = cashIns(o).filter((c) => c.day < count).reduce((t, c) => t + c.amount, 0);
     const x = v - Math.min(before, v);
     if (x > 0.5) { amount += x; n++; }
   }
@@ -139,7 +139,7 @@ export function bossMoney(from: string, to: string): BossMoney {
   const mobile = paid.mvola + paid.orange + paid.airtel;
   const end = to < today() ? to : today(), mon = mondayOf(end);
   const unpaidWeek = (from: string, to: string): WeekUnpaid => { const w = salesWithUnpaid(from, to); return { from, to, amount: w.unpaid, n: w.n }; };
-  const weekPrev = clientUnpaid(addDays(mon, -7), addDays(mon, -1), end), total = pay.cash;
+  const weekPrev = frozenUnpaid(addDays(mon, -7), addDays(mon, -1), mon), total = pay.cash;
   const prev = prevUnpaidPaid(from, end);
   return {
     sales: s.sales, mobile, unpaid: s.unpaid, unpaidN: s.n,

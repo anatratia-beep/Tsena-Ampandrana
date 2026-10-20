@@ -51,9 +51,9 @@ ok(/Total à verser\s*51 000 Ar[\s\S]*?Total à verser après dépenses et ancie
 ok(/Impayé précédent à verser\s*8 000 Ar/.test(tx), 'impayé précédent à verser : 8 000 (vente du 29/07 payée le 05/08) ; la livraison du 31/07 payée au livreur avant le comptage ne compte pas');
 ok(/Total MVola\s*15 000 Ar\s*MVola − dépenses MVola\s*13 000 Ar/.test(tx), 'cases MVola : 15 000, puis − 2 000 = 13 000');
 ok(/Total Orange Money\s*10 000 Ar\s*Orange Money − dépenses Orange Money\s*9 000 Ar/.test(tx), 'cases Orange Money : 10 000, puis − 1 000 = 9 000');
-ok(/Reste impayé semaine précédente\s*12 000 Ar[\s\S]*?1 vente\(s\) du 27\/07 au 02\/08/.test(tx), 'reste impayé semaine précédente : 12 000 encore dû (les 8 000 payés le 05/08 sont passés dans impayé précédent à verser ; la livraison payée au livreur n’est pas un impayé)');
+ok(/Reste impayé semaine précédente\s*20 000 Ar[\s\S]*?2 vente\(s\) du 27\/07 au 02\/08/.test(tx), 'reste impayé semaine précédente figé au comptage : 12 000 + 8 000 = 20 000 (la livraison payée au livreur le 31/07 n’est pas un impayé) (le paiement du 05/08 ne le baisse pas)');
 ok(/Reste impayé semaine en cours\s*20 000 Ar[\s\S]*?1 vente\(s\) du 03\/08 au 05\/08/.test(tx), 'reste impayé semaine en cours (lundi 03/08 → 05/08) : 20 000, la vente annulée ne compte pas');
-ok(tx.includes('*À verser au patron*') && tx.includes('Total à verser : 51 000 Ar') && tx.includes('Impayé précédent à verser : 8 000 Ar') && tx.includes('Total à verser après dépenses et anciens impayés encaissés : 54 000 Ar') && tx.includes('Total MVola − dépenses MVola : 13 000 Ar') && tx.includes('Reste impayé semaine précédente : 12 000 Ar') && tx.includes('Reste impayé semaine en cours : 20 000 Ar'), 'lignes dans le message WhatsApp');
+ok(tx.includes('*À verser au patron*') && tx.includes('Total à verser : 51 000 Ar') && tx.includes('Impayé précédent à verser : 8 000 Ar') && tx.includes('Total à verser après dépenses et anciens impayés encaissés : 54 000 Ar') && tx.includes('Total MVola − dépenses MVola : 13 000 Ar') && tx.includes('Reste impayé semaine précédente : 20 000 Ar') && tx.includes('Reste impayé semaine en cours : 20 000 Ar'), 'lignes dans le message WhatsApp');
 const bg = async (sel) => p.locator(sel).evaluate((e) => getComputedStyle(e).backgroundImage + getComputedStyle(e).backgroundColor);
 ok(await bg('.boss-unpaidPrev') !== await bg('.boss-unpaidCur'), 'les 2 cases reste impayé n’ont pas la même couleur');
 ok(await bg('.boss-net') !== await bg('.boss-total'), 'les 2 cases principales n’ont pas la même couleur');
@@ -61,16 +61,16 @@ const top = async (sel) => p.locator(sel).evaluate((e) => Math.round(e.getBoundi
 const hh = async (sel) => p.locator(sel).evaluate((e) => Math.round(e.getBoundingClientRect().height));
 ok(await top('.boss-total') === await top('.boss-net') && await hh('.boss-total') === await hh('.boss-net'), '2 cases principales alignées, même hauteur');
 ok(await top('.boss-prevPaid') === await top('.boss-unpaidCur') && await hh('.boss-prevPaid') === await hh('.boss-unpaidCur'), 'cases impayés alignées, même hauteur');
-// Le vendeur marque s7 (ancien impayé de 12 000) « Payé » le 05/08 : il quitte le reste impayé semaine précédente et s'ajoute à impayé précédent à verser (2e case)
+// Le vendeur marque s7 (ancien impayé de 12 000) « Payé » le 05/08 : il s'ajoute à la 2e case, le reste impayé semaine précédente ne bouge pas
 await p.evaluate(async () => { const t = window.__tsena; const o = (await t.all('orders')).find((x) => x.id === 's7'); await t.save('orders', [{ ...o, payments: [{ id: 'p7', at: '2026-08-05T15:00:00+03:00', amount: 12000, method: 'cash', receivedBy: 'shop' }] }]); });
 await p.waitForTimeout(800);
 let t2 = N(await p.locator('main').innerText());
 ok(/Impayé précédent à verser\s*20 000 Ar/.test(t2) && /Total à verser après dépenses et anciens impayés encaissés\s*66 000 Ar/.test(t2), 'après « Payé » : impayé précédent à verser 20 000, 2e case 51 000 − 5 000 + 20 000 = 66 000');
-ok(/Reste impayé semaine précédente\s*0 Ar/.test(t2), 'après « Payé » : les 12 000 quittent le reste impayé semaine précédente (0) et passent dans impayé précédent à verser');
-// Annulation d'une vente de la semaine précédente : elle sort des impayés
+ok(/Reste impayé semaine précédente\s*20 000 Ar/.test(t2), 'après « Payé » : reste impayé semaine précédente inchangé (20 000)');
+// Annulation d'une vente impayée de la semaine précédente : seul cas (avec le report) où le reste impayé semaine précédente baisse
 await p.evaluate(async () => { const t = window.__tsena; const o = (await t.all('orders')).find((x) => x.id === 's7'); await t.save('orders', [{ ...o, status: 'cancelled', payments: [] }]); });
 await p.waitForTimeout(800);
 t2 = N(await p.locator('main').innerText());
-ok(/Reste impayé semaine précédente\s*0 Ar/.test(t2) && /Total à verser après dépenses et anciens impayés encaissés\s*54 000 Ar/.test(t2), 'après annulation : reste impayé semaine précédente 0, 2e case 54 000');
+ok(/Reste impayé semaine précédente\s*8 000 Ar/.test(t2) && /Total à verser après dépenses et anciens impayés encaissés\s*54 000 Ar/.test(t2), 'après annulation : reste impayé semaine précédente 8 000, 2e case 54 000');
 await b.close();
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); process.exit(fail ? 1 : 0);
