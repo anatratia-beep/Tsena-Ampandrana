@@ -8,7 +8,7 @@ import { fmtAr, fmtNum, nextNumber, parseNum, productVariants, useCatalog, varia
 import {
   addPayment, availableOf, backToPrepare, cancelOrder, cancelDeliveryToShop, MAX_REPORTS, reportCount, canPostpone, postponeOrder, cancelAfterReports, CHANNELS, completeAtShop, confirmOrder, dispatchOrder, exchangeBalance, findCustomer, fmtPhone,
   canReassign, customerIdFor, choiceQty, hasPendingChoice, needsSettlement, reassignCourier, isOutsideHours, isPickupZone, isWalkIn, orderLabel, handOverAtShop, itemsTotal, keptTotal, linePrice, markReady, normPhone, ORDER_STATUS, orderTotal, paidTotal, PAY_METHODS, recordReturn, remaining,
-  isSuperUser, priceOrder, removeLine, reservedIndex, totalQty, useWholesale, editPayment, courierSplit, withLineWholesale, discountAr, stockShortages,
+  isSuperUser, canMoveValidation, moveValidationDay, priceOrder, removeLine, reservedIndex, totalQty, useWholesale, editPayment, courierSplit, withLineWholesale, discountAr, stockShortages,
   type Courier, type Customer, type Order, type OrderLine, type OrderStatus, type PayMethod, type Payment, type Zone, orderText, customerText, findCustomerBy,
 } from '../lib/orders';
 import { useCompany } from '../lib/settings';
@@ -614,7 +614,7 @@ function OrderDetail({ id }: { id: string }) {
   const o = orders.find((x) => x.id === id);
   const [editPay, setEditPay] = useState<{ p: Payment; refOnly?: boolean } | null>(null);
   const canFixPay = can('users.manage') || can('records.correct') || can('handover.receive');
-  const [modal, setModal] = useState<'' | 'edit' | 'dispatch' | 'return' | 'pay' | 'cancel' | 'exchange' | 'shop' | 'pickup' | 'reassign' | 'settle' | 'postpone' | 'void' | 'correct' | 'rectify' | 'rejectRect' | 'approveRect'>('');
+  const [modal, setModal] = useState<'' | 'edit' | 'dispatch' | 'return' | 'pay' | 'cancel' | 'exchange' | 'shop' | 'pickup' | 'reassign' | 'settle' | 'postpone' | 'void' | 'correct' | 'rectify' | 'rejectRect' | 'approveRect' | 'moveDay'>('');
   const [payFee, setPayFee] = useState(false);
   if (!o) return <Empty icon="list" title="Commande introuvable"><Button variant="ghost" onClick={() => navigate('/commandes')}>Retour</Button></Empty>;
   const zone = get<Zone>('zones', o.zoneId || '');
@@ -668,6 +668,7 @@ function OrderDetail({ id }: { id: string }) {
           {closed && isWalkIn(o) && can('records.correct') && <Button variant="ghost" icon="edit" onClick={() => setModal('correct')}>Modifier / corriger la vente</Button>}
           {closed && can('records.correct') && <Button variant="danger" icon="trash" onClick={() => setModal('void')}>Annuler / supprimer la vente</Button>}
           {closed && !can('records.correct') && <span className="small muted">Erreur sur cette vente ? Le gérant ou le super-admin peut la corriger ou l’annuler.</span>}
+          {canMoveValidation(o) && <Button variant="ghost" icon="clock" onClick={() => setModal('moveDay')}>Modifier la date de validation</Button>}
           {o.status === 'cancelled' && !o.rectifyRequest && (() => { const r = rectifyRight(o); return r.mode !== 'none'
             ? <Button variant="ghost" icon="refresh" onClick={() => setModal('rectify')}>Rectifier une annulation</Button>
             : r.why && o.kind !== 'exchange' ? <span className="small muted">{r.why}</span> : null; })()}
@@ -792,6 +793,7 @@ function OrderDetail({ id }: { id: string }) {
       {modal === 'rectify' && <RectifyModal order={o} onClose={() => setModal('')} />}
       {modal === 'rejectRect' && <RejectRectifyModal order={o} onClose={() => setModal('')} />}
       {modal === 'approveRect' && <ApproveRectifyModal order={o} onClose={() => setModal('')} />}
+      {modal === 'moveDay' && <MoveDayModal order={o} onClose={() => setModal('')} />}
     </>
   );
 }
@@ -1328,6 +1330,22 @@ export function ValidationDay({ value, onChange }: { value: string; onChange: (d
       <div style={{ maxWidth: 240 }}><TextField label="Date de validation (super-admin)" type="date" max={today} value={value} onChange={(v) => onChange(v || today)} /></div>
       {value !== today && <p className="small" style={{ color: 'var(--warn, #9a6700)', margin: 0 }}>La vente comptera le {fmtDate(value)} (et non aujourd’hui) : totaux du jour, du vendeur et de la page. Noté dans l’historique et le journal{closed ? ' — semaine déjà clôturée : correction après clôture' : ''}.</p>}
     </div>
+  );
+}
+
+/** Super-admin : déplacer une commande déjà validée vers le bon jour (vente, paiements et stock de ce jour-là). */
+function MoveDayModal({ order: o, onClose }: { order: Order; onClose: () => void }) {
+  const cur = (() => { const d = new Date(o.dispatchedAt!); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  const [day, setDay] = useState(cur);
+  const closed = closedBy(day) || closedBy(cur);
+  return (
+    <Confirm title={`Modifier la date de validation — ${o.number}`} confirmLabel="Changer la date" onClose={onClose}
+      message={<div className="stack">
+        <p>Validée le <strong>{fmtDate(cur)}</strong>. Choisissez le jour où cette vente doit compter : la vente, l’argent reçu ce jour-là et la sortie du stock passent à ce jour (totaux du jour, du vendeur et de la page), sans doublon. Le règlement du livreur ne change pas.</p>
+        <div style={{ maxWidth: 240 }}><TextField label="Nouvelle date de validation" type="date" max={todayYmdLocal()} value={day} onChange={(v) => setDay(v || cur)} /></div>
+        {closed && <p className="small" style={{ color: 'var(--warn, #9a6700)', margin: 0 }}>Semaine déjà clôturée (versement au patron) : la correction est faite quand même et notée « après clôture » dans l’historique et le journal.</p>}
+      </div>}
+      onConfirm={async () => { await moveValidationDay(o, day); toast(day === cur ? 'Date inchangée' : `Vente comptée le ${fmtDate(day)}`); }} />
   );
 }
 

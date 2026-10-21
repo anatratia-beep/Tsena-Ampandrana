@@ -181,5 +181,27 @@ const sdy = await p.evaluate((y) => { const h = window.__tsena.handovers; const 
 ok(sdy.sales === 50000 + 30000 + 25000 && sdy.cash === 50000 + 25000, `feuille d’Aina d’hier : ventes ${sdy.sales}, espèces ${sdy.cash}`);
 const auds = await p.evaluate(() => window.__tsena.all('audit').filter((a) => ['R1', 'R2'].includes(a.entityId) && a.action.startsWith('Validation datée')).length);
 ok(auds === 2, 'journal : 2 validations datées');
+// 7. Commande déjà validée ce matin (remise en boutique, payée) : le super-admin la passe à hier
+await p.evaluate(async () => {
+  const t = window.__tsena; const now = new Date().toISOString();
+  await t.save('orders', { id: 'M1', number: 'C-M1', kind: 'order', channel: 'facebook', discount: 0, payments: [], status: 'ready', createdAt: now, statusDates: { ready: now }, createdBy: 'u1', createdByName: 'Aina',
+    phone: '0345555555', name: 'Tiana', zoneId: 'zone-retrait', deliveryFee: 0, lines: [{ id: 'm1', variantId: 'vind2', qty: 1, unitPrice: 40000 }] });
+});
+const today = await p.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
+await p.goto('http://localhost:5173/#/commandes/M1'); await p.waitForTimeout(500);
+await p.getByRole('button', { name: 'Remise au client en boutique' }).click(); await p.waitForTimeout(300);
+await p.getByRole('dialog').getByRole('button', { name: 'Valider' }).click(); await p.waitForTimeout(600);
+const before7 = await p.evaluate((d) => window.__tsena.handovers.sellerDay(window.__tsena.get('users', 'u1'), d), today);
+await p.getByRole('button', { name: 'Modifier la date de validation' }).click(); await p.waitForTimeout(300);
+dlg = p.getByRole('dialog');
+await dlg.getByLabel('Nouvelle date de validation').fill(yest);
+await dlg.getByRole('button', { name: 'Changer la date' }).click(); await p.waitForTimeout(600);
+o = await order('M1');
+const mv = await p.evaluate(() => window.__tsena.all('stockMoves').filter((m) => m.refId === 'M1'));
+ok(loc(o.dispatchedAt) === yest && loc(o.returnedAt) === yest && loc(o.payments[0].at) === yest && mv.length === 1 && loc(mv[0].at) === yest, 'M1 : départ, retour, paiement et sortie de stock passés à hier (rien recopié)');
+const t7 = await p.evaluate((d) => window.__tsena.handovers.sellerDay(window.__tsena.get('users', 'u1'), d), today);
+const y7 = await p.evaluate((d) => window.__tsena.handovers.sellerDay(window.__tsena.get('users', 'u1'), d), yest);
+ok(before7.sales - t7.sales === 40000 && before7.pay.cash - t7.pay.cash === 40000 && y7.sales === 105000 + 40000 && y7.pay.cash === 75000 + 40000, `feuille d’Aina : −40 000 aujourd’hui, +40 000 hier (hier ${y7.sales} / ${y7.pay.cash})`);
+ok(o.backdated?.some((b) => b.what.startsWith('Date de validation modifiée')) && o.events.some((e) => N(e.text).includes('Date de validation modifiée')), 'historique : date de validation modifiée (avant / après)');
 const sw = await p.evaluate(() => document.documentElement.scrollWidth); ok(sw <= W + 1, `pas de débordement (${sw})`);
 console.log(fail ? `${fail} ÉCHEC(S)` : 'TOUT EST BON'); await b.close();
