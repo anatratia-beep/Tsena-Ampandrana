@@ -317,6 +317,40 @@ async function noteBackdate(id: string, back: { day: string; closed?: string } |
   await audit(back.closed ? 'Validation datée après clôture' : 'Validation datée', `${f.number} : ${text}`, 'orders', id, 'high');
 }
 
+/** Commande déjà validée (partie avec le livreur ou remise en boutique) dont le super-admin peut changer le jour. */
+export const canMoveValidation = (o: Order) => isSuperUser() && !isWalkIn(o) && !!o.dispatchedAt && o.status !== 'cancelled' && o.kind === 'order';
+/**
+ * Super-admin : change le jour de validation d'une commande déjà validée (ex. validée ce matin, à compter hier).
+ * Tout ce qui, pour cette commande, est daté du jour de validation actuel (départ, retour, statuts, paiements, mouvements
+ * de stock) passe au jour choisi, à la même heure : les totaux du jour, du vendeur et de la page suivent, sans doublon
+ * (les enregistrements sont déplacés, jamais recopiés). Le versement du livreur n'est pas touché. Même semaine clôturée.
+ */
+export async function moveValidationDay(o: Order, day: string) {
+  if (!isSuperUser()) throw new Error('Seul le super-admin peut modifier la date de validation.');
+  const f = get<Order>('orders', o.id);
+  if (!f || !canMoveValidation(f)) throw new Error('Cette commande n’est pas validée (ou c’est une vente sur place).');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day > ymdLocal(new Date().toISOString())) throw new Error('Date invalide.');
+  const from = ymdLocal(f.dispatchedAt!);
+  if (from === day) return;
+  const shift = (iso?: string) => { if (!iso || ymdLocal(iso) !== from) return iso; const d = new Date(iso); const [y, m, dd] = day.split('-').map(Number); d.setFullYear(y, m - 1, dd); return d.toISOString(); };
+  const moves = all<StockMove>('stockMoves').filter((m) => m.refType === 'order' && m.refId === f.id && ymdLocal(m.at) === from);
+  if (moves.length) await save('stockMoves', moves.map((m) => ({ id: m.id, at: shift(m.at)! })));
+  const payments = (f.payments || []).map((p) => (ymdLocal(p.at) === from ? { ...p, at: shift(p.at)! } : p));
+  const moved = payments.filter((p, i) => p.at !== (f.payments || [])[i].at).length;
+  const statusDates = Object.fromEntries(Object.entries(f.statusDates || {}).map(([k, v]) => [k, shift(v)])) as Order['statusDates'];
+  const pc = closedBy(from), pn = closedBy(day);
+  const closed = [...new Set([pc, pn].filter(Boolean).map((p) => `${p!.weekStart} → ${p!.weekEnd}`))].join(', ') || undefined;
+  const u = currentUser(); const real = new Date().toISOString();
+  const fr = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const text = `Date de validation modifiée par le super-admin : ${fr(from)} → ${fr(day)} (vente, ${moved} paiement(s), ${moves.length} mouvement(s) de stock)${closed ? ` — après clôture (semaine ${closed})` : ''}`;
+  await save('orders', {
+    id: f.id, dispatchedAt: shift(f.dispatchedAt), returnedAt: shift(f.returnedAt), statusDates, payments,
+    backdated: [...(f.backdated || []), { what: `Date de validation modifiée (avant : ${fr(from)})`, day, at: real, by: u?.fullName, closed }],
+    events: [...(f.events || []), { at: real, text, user: u?.fullName }],
+  });
+  await audit(closed ? 'Validation datée après clôture' : 'Validation datée', `${f.number} : ${text}`, 'orders', f.id, 'high');
+}
+
 // ---------- Actions ----------
 async function setStatus(o: Order, status: OrderStatus, extra: Partial<Order> = {}, at = bizNow()) {
   await save('orders', { id: o.id, status, statusDates: { ...(o.statusDates || {}), [status]: at }, ...extra });
