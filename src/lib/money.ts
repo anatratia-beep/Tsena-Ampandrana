@@ -9,7 +9,7 @@ import { courierSplit, isPickupZone, isWalkIn, itemsTotal, keptTotal, recordRetu
 
 // ---------- Comptes ----------
 export type AccountId = PayMethod | 'bank';
-export const ACCOUNTS: Record<AccountId, string> = { cash: 'Caisse espèces', mvola: 'MVola', orange: 'Orange Money', airtel: 'Airtel Money', bank: 'Banque' };
+export const ACCOUNTS: Record<AccountId, string> = { cash: 'Caisse espèces', mvola: 'MVola', orange: 'Orange Money', airtel: 'Airtel Money', card: 'Stripe (cartes, site web)', bank: 'Banque' };
 export const ACCOUNT_IDS = Object.keys(ACCOUNTS) as AccountId[];
 
 export type MoveType = 'opening' | 'expense' | 'income' | 'transfer' | 'owner_in' | 'owner_out' | 'courier_settlement' | 'purchase' | 'gap';
@@ -102,7 +102,7 @@ export async function seedFinance() {
 }
 
 // ---------- Soldes ----------
-const ACCOUNT_OF_METHOD: Record<PayMethod, AccountId> = { cash: 'cash', mvola: 'mvola', orange: 'orange', airtel: 'airtel' };
+const ACCOUNT_OF_METHOD: Record<PayMethod, AccountId> = { cash: 'cash', mvola: 'mvola', orange: 'orange', airtel: 'airtel', card: 'card' };
 /** Argent reçu (ou rendu) directement par la boutique, compte par compte. */
 function shopPayments(until?: string) {
   const out: { at: string; account: AccountId; amount: number; order: Order }[] = [];

@@ -310,7 +310,7 @@ function PaidModal({ p, onClose }: { p: Prospect; onClose: () => void }) {
         <p className="small muted">Le paiement est enregistré en caisse au moment où la commande est créée (rien n’est compté deux fois).</p>
         <div className="grid-2">
           <TextField label="Montant (Ar)" required value={amount} onChange={setAmount} inputMode="numeric" autoFocus />
-          <SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />
+          <SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).filter(([k]) => k !== 'card').map(([value, label]) => ({ value, label }))} />
           {method !== 'cash' && <TextField label="Référence de la transaction" value={ref} onChange={setRef} />}
         </div>
       </div>

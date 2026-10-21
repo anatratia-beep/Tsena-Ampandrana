@@ -15,6 +15,7 @@ import { useCompany } from '../lib/settings';
 import { correctWalkInSale, netMoves, refundSuggested, voidOrder } from '../lib/corrections';
 import { approveRectify, cancelledBy, isSuper, planRectify, rectifyCancellation, rectifyRight, rectifySaleDay, rejectRectify, requestRectify, type RectifyDates } from '../lib/rectify';
 import { closedBy } from '../lib/closed';
+import { manualMethods } from '../ui/payments';
 import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, feeState, payDeferredFees, settleCourier, type AccountId } from '../lib/money';
 import { Help, DiscountField, Badge, Button, Confirm, Empty, FilterSelect, IconButton, Modal, MoreMatches, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute, DateSort, type DateOrder, useKeep } from '../ui/kit';
 import { Icon } from '../ui/icons';
@@ -465,7 +466,7 @@ export function OrderForm({ order, exchangeOf, onClose, onSaved, prefill: pre }:
             {pays.map((x, i) => (
               <div key={i} className="grid-2 pay-row">
                 <TextField label={pays.length > 1 ? `Montant ${i + 1} (Ar)` : 'Montant (Ar)'} value={x.amount} onChange={(v) => setPay(i, { amount: v })} inputMode="numeric" hint={x.amount && parseAr(x.amount) ? `= ${fmtAr(parseAr(x.amount))}` : undefined} />
-                <SelectField label="Moyen" value={x.method} onChange={(v) => setPay(i, { method: v as PayMethod })} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />
+                <SelectField label="Moyen" value={x.method} onChange={(v) => setPay(i, { method: v as PayMethod })} options={manualMethods(x.method).map(([value, label]) => ({ value, label }))} />
                 {x.method !== 'cash' && <TextField label="Référence de la transaction" value={x.ref} onChange={(v) => setPay(i, { ref: v })} />}
                 {pays.length > 1 && <div><Button variant="quiet" onClick={() => setPays(pays.filter((_, j) => j !== i))}>Retirer ce paiement</Button></div>}
               </div>
@@ -909,7 +910,7 @@ export function ReturnModal({ order: o, onClose }: { order: Order; onClose: () =
           </div>
           <div className="grid-2">
             <TextField label={byShop ? 'Payé par le client en Mobile Money (Ar)' : 'Encaissé par le livreur auprès du client (Ar)'} value={amount ?? String(amountVal)} onChange={setAmount} inputMode="numeric" hint={amountVal !== toCollect ? `Prévu : ${fmtAr(toCollect)}` : 'Normalement : le reste à payer par le client.'} />
-            <SelectField label="Le client a payé en" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />
+            <SelectField label="Le client a payé en" value={method} onChange={(v) => setMethod(v as PayMethod)} options={manualMethods(method).map(([value, label]) => ({ value, label }))} />
             {method !== 'cash' && <SelectField label="Envoyé sur le numéro de" value={mmBy} onChange={(v) => setMmBy(v as 'shop' | 'courier')} options={[{ value: 'shop', label: 'La boutique (le livreur n’a rien encaissé)' }, { value: 'courier', label: 'Le livreur (il doit le verser)' }]} />}
             {method !== 'cash' && <TextField label="Référence de la transaction" value={ref} onChange={setRef} hint="Peut être ajoutée plus tard, après vérification" />}
           </div>
@@ -973,7 +974,7 @@ function EditPaymentModal({ order: o, payment: p, refOnly, onClose }: { order: O
         <p className="small">Paiement : <strong>{fmtAr(p.amount)}</strong> ({PAY_METHODS[p.method]}{p.ref ? `, réf. ${p.ref}` : ''}, {p.receivedBy === 'shop' ? 'reçu par la boutique' : 'encaissé par le livreur'}) le {fmtDateTime(p.at)}.</p>
         {!refOnly && <div className="grid-2">
           <TextField label="Montant (Ar)" required value={amount} onChange={setAmount} inputMode="numeric" hint="0 pour annuler ce paiement" />
-          <SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />
+          <SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={manualMethods(method).map(([value, label]) => ({ value, label }))} />
         </div>}
         <TextField label="Référence de la transaction" value={ref} onChange={setRef} autoFocus={refOnly} hint={method === 'cash' ? 'Pas nécessaire pour les espèces' : 'Numéro de la transaction MVola, Orange Money ou Airtel Money'} />
         {!refOnly && hasCourier && <SelectField label="Argent reçu par" value={by} onChange={(v) => setBy(v as 'shop' | 'courier')} options={[{ value: 'shop', label: 'La boutique (sur son numéro / en caisse)' }, { value: 'courier', label: 'Le livreur (il doit le verser)' }]} />}
@@ -1069,7 +1070,7 @@ function VoidModal({ order: o, onClose }: { order: Order; onClose: () => void })
         <SelectField label="Motif" value={reason} onChange={setReason} options={['Erreur de saisie', 'Vente en double', 'Client a rendu les articles', 'Mauvais article', 'Autre'].map((r) => ({ value: r, label: r }))} />
         {reason === 'Autre' && <TextField label="Précisez" value={other} onChange={setOther} required />}
         {suggested > 0 && <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={refund} onChange={(e) => setRefund(e.target.checked)} /> L’argent reçu ({fmtAr(suggested)}) est rendu au client / sort de la caisse</label>}
-        {refund && <div className="grid-2"><TextField label="Montant rendu (Ar)" value={amount} onChange={setAmount} inputMode="numeric" /><SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} /></div>}
+        {refund && <div className="grid-2"><TextField label="Montant rendu (Ar)" value={amount} onChange={setAmount} inputMode="numeric" /><SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={manualMethods(method).map(([value, label]) => ({ value, label }))} /></div>}
       </div>}
       onConfirm={async () => { if (!why) throw new Error('Indiquez le motif.'); await voidOrder(o, why, refund ? { amount: parseAr(amount) || 0, method } : undefined); toast(`${o.number} annulée : stock remis`); }} />
   );
@@ -1147,7 +1148,7 @@ function RectifyModal({ order: o, onClose }: { order: Order; onClose: () => void
         </div>
         <div className="grid-2">
           <TextField label="Argent reçu du client pour les articles livrés (Ar)" value={amount ?? String(amountVal)} onChange={setAmount} inputMode="numeric" hint="0 si le client n’a encore rien payé : il restera dans « Reste à payer »." />
-          <SelectField label="Payé en" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />
+          <SelectField label="Payé en" value={method} onChange={(v) => setMethod(v as PayMethod)} options={manualMethods(method).map(([value, label]) => ({ value, label }))} />
           {hasCourier && <SelectField label="Reçu par" value={by} onChange={(v) => setBy(v as 'shop' | 'courier')} options={[{ value: 'shop', label: 'La boutique / le vendeur (reçu maintenant)' }, { value: 'courier', label: `Encore chez le livreur (${get<Courier>('couriers', o.courierId || '')?.name || '?'}) : compté à son règlement` }]} />}
           {method !== 'cash' && <TextField label="Référence de la transaction" value={ref} onChange={setRef} />}
         </div>
@@ -1237,7 +1238,7 @@ function CorrectSaleModal({ order: o, onClose }: { order: Order; onClose: () => 
         <div className="grid-2"><TextField label="Remise (Ar)" value={discount} onChange={setDiscount} inputMode="numeric" /><TextField label="Raison de la correction" required value={reason} onChange={setReason} placeholder="ex. mauvaise quantité saisie" /></div>
         <p>Nouveau total : <strong>{fmtAr(total)}</strong> · déjà payé : {fmtAr(paidNow)}{Math.round(diff) ? <> · <strong className={diff < 0 ? 'neg' : ''}>{diff < 0 ? `à rendre ${fmtAr(-diff)}` : `reste à payer ${fmtAr(diff)}`}</strong></> : ' · rien à régler'}</p>
         {Math.round(diff) !== 0 && <div className="row" style={{ gap: 10, alignItems: 'center' }}><label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={settle} onChange={(e) => setSettle(e.target.checked)} /> Enregistrer {diff < 0 ? 'l’argent rendu' : 'le paiement'} maintenant</label>
-          {settle && <SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />}</div>}
+          {settle && <SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={manualMethods(method).map(([value, label]) => ({ value, label }))} />}</div>}
         {error && <div className="notice notice-danger"><Icon name="alert" /><span>{error}</span></div>}
       </div>
     </Modal>
@@ -1284,7 +1285,7 @@ function ShopExchangeModal({ order: o, onClose }: { order: Order; onClose: () =>
       <div className="stack">
         <p>Le client est en boutique : les articles repris reviennent en stock, les nouveaux articles sortent, sans frais de livraison.</p>
         <p><strong>{bal > 0 ? `Le client paie ${fmtAr(bal)}` : bal < 0 ? `À rendre au client : ${fmtAr(-bal)}` : 'Aucune différence à payer.'}</strong></p>
-        {bal !== 0 && <SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />}
+        {bal !== 0 && <SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={manualMethods(method).map(([value, label]) => ({ value, label }))} />}
         {bal !== 0 && method !== 'cash' && <TextField label="Référence" value={ref} onChange={setRef} />}
       </div>
     </Modal>
@@ -1309,7 +1310,7 @@ function PickupModal({ order: o, onClose }: { order: Order; onClose: () => void 
       <div className="stack">
         <p>Le client est venu chercher sa commande en boutique : elle devient une <strong>vente sur place</strong>. Les articles sortent du stock{converting ? ', la livraison est annulée (pas de frais de livraison, pas de livreur)' : ''}.</p>
         <TextField label="Montant encaissé (Ar)" value={amount} onChange={setAmount} inputMode="numeric" hint={`Reste à payer : ${fmtAr(rest)}`} />
-        <SelectField label="Moyen de paiement" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />
+        <SelectField label="Moyen de paiement" value={method} onChange={(v) => setMethod(v as PayMethod)} options={manualMethods(method).map(([value, label]) => ({ value, label }))} />
         {method !== 'cash' && <TextField label="Référence de la transaction" value={ref} onChange={setRef} />}
         <ValidationDay value={day} onChange={setDay} />
       </div>

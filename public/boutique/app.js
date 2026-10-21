@@ -12,6 +12,10 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const ICON_X = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13" fill="none"/></svg>';
 const ICON_MSG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.4 2 2 6.1 2 11.4c0 3 1.5 5.7 3.8 7.4V22l3.5-1.9c.9.3 1.8.4 2.7.4 5.6 0 10-4.1 10-9.4S17.6 2 12 2Zm1 12.6-2.5-2.7-5 2.7 5.5-5.8 2.6 2.7 4.9-2.7-5.5 5.8Z"/></svg>';
 
+const ICON_CARD = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 9.5h19" stroke="currentColor" stroke-width="1.5"/></svg>';
+const cardOn = () => !!CFG.cardPayment;
+const payFn = (p) => `${CFG.supabaseUrl}/functions/v1/shop-pay${p}`;
+
 const state = {
   pageKey: resolvePage(location, CFG),
   data: null, cards: [], page: null, pageCfg: {},
@@ -117,6 +121,7 @@ async function start() {
   renderPage();
   updateBag();
   initPixel(state.pageCfg.pixel);
+  handleReturnFromPayment();
 
   // Prix et stock à jour quand le client revient sur l'onglet.
   document.addEventListener('visibilitychange', async () => {
@@ -392,8 +397,12 @@ function renderDrawer() {
     const r = state.lastOrder;
     d.innerHTML = `${head('Merci')}<div class="drawer-body"><div class="done">
       <span class="num">Commande ${esc(r.number)}</span>
-      <h3>Votre commande est enregistrée.</h3>
-      <p>Nous vous appelons au ${esc(fmtPhone(state.form.phone))} pour confirmer${r.outsideHours ? ' dès l’ouverture' : ''}. Total à payer à la réception : <strong>${esc(fmtAr(r.total))}</strong>${r.fee ? ` (livraison ${esc(r.zone)} incluse)` : ''}.</p>
+      <h3>${r.paidByCard ? 'Paiement reçu, merci.' : 'Votre commande est enregistrée.'}</h3>
+      ${r.paidByCard
+        ? `<p>Votre paiement par carte est confirmé${r.total ? ` (${esc(fmtAr(r.total))})` : ''}. Nous vous appelons${state.form.phone ? ` au ${esc(fmtPhone(state.form.phone))}` : ''} pour organiser la livraison. Vous n’avez rien à payer à la réception.</p>`
+        : r.cardPending
+          ? `<p>Le paiement par carte n’a pas été terminé. Votre commande reste enregistrée : nous vous appelons${state.form.phone ? ` au ${esc(fmtPhone(state.form.phone))}` : ''}, et vous pourrez payer à la réception.</p>`
+          : `<p>Nous vous appelons au ${esc(fmtPhone(state.form.phone))} pour confirmer${r.outsideHours ? ' dès l’ouverture' : ''}. Total à payer à la réception : <strong>${esc(fmtAr(r.total))}</strong>${r.fee ? ` (livraison ${esc(r.zone)} incluse)` : ''}.</p>`}
       ${messengerLink() ? `<a class="btn ghost" href="${esc(messengerLink())}" target="_blank" rel="noopener">${ICON_MSG}Nous écrire sur Messenger</a>` : ''}
       <button class="btn" type="button" data-continue>Continuer mes achats</button></div></div>`;
     d.querySelector('[data-continue]').onclick = closeDrawer;
@@ -412,6 +421,7 @@ function renderDrawer() {
     };
   } else {
     const f = state.form;
+    const byCard = cardOn() && f.pay === 'card';
     d.innerHTML = `${head('Vos coordonnées')}<div class="drawer-body"><form class="form" id="orderForm" novalidate>
         <button class="back" type="button" data-back>Modifier le panier (${cartCount(lines)} article${cartCount(lines) > 1 ? 's' : ''})</button>
         <div class="field"><label for="f-name">Nom</label><input id="f-name" name="name" autocomplete="name" required maxlength="80" value="${esc(f.name || '')}"></div>
@@ -419,6 +429,10 @@ function renderDrawer() {
         <fieldset class="field"><legend class="lab">Livraison</legend><div class="zone-list">${zones.map((z) => `
           <label class="zone"><input type="radio" name="zoneId" value="${esc(z.id)}" ${z.id === f.zoneId ? 'checked' : ''} required><span>${esc(z.pickup ? 'Je viens chercher en boutique' : z.name)}</span><span>${z.pickup ? 'Gratuit' : esc(fmtAr(z.fee))}</span></label>`).join('')}</div></fieldset>
         <div class="field" id="placeField" ${zone && zone.pickup ? 'hidden' : ''}><label for="f-place">Lieu de livraison</label><input id="f-place" name="place" autocomplete="street-address" maxlength="200" placeholder="Quartier, repère, porte…" value="${esc(f.place || '')}"></div>
+        ${cardOn() ? `<fieldset class="field"><legend class="lab">Paiement</legend><div class="zone-list">
+          <label class="zone"><input type="radio" name="pay" value="card" ${f.pay === 'card' ? 'checked' : ''}><span>${ICON_CARD} Payer maintenant par carte</span><span>Visa, Mastercard</span></label>
+          <label class="zone"><input type="radio" name="pay" value="cod" ${f.pay !== 'card' ? 'checked' : ''}><span>Payer à la réception</span><span>Espèces, Mobile Money</span></label>
+        </div>${f.pay === 'card' ? '<span class="hint">Paiement sécurisé par Stripe. Vos données de carte ne passent jamais par notre site.</span>' : ''}</fieldset>` : ''}
         <div class="field"><label for="f-fb">Nom Facebook (facultatif)</label><input id="f-fb" name="facebook" maxlength="100" value="${esc(f.facebook || '')}"></div>
         <div class="field"><label for="f-notes">Précisions (facultatif)</label><textarea id="f-notes" name="notes" maxlength="500" placeholder="Heure qui vous arrange, autre numéro…">${esc(f.notes || '')}</textarea></div>
         <p class="err" id="formErr" role="alert" hidden></p>
@@ -426,12 +440,13 @@ function renderDrawer() {
       <div class="drawer-foot"><div class="sum">
         <div><span>Articles</span><span>${esc(fmtAr(items))}</span></div>
         <div><span>Livraison</span><span>${zone ? (zone.pickup ? 'Gratuit' : esc(fmtAr(fee))) : 'à choisir'}</span></div>
-        <div class="grand"><span>À payer à la réception</span><span>${esc(fmtAr(items + fee))}</span></div></div>
-        <button class="btn wide" type="submit" form="orderForm" ${state.sending ? 'disabled' : ''}>${state.sending ? 'Envoi de la commande…' : 'Envoyer la commande'}</button></div>`;
+        <div class="grand"><span>${byCard ? 'Total à payer par carte' : 'À payer à la réception'}</span><span>${esc(fmtAr(items + fee))}</span></div></div>
+        <button class="btn wide" type="submit" form="orderForm" ${state.sending ? 'disabled' : ''}>${state.sending ? (byCard ? 'Ouverture du paiement…' : 'Envoi de la commande…') : byCard ? `${ICON_CARD} Payer ${esc(fmtAr(items + fee))}` : 'Envoyer la commande'}</button></div>`;
     const form = d.querySelector('#orderForm');
     form.addEventListener('input', (e) => {
       const t = e.target; if (!t.name) return;
       state.form[t.name] = t.value;
+      if (t.name === 'pay') { renderDrawer(); d.querySelector(`input[name="pay"][value="${t.value}"]`)?.focus(); return; }
       if (t.name === 'zoneId') { const keep = document.activeElement?.value; renderDrawer(); d.querySelector(`input[value="${CSS.escape(keep || t.value)}"]`)?.focus(); }
     });
     form.addEventListener('submit', submitOrder);
@@ -467,9 +482,26 @@ async function submitOrder(e) {
   try {
     const r = await rpc('shop_place_order', {
       p_page: state.page.id,
-      p_order: { name: f.name.trim(), phone: f.phone, facebook: f.facebook || '', zoneId: f.zoneId, place: zone.pickup ? '' : f.place, notes: f.notes || '', lines: lines.map((l) => ({ variantId: l.variantId, qty: l.qty })) },
+      p_order: { name: f.name.trim(), phone: f.phone, facebook: f.facebook || '', zoneId: f.zoneId, place: zone.pickup ? '' : f.place, notes: f.notes || '', pay: cardOn() && f.pay === 'card' ? 'card' : 'cod', lines: lines.map((l) => ({ variantId: l.variantId, qty: l.qty })) },
     });
-    track('Purchase', { value: r.total, num_items: cartCount(lines), content_ids: lines.map((l) => l.option.productId), content_type: 'product' });
+    if (cardOn() && f.pay === 'card') {
+      // La commande est enregistrée (stock réservé) ; le client part payer chez Stripe puis revient sur le site.
+      state.cart = {}; saveCart(); saveForm();
+      try { sessionStorage.setItem('boutique-last', JSON.stringify({ ...r, phone: f.phone })); } catch { /* facultatif */ }
+      track('InitiateCheckout', { value: r.total, num_items: cartCount(lines) });
+      try {
+        const res = await fetch(payFn('/checkout'), { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: CFG.supabaseKey },
+          body: JSON.stringify({ orderId: r.id, returnUrl: location.origin + pageUrl(state.page.code || state.page.id) }) });
+        const j = await res.json().catch(() => ({}));
+        if (res.ok && j.url) { location.assign(j.url); return; }
+        throw new Error(j.error || 'Paiement indisponible');
+      } catch {
+        state.lastOrder = { ...r, cardPending: true };
+        state.sending = false; state.view = 'done'; renderDrawer(); updateBag();
+        return;
+      }
+    }
+    track('Purchase', { value: r.total, num_items: cartCount(lines), content_ids: lines.map((l) => l.option.productId), content_type: 'product' }); // paiement à la réception
     const hours = state.data.company?.hours; const msg = todayHours(hours);
     state.lastOrder = { ...r, outsideHours: /Fermé|Ouvre/.test(msg) };
     state.cart = {}; saveCart(); saveForm();
@@ -485,6 +517,31 @@ async function submitOrder(e) {
       rpc('shop_catalog', { p_page: state.pageKey }).then((d) => { state.data = d; state.cards = buildCards(d.products); renderGrid(); }).catch(() => {});
     }
   }
+}
+
+// ---------- Retour du paiement Stripe ----------
+async function handleReturnFromPayment() {
+  const q = new URLSearchParams(location.search);
+  const session = q.get('paid'), unpaid = q.get('unpaid');
+  if (!session && !unpaid) return;
+  let last = {};
+  try { last = JSON.parse(sessionStorage.getItem('boutique-last') || '{}') || {}; } catch { /* facultatif */ }
+  q.delete('paid'); q.delete('unpaid');
+  history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash);
+  if (last.phone) state.form.phone = last.phone;
+  if (unpaid) { state.lastOrder = { ...last, number: last.number || unpaid, cardPending: true }; openDrawer('done'); return; }
+  state.lastOrder = { ...last, number: last.number || '…', paidByCard: true };
+  openDrawer('done');
+  try {
+    const res = await fetch(payFn('/verify?session_id=' + encodeURIComponent(session)), { headers: { apikey: CFG.supabaseKey } });
+    const j = await res.json();
+    if (j.paid) {
+      state.lastOrder = { ...state.lastOrder, number: j.number || state.lastOrder.number, paidByCard: true };
+      track('Purchase', { value: last.total || 0 });
+      try { sessionStorage.removeItem('boutique-last'); } catch { /* facultatif */ }
+    } else state.lastOrder = { ...state.lastOrder, paidByCard: false, cardPending: true };
+  } catch { /* le paiement sera confirmé par Stripe directement dans Tsena */ }
+  renderDrawer();
 }
 
 let toastTimer;

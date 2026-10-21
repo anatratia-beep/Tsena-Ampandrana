@@ -1,6 +1,9 @@
 // Paiement en plusieurs tranches : ex. article à 10 000 Ar payé 5 000 Ar en espèces + 5 000 Ar en MVola.
 // Utilisé à l'encaissement d'une vente sur place, à la création d'une commande et pour un paiement reçu ensuite.
 import { PAY_METHODS, type PayMethod } from '../lib/orders';
+
+/** Moyens proposés à la saisie : « Carte » n'est proposée que pour un paiement déjà reçu par le site web (Stripe). */
+export const manualMethods = (current?: string) => (Object.entries(PAY_METHODS) as [PayMethod, string][]).filter(([k]) => k !== 'card' || current === 'card');
 import { fmtAr, parseAr } from '../lib/catalog';
 import { Button, IconButton, TextField } from './kit';
 
@@ -48,12 +51,12 @@ export function PayLines({ lines, onChange, total, mode = 'buttons', allowEmpty 
           {lines.length > 1 && <strong className="small">Tranche {i + 1}</strong>}
           {mode === 'buttons' ? (
             <div className="segmented" role="group" aria-label={lines.length > 1 ? `Moyen de paiement tranche ${i + 1}` : 'Moyen de paiement'}>
-              {(Object.keys(PAY_METHODS) as PayMethod[]).map((m) => <button key={m} type="button" aria-pressed={p.method === m} onClick={() => set(i, { method: m })}>{PAY_METHODS[m]}</button>)}
+              {manualMethods(p.method).map(([m]) => <button key={m} type="button" aria-pressed={p.method === m} onClick={() => set(i, { method: m })}>{PAY_METHODS[m]}</button>)}
             </div>
           ) : (
             <div className="field"><label htmlFor={`pm-${i}`}>Moyen</label>
               <select id={`pm-${i}`} aria-label={lines.length > 1 ? `Moyen tranche ${i + 1}` : 'Moyen'} value={p.method} onChange={(e) => set(i, { method: e.target.value as PayMethod })}>
-                {Object.entries(PAY_METHODS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                {manualMethods(p.method).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select></div>
           )}
           <div className="row" style={{ alignItems: 'flex-end' }}>
