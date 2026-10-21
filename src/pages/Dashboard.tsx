@@ -266,7 +266,7 @@ function ManagerBoard({ part }: { part: 'summary' | 'sales' | 'money' | 'chart' 
           <a className="card stack-s" href="#/tresorerie" style={{ textDecoration: 'none', color: 'inherit' }}>
             <h2>Trésorerie</h2>
             <table className="kv-table"><tbody>
-              {(['cash', 'mvola', 'orange', 'airtel', 'bank'] as AccountId[]).filter((a) => a !== 'bank' || bal.bank).map((a) => <tr key={a}><td>{ACCOUNTS[a]}</td><td className={bal[a] < 0 ? 'neg' : ''}>{fmtAr(bal[a])}</td></tr>)}
+              {(['cash', 'mvola', 'orange', 'airtel', 'card', 'bank'] as AccountId[]).filter((a) => (a !== 'bank' && a !== 'card') || bal[a]).map((a) => <tr key={a}><td>{ACCOUNTS[a]}</td><td className={bal[a] < 0 ? 'neg' : ''}>{fmtAr(bal[a])}</td></tr>)}
               <tr><td>À verser par les livreurs</td><td>{fmtAr(courierDue)}</td></tr>
               <tr className="total"><td>Total</td><td>{fmtAr(Object.values(bal).reduce((t, v) => t + v, 0) + courierDue)}</td></tr>
             </tbody></table>
@@ -339,6 +339,7 @@ function SituationCard({ from: f, to: t }: { from?: string; to?: string }) {
     { k: 'mvola', l: 'MVola', v: (r) => r.pay.mvola, money: true },
     { k: 'orange', l: 'Orange Money', v: (r) => r.pay.orange, money: true },
     { k: 'airtel', l: 'Airtel Money', v: (r) => r.pay.airtel, money: true },
+    ...(Math.round(T.pay.card || 0) ? [{ k: 'card', l: 'Carte (site web)', v: (r: PageSit) => r.pay.card || 0, money: true }] : []),
     { k: 'l1', l: '1er paiement du reste', v: (r) => r.later1, money: true },
     { k: 'l2', l: '2ème paiement du reste', v: (r) => r.later2, money: true },
     { k: 'rest', l: 'Reste à payer', v: (r) => r.rest, money: true, n: (r) => r.restN, cls: 'neg' },
@@ -359,6 +360,7 @@ function SituationCard({ from: f, to: t }: { from?: string; to?: string }) {
           <div className="card stat"><span className="small muted">MVola</span><strong className="stat-value num">{fmtAr(T.pay.mvola)}</strong></div>
           <div className="card stat"><span className="small muted">Orange Money</span><strong className="stat-value num">{fmtAr(T.pay.orange)}</strong></div>
           <div className="card stat"><span className="small muted">Airtel Money</span><strong className="stat-value num">{fmtAr(T.pay.airtel)}</strong></div>
+          {Math.round(T.pay.card || 0) ? <div className="card stat"><span className="small muted">Carte bancaire (site web)</span><strong className="stat-value num">{fmtAr(T.pay.card)}</strong><span className="small muted">payé en ligne (Stripe)</span></div> : null}
           <div className="card stat"><span className="small muted">1er paiement du reste</span><strong className="stat-value num">{fmtAr(T.later1)}</strong><span className="small muted">payé le jour de travail suivant</span></div>
           <div className="card stat"><span className="small muted">2ème paiement du reste</span><strong className="stat-value num">{fmtAr(T.later2)}</strong><span className="small muted">payé les jours d’après</span></div>
           <a className="card stat" href="#/commandes/terminees" style={{ textDecoration: 'none', color: 'inherit' }}><span className="small muted">Reste à payer</span><strong className={`stat-value num ${T.rest ? 'neg' : ''}`}>{fmtAr(T.rest)}</strong><span className="small muted">{T.restN} commande(s)</span></a>

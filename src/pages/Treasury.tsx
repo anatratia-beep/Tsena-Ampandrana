@@ -56,7 +56,7 @@ function Accounts() {
   const list = flows(period.from, period.to, account || undefined);
   const inSum = list.filter((f) => f.amount > 0 && f.move?.type !== 'transfer').reduce((s, f) => s + f.amount, 0);
   const outSum = list.filter((f) => f.amount < 0 && f.move?.type !== 'transfer').reduce((s, f) => s - f.amount, 0);
-  const shown = ACCOUNT_IDS.filter((a) => a !== 'bank' || b.bank || list.some((f) => f.account === 'bank'));
+  const shown = ACCOUNT_IDS.filter((a) => (a !== 'bank' && a !== 'card') || b[a] || list.some((f) => f.account === a));
   const total = ACCOUNT_IDS.reduce((s, a) => s + b[a], 0);
   return (
     <>

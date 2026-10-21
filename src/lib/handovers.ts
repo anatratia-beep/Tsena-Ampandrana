@@ -72,7 +72,7 @@ export function sellerDay(u: User, date: string): SellerDay {
     pages.set(p, (pages.get(p) ?? 0) + l.amount); sales += l.amount;
     if (l.kind === 'sale') seen.add(l.order.id);
   }
-  const pay: Record<PayMethod, number> = { cash: 0, mvola: 0, orange: 0, airtel: 0 };
+  const pay: Record<PayMethod, number> = { cash: 0, mvola: 0, orange: 0, airtel: 0, card: 0 };
   let shopCash = 0, courierCash = 0, fees = 0, outParcels = 0, cashOld = 0;
   const pending: PendingSale[] = [];
   for (const o of all<Order>('orders')) {

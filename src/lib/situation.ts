@@ -11,7 +11,7 @@ export interface PageSit {
   id: string; name: string;
   /** Total des commandes de la période = ventes + annulé + reporté. */
   gross: number;
-  /** Ventes (net) = espèces + MVola + Orange + Airtel + reste à payer. */
+  /** Ventes (net) = espèces + MVola + Orange + Airtel + carte (site web) + reste à payer. */
   sales: number; qty: number; orders: number;
   /** Payé le jour de la vente, par moyen. */
   pay: Record<PayMethod, number>; paid: number;
@@ -24,7 +24,7 @@ export interface PageSit {
   exchange: number; exchangeN: number;
   reported: number; reportedN: number;
 }
-const empty = (id: string, name: string): PageSit => ({ id, name, gross: 0, sales: 0, qty: 0, orders: 0, pay: { cash: 0, mvola: 0, orange: 0, airtel: 0 }, paid: 0, later1: 0, later2: 0, rest: 0, restN: 0, cancelled: 0, cancelledN: 0, exchange: 0, exchangeN: 0, reported: 0, reportedN: 0 });
+const empty = (id: string, name: string): PageSit => ({ id, name, gross: 0, sales: 0, qty: 0, orders: 0, pay: { cash: 0, mvola: 0, orange: 0, airtel: 0, card: 0 }, paid: 0, later1: 0, later2: 0, rest: 0, restN: 0, cancelled: 0, cancelledN: 0, exchange: 0, exchangeN: 0, reported: 0, reportedN: 0 });
 const inRange = (iso: string | undefined, from: string, to: string) => { if (!iso) return false; const d = dayOf(iso); return d >= from && d <= to; };
 
 /** Part de chaque page dans une commande (valeur des articles) : sert à répartir annulations et reports. */
@@ -86,7 +86,7 @@ export function situation(from: string, to: string, pages?: string[]) {
     // Paiements de cette vente : ceux du jour de la vente (par moyen), puis le reste payé plus tard
     // (1er paiement : le jour de travail suivant, samedi → lundi ; 2ème paiement : les jours d'après — le reste réglé
     // n'apparaît plus en « reste à payer »). Ce qui dépasse la valeur des articles (frais de livraison) n'est pas compté.
-    const byM: Record<PayMethod, number> = { cash: 0, mvola: 0, orange: 0, airtel: 0 };
+    const byM: Record<PayMethod, number> = { cash: 0, mvola: 0, orange: 0, airtel: 0, card: 0 };
     let l1 = 0, l2 = 0;
     const p1Day = firstPayDay(day);
     for (const pay of o.payments || []) {

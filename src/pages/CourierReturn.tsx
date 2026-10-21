@@ -267,7 +267,7 @@ function MobilePaidModal({ order: o, due, value, onClose, onSave }: { order: Ord
   const [amount, setAmount] = useState(String(value?.amount ?? due));
   const [ref, setRef] = useState(value?.ref ?? '');
   const n = parseAr(amount) ?? NaN;
-  const MOBILE = (Object.keys(PAY_METHODS) as PayMethod[]).filter((m) => m !== 'cash');
+  const MOBILE = (Object.keys(PAY_METHODS) as PayMethod[]).filter((m) => m !== 'cash' && m !== 'card');
   return (
     <Confirm title={`Payé en Mobile Money — ${o.number}`} confirmLabel="Enregistrer" onClose={onClose}
       onConfirm={async () => { if (isNaN(n) || n <= 0) throw new Error('Montant à saisir.'); if (n > due) throw new Error(`Le client ne doit que ${fmtAr(due)}.`); onSave({ method, amount: n, ref }); }}

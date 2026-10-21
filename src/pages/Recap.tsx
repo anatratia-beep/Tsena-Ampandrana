@@ -185,18 +185,18 @@ function WeekTables({ days, r }: { days: ReturnType<typeof weekDays>; r: Report 
 }
 
 function MoneyCard({ r }: { r: Report }) {
-  const accounts: AccountId[] = ['cash', 'mvola', 'orange', 'airtel', 'bank'];
+  const accounts: AccountId[] = ['cash', 'mvola', 'orange', 'airtel', 'card', 'bank'];
   return (
     <div className="grid-2" style={{ alignItems: 'start' }}>
       <div className="card stack-s">
         <h2>Paiements reçus</h2>
         <table className="kv-table"><tbody>
-          {accounts.filter((a) => a !== 'bank' || r.receipts.bank || r.fromCouriers.bank).map((a) => <tr key={a}><td>{ACCOUNTS[a]}{r.fromCouriers[a] ? <span className="muted small"> (dont versements livreurs {fmtAr(r.fromCouriers[a])})</span> : ''}</td><td>{fmtAr(r.receipts[a] + r.fromCouriers[a])}</td></tr>)}
+          {accounts.filter((a) => (a !== 'bank' && a !== 'card') || r.receipts[a] || r.fromCouriers[a]).map((a) => <tr key={a}><td>{ACCOUNTS[a]}{r.fromCouriers[a] ? <span className="muted small"> (dont versements livreurs {fmtAr(r.fromCouriers[a])})</span> : ''}</td><td>{fmtAr(r.receipts[a] + r.fromCouriers[a])}</td></tr>)}
           <tr className="total"><td>Total reçu</td><td>{fmtAr(accounts.reduce((s, a) => s + r.receipts[a] + r.fromCouriers[a], 0))}</td></tr>
         </tbody></table>
         <h3 style={{ marginTop: 10 }}>Soldes en fin de période</h3>
         <table className="kv-table"><tbody>
-          {accounts.filter((a) => a !== 'bank' || r.balancesEnd.bank).map((a) => <tr key={a}><td>{ACCOUNTS[a]}</td><td className={r.balancesEnd[a] < 0 ? 'neg' : ''}>{fmtAr(r.balancesEnd[a])}</td></tr>)}
+          {accounts.filter((a) => (a !== 'bank' && a !== 'card') || r.balancesEnd[a]).map((a) => <tr key={a}><td>{ACCOUNTS[a]}</td><td className={r.balancesEnd[a] < 0 ? 'neg' : ''}>{fmtAr(r.balancesEnd[a])}</td></tr>)}
         </tbody></table>
       </div>
       <div className="card stack-s">

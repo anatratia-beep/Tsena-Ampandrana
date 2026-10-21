@@ -17,8 +17,8 @@ export interface Courier extends BaseRecord { name: string; phone?: string; zone
 export interface Customer extends BaseRecord { phone?: string; phone2?: string; name?: string; facebook?: string; place?: string; zoneId?: string; notes?: string }
 
 export type OrderStatus = 'new' | 'confirmed' | 'ready' | 'out' | 'delivered' | 'partial' | 'refused' | 'cancelled';
-export type PayMethod = 'cash' | 'mvola' | 'orange' | 'airtel';
-export const PAY_METHODS: Record<PayMethod, string> = { cash: 'Espèces', mvola: 'MVola', orange: 'Orange Money', airtel: 'Airtel Money' };
+export type PayMethod = 'cash' | 'mvola' | 'orange' | 'airtel' | 'card';
+export const PAY_METHODS: Record<PayMethod, string> = { cash: 'Espèces', mvola: 'MVola', orange: 'Orange Money', airtel: 'Airtel Money', card: 'Carte bancaire (site web)' };
 
 export interface OrderLine {
   id: string;

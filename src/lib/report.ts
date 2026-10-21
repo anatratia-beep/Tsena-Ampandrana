@@ -64,6 +64,8 @@ export interface BossMoney {
   cash: { expenses: number; total: number; prevPaid: number; prevPaidN: number; toPay: number };
   mvola: { sales: number; expenses: number; toPay: number };
   orange: { sales: number; expenses: number; toPay: number };
+  /** Payé par carte sur le site web (Stripe, versé ensuite sur le compte bancaire). */
+  card: number;
   /** Reste impayé des ventes de la semaine en cours et de la semaine précédente (lundi → dimanche), par rapport à la fin
    *  de la période ; les ventes annulées ou reportées ne comptent pas. Celui de la semaine en cours = « Reste à payer » de
    *  l'accueil ; celui de la semaine précédente (sans frais, l'argent remis au livreur compte comme payé) est figé au comptage
@@ -153,6 +155,7 @@ export function bossMoney(from: string, to: string): BossMoney {
     cash: { expenses: exp.cash, total, prevPaid: prev.amount, prevPaidN: prev.n, toPay: total - exp.cash + prev.amount },
     mvola: { sales: paid.mvola, expenses: exp.mvola, toPay: paid.mvola - exp.mvola },
     orange: { sales: paid.orange, expenses: exp.orange, toPay: paid.orange - exp.orange },
+    card: pay.card || 0,
     weekCur: restLikeAccueil(mon, end), weekPrev,
   };
 }
@@ -225,6 +228,7 @@ export function reportText(kind: PKind, label: string, r: Report, company: strin
   out.push('', '*À verser au patron*', `Total à verser : ${ar(m.cash.total)}`, `Dépenses espèces : ${ar(m.cash.expenses)}`, `Impayé précédent à verser : ${ar(m.cash.prevPaid)}`,
     `*Total à verser après dépenses et anciens impayés encaissés : ${ar(m.cash.toPay)}*`,
     `Total MVola : ${ar(m.mvola.sales)}`, `Total MVola − dépenses MVola : ${ar(m.mvola.toPay)}`, `Total Orange Money : ${ar(m.orange.sales)}`, `Total Orange Money − dépenses Orange Money : ${ar(m.orange.toPay)}`,
+    ...(Math.round(m.card || 0) ? [`Total carte bancaire (site web, Stripe) : ${ar(m.card)}`] : []),
     `Reste impayé semaine précédente : ${ar(m.weekPrev.amount)} (${m.weekPrev.n} vente(s))`, `Reste impayé semaine en cours : ${ar(m.weekCur.amount)} (${m.weekCur.n} vente(s))`);
   if (r.pages.length) { out.push('', '*CA par page*'); for (const p of r.pages) out.push(`• ${p.name} : ${ar(p.revenue)} (${p.qty} pcs)`); }
   if (kind !== 'day' && r.stockPages.length) {

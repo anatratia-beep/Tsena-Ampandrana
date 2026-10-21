@@ -38,6 +38,7 @@ export function DayReportView({ r }: { r: DayReport }) {
     { l: 'MVola', v: T.pay.mvola },
     ...(Math.round(T.pay.orange) ? [{ l: 'Orange Money', v: T.pay.orange }] : []),
     ...(Math.round(T.pay.airtel) ? [{ l: 'Airtel Money', v: T.pay.airtel }] : []),
+    ...(Math.round(T.pay.card || 0) ? [{ l: 'Carte bancaire (site web)', v: T.pay.card }] : []),
     { l: 'Reste à payer', v: T.rest, sub: `${T.restN} commande(s)`, neg: T.rest > 0.5 },
     { l: 'Annulé', v: T.cancelled, sub: `${T.cancelledN} commande(s)` },
     { l: 'Reporté', v: T.reported, sub: `${T.reportedN} commande(s)` },
@@ -57,7 +58,7 @@ export function DayReportView({ r }: { r: DayReport }) {
       {r.sit.rows.length > 1 && (
         <div className="table-wrap"><table className="table">
           <thead><tr><th>Page</th><th className="t-num">Ventes</th><th className="t-num">Pièces</th><th className="t-num">Espèces</th><th className="t-num">Mobile Money</th><th className="t-num">Reste à payer</th></tr></thead>
-          <tbody>{r.sit.rows.map((p) => <tr key={p.id}><td><strong>{p.name}</strong></td><td className="t-num">{fmtAr(p.sales)}</td><td className="t-num">{fmtNum(p.qty)}</td><td className="t-num">{fmtAr(p.pay.cash)}</td><td className="t-num">{fmtAr(p.pay.mvola + p.pay.orange + p.pay.airtel)}</td><td className="t-num">{fmtAr(p.rest)}</td></tr>)}</tbody>
+          <tbody>{r.sit.rows.map((p) => <tr key={p.id}><td><strong>{p.name}</strong></td><td className="t-num">{fmtAr(p.sales)}</td><td className="t-num">{fmtNum(p.qty)}</td><td className="t-num">{fmtAr(p.pay.cash)}</td><td className="t-num">{fmtAr(p.pay.mvola + p.pay.orange + p.pay.airtel + (p.pay.card || 0))}</td><td className="t-num">{fmtAr(p.rest)}</td></tr>)}</tbody>
         </table></div>
       )}
       <h3>Articles vendus</h3>
@@ -84,7 +85,7 @@ function printReport(r: DayReport, who: string, note?: string) {
   const T = r.sit.total;
   const kv = (rows: [string, string][]) => a4Table({ head: ['', 'Montant'], num: [1], rows });
   const body = `<p>Pages : <b>${h(r.pageNames.join(', '))}</b></p><h2>Ventes et argent reçu</h2>`
-    + kv([['<b>Ventes</b>', `<b>${arA4(T.sales)}</b>`], ['Nombre de ventes / pièces', `${T.orders} / ${T.qty}`], ['Espèces', arA4(T.pay.cash)], ['MVola', arA4(T.pay.mvola)], ['Orange Money', arA4(T.pay.orange)], ['Airtel Money', arA4(T.pay.airtel)], ['Reste à payer', arA4(T.rest)], ['Annulé', `${arA4(T.cancelled)} (${T.cancelledN})`], ['Reporté', `${arA4(T.reported)} (${T.reportedN})`]])
+    + kv([['<b>Ventes</b>', `<b>${arA4(T.sales)}</b>`], ['Nombre de ventes / pièces', `${T.orders} / ${T.qty}`], ['Espèces', arA4(T.pay.cash)], ['MVola', arA4(T.pay.mvola)], ['Orange Money', arA4(T.pay.orange)], ['Airtel Money', arA4(T.pay.airtel)], ...(Math.round(T.pay.card || 0) ? [['Carte bancaire (site web)', arA4(T.pay.card)] as [string, string]] : []), ['Reste à payer', arA4(T.rest)], ['Annulé', `${arA4(T.cancelled)} (${T.cancelledN})`], ['Reporté', `${arA4(T.reported)} (${T.reportedN})`]])
     + (r.items.length ? a4Table({ title: 'Articles vendus', head: ['Article', 'Page', 'Qté', 'Montant'], num: [2, 3], rows: r.items.map((i) => [h(i.name), h(i.page), i.qty, arA4(i.amount)]), foot: ['Total', '', T.qty, arA4(T.sales)] }) : '')
     + a4Table({ title: 'Commandes', head: ['', 'Nombre', 'Valeur'], num: [1, 2], rows: [['Reçues ce jour', r.open.created, ''], ['Enregistrées (à préparer)', r.open.recorded, arA4(r.open.recordedV)], ['En attente de livraison', r.open.waiting, arA4(r.open.waitingV)], ['En livraison', r.open.out, arA4(r.open.outV)]] })
     + a4Table({ title: 'Stock restant', head: ['Page', 'Pièces'], num: [1], rows: r.stock.map((s) => [h(s.name), s.pieces]) })

@@ -101,6 +101,7 @@ export function dayReportText(r: DayReport, who: string, company: string, note?:
   out.push(`Espèces : ${ar(T.pay.cash)}`, `MVola : ${ar(T.pay.mvola)}`);
   if (Math.round(T.pay.orange)) out.push(`Orange Money : ${ar(T.pay.orange)}`);
   if (Math.round(T.pay.airtel)) out.push(`Airtel Money : ${ar(T.pay.airtel)}`);
+  if (Math.round(T.pay.card || 0)) out.push(`Carte bancaire (site web) : ${ar(T.pay.card)}`);
   if (Math.round(T.later1)) out.push(`1er paiement du reste : ${ar(T.later1)}`);
   if (Math.round(T.later2)) out.push(`2ème paiement du reste : ${ar(T.later2)}`);
   out.push(`Reste à payer : ${ar(T.rest)}${T.restN ? ` (${T.restN} commande(s))` : ''}`);
