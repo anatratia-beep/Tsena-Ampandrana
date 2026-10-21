@@ -3,6 +3,7 @@
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
   { date: '2026-10-21', items: [
+    'Super-admin : « Date de validation » dans Remettre au livreur, Valider tout (Livraisons), Retour du livreur et Remise / retrait en boutique. Une commande oubliée « en attente de livraison » hier peut être validée ce matin à la date d’hier : la vente, le stock et l’argent comptent hier (jour, vendeur, page), même si la semaine est clôturée. L’heure réelle et la mention « après clôture » restent dans l’historique et le journal.',
     'Rectifier une annulation (super-admin) : on choisit la date de comptabilisation de la vente et celle de l’argent reçu, même si la semaine est déjà versée au patron. Les totaux du jour, du vendeur et de la page suivent, sans doublon ; la date d’origine et la mention « après clôture » restent dans l’historique et le journal.',
     'Rectifier une annulation : le motif est facultatif et le bouton n’est plus grisé (un message dit quoi remplir).',
   ] },

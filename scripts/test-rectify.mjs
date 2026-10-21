@@ -150,5 +150,36 @@ const card5 = p.locator('.situation-card').first();
 await card5.getByLabel('Période').first().selectOption('yesterday'); await p.waitForTimeout(500);
 tx = N(await card5.innerText());
 ok(/= Ventes\s+50 000 Ar/.test(tx) && /Espèces\s+50 000 Ar/.test(tx), 'Accueil (hier) : vente 50 000 et espèces 50 000 comptées à la date choisie');
+// 6. Commande oubliée « en attente de livraison » hier : le super-admin la valide ce matin à la date d'hier
+await p.evaluate(async () => {
+  const t = window.__tsena; const d = new Date(); d.setDate(d.getDate() - 1); d.setHours(9, 0, 0, 0); const iso = d.toISOString();
+  await t.save('products', { id: 'ind2', code: 'IND-2', name: 'Induction 2', categoryId: 'pp', attrs: {}, priceRetail: 30000, active: true });
+  await t.save('variants', { id: 'vind2', productId: 'ind2', sku: 'IND2', costAvg: 10000, active: true });
+  await t.save('stockMoves', { variantId: 'vind2', qty: 5, type: 'initial', at: '2026-01-01T08:00:00.000Z' });
+  const base = { kind: 'order', channel: 'facebook', discount: 0, payments: [], status: 'ready', createdAt: iso, statusDates: { ready: iso }, createdBy: 'u1', createdByName: 'Aina' };
+  await t.save('orders', [
+    { ...base, id: 'R1', number: 'C-R1', phone: '0344444441', name: 'Mamy', zoneId: 'zone-centre', deliveryFee: 3000, lines: [{ id: 'r1', variantId: 'vind2', qty: 1, unitPrice: 30000 }] },
+    { ...base, id: 'R2', number: 'C-R2', phone: '0344444442', name: 'Fara', zoneId: 'zone-retrait', deliveryFee: 0, lines: [{ id: 'r2', variantId: 'vind2', qty: 1, unitPrice: 25000 }] },
+  ]);
+});
+await p.goto('http://localhost:5173/#/commandes/R1'); await p.waitForTimeout(500);
+await p.getByRole('button', { name: 'Remettre au livreur (en livraison)' }).click(); await p.waitForTimeout(300);
+dlg = p.getByRole('dialog');
+await dlg.getByLabel('Date de validation (super-admin)').fill(yest); await p.waitForTimeout(150);
+ok(N(await dlg.innerText()).includes('La vente comptera le'), 'remise au livreur : date de validation choisie (hier)');
+await dlg.getByRole('button', { name: 'Remettre' }).click(); await p.waitForTimeout(600);
+o = await order('R1');
+ok(o.status === 'out' && loc(o.dispatchedAt) === yest && o.backdated?.length === 1 && o.backdated[0].day === yest && loc(o.backdated[0].at) !== yest, 'R1 partie hier (date choisie), heure réelle gardée');
+await p.goto('http://localhost:5173/#/commandes/R2'); await p.waitForTimeout(500);
+await p.getByRole('button', { name: 'Remise au client en boutique' }).click(); await p.waitForTimeout(300);
+dlg = p.getByRole('dialog');
+await dlg.getByLabel('Date de validation (super-admin)').fill(yest); await p.waitForTimeout(150);
+await dlg.getByRole('button', { name: 'Valider' }).click(); await p.waitForTimeout(600);
+o = await order('R2');
+ok(o.status === 'delivered' && loc(o.dispatchedAt) === yest && loc(o.payments[0].at) === yest && o.payments[0].amount === 25000, 'R2 remise et payée hier (date choisie)');
+const sdy = await p.evaluate((y) => { const h = window.__tsena.handovers; const u = window.__tsena.get('users', 'u1'); const d = h.sellerDay(u, y); return { sales: d.sales, cash: d.pay.cash }; }, yest);
+ok(sdy.sales === 50000 + 30000 + 25000 && sdy.cash === 50000 + 25000, `feuille d’Aina d’hier : ventes ${sdy.sales}, espèces ${sdy.cash}`);
+const auds = await p.evaluate(() => window.__tsena.all('audit').filter((a) => ['R1', 'R2'].includes(a.entityId) && a.action.startsWith('Validation datée')).length);
+ok(auds === 2, 'journal : 2 validations datées');
 const sw = await p.evaluate(() => document.documentElement.scrollWidth); ok(sw <= W + 1, `pas de débordement (${sw})`);
 console.log(fail ? `${fail} ÉCHEC(S)` : 'TOUT EST BON'); await b.close();
