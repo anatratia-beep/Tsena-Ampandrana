@@ -8,12 +8,13 @@ import { fmtAr, fmtNum, nextNumber, parseNum, productVariants, useCatalog, varia
 import {
   addPayment, availableOf, backToPrepare, cancelOrder, cancelDeliveryToShop, MAX_REPORTS, reportCount, canPostpone, postponeOrder, cancelAfterReports, CHANNELS, completeAtShop, confirmOrder, dispatchOrder, exchangeBalance, findCustomer, fmtPhone,
   canReassign, customerIdFor, choiceQty, hasPendingChoice, needsSettlement, reassignCourier, isOutsideHours, isPickupZone, isWalkIn, orderLabel, handOverAtShop, itemsTotal, keptTotal, linePrice, markReady, normPhone, ORDER_STATUS, orderTotal, paidTotal, PAY_METHODS, recordReturn, remaining,
-  priceOrder, removeLine, reservedIndex, totalQty, useWholesale, editPayment, courierSplit, withLineWholesale, discountAr, stockShortages,
+  isSuperUser, priceOrder, removeLine, reservedIndex, totalQty, useWholesale, editPayment, courierSplit, withLineWholesale, discountAr, stockShortages,
   type Courier, type Customer, type Order, type OrderLine, type OrderStatus, type PayMethod, type Payment, type Zone, orderText, customerText, findCustomerBy,
 } from '../lib/orders';
 import { useCompany } from '../lib/settings';
 import { correctWalkInSale, netMoves, refundSuggested, voidOrder } from '../lib/corrections';
-import { approveRectify, cancelledBy, isSuper, planRectify, rectifyCancellation, rectifyRight, rejectRectify, requestRectify } from '../lib/rectify';
+import { approveRectify, cancelledBy, isSuper, planRectify, rectifyCancellation, rectifyRight, rectifySaleDay, rejectRectify, requestRectify, type RectifyDates } from '../lib/rectify';
+import { closedBy } from '../lib/closed';
 import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, feeState, payDeferredFees, settleCourier, type AccountId } from '../lib/money';
 import { Help, DiscountField, Badge, Button, Confirm, Empty, FilterSelect, IconButton, Modal, MoreMatches, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute, DateSort, type DateOrder, useKeep } from '../ui/kit';
 import { Icon } from '../ui/icons';
@@ -613,7 +614,7 @@ function OrderDetail({ id }: { id: string }) {
   const o = orders.find((x) => x.id === id);
   const [editPay, setEditPay] = useState<{ p: Payment; refOnly?: boolean } | null>(null);
   const canFixPay = can('users.manage') || can('records.correct') || can('handover.receive');
-  const [modal, setModal] = useState<'' | 'edit' | 'dispatch' | 'return' | 'pay' | 'cancel' | 'exchange' | 'shop' | 'pickup' | 'reassign' | 'settle' | 'postpone' | 'void' | 'correct' | 'rectify' | 'rejectRect'>('');
+  const [modal, setModal] = useState<'' | 'edit' | 'dispatch' | 'return' | 'pay' | 'cancel' | 'exchange' | 'shop' | 'pickup' | 'reassign' | 'settle' | 'postpone' | 'void' | 'correct' | 'rectify' | 'rejectRect' | 'approveRect'>('');
   const [payFee, setPayFee] = useState(false);
   if (!o) return <Empty icon="list" title="Commande introuvable"><Button variant="ghost" onClick={() => navigate('/commandes')}>Retour</Button></Empty>;
   const zone = get<Zone>('zones', o.zoneId || '');
@@ -675,7 +676,7 @@ function OrderDetail({ id }: { id: string }) {
           <div className="notice"><Icon name="alert" /><div className="stack-s" style={{ flex: 1 }}>
             <span><strong>Rectification demandée</strong> par {rq.byName || '?'} le {fmtDateTime(rq.at)} — {rq.reason}. Semaine clôturée : en attente de la validation du super-admin.</span>
             <span className="small">Après validation : {ORDER_STATUS[pl.status].label}, {pl.lines.reduce((t, l) => t + (l.qtyKept ?? 0), 0)} pièce(s) livrée(s), {pl.lines.reduce((t, l) => t + (l.qtyReturned ?? 0), 0)} annulée(s), total {fmtAr(pl.total)}, reste à payer {fmtAr(Math.max(0, pl.rest))}.</span>
-            {isSuper(currentUser()) && <div className="row"><Button icon="check" onClick={async () => { try { await approveRectify(o); toast('Rectification validée : commande rouverte'); } catch (e: any) { toast(e.message, 'error'); } }}>Valider la rectification</Button><Button variant="ghost" onClick={() => setModal('rejectRect')}>Refuser</Button></div>}
+            {isSuper(currentUser()) && <div className="row"><Button icon="check" onClick={() => setModal('approveRect')}>Valider la rectification</Button><Button variant="ghost" onClick={() => setModal('rejectRect')}>Refuser</Button></div>}
           </div></div>
         ); })()}
       </div>
@@ -755,6 +756,7 @@ function OrderDetail({ id }: { id: string }) {
             {o.rectifications!.map((r, i) => (
               <li key={i} className="list-item" style={{ padding: '10px 0' }}><div className="list-item-main">
                 <strong>{fmtDateTime(r.at)}</strong> · {r.user || '—'}{r.approvedBy ? ` (demandée par ${r.requestedBy || '?'}, validée par ${r.approvedBy})` : ''} — {r.reason}
+                {r.dates && <p className="small" style={{ color: 'var(--warn, #9a6700)' }}>{r.dates.saleFrom !== r.dates.saleTo ? `Vente comptée le ${fmtDate(r.dates.saleTo!)} (date d’origine : ${fmtDate(r.dates.saleFrom!)})` : `Vente comptée le ${fmtDate(r.dates.saleTo!)}`}{r.dates.payDay ? ` · argent compté le ${fmtDate(r.dates.payDay)}` : ''}{r.dates.closed ? ` · correction après clôture (semaine ${r.dates.closed.join(', ')})` : ''}</p>}
                 <p className="small muted">Annulée → {ORDER_STATUS[r.after.status].label} · total {fmtAr(r.before.total)} → {fmtAr(r.after.total)} · {r.after.kept.map((k) => { const l = o.lines.find((x) => x.id === k.lineId); const v = l && get<Variant>('variants', l.variantId); return `${v?.sku ?? '?'} : ${k.kept}/${k.qty} livré(s)`; }).join(' ; ')}</p>
                 {r.stock.length > 0 && <p className="small muted">Stock : {r.stock.map((m) => `${get<Variant>('variants', m.variantId)?.sku ?? '?'} ${m.qty > 0 ? '+' : ''}${m.qty}`).join(' ; ')}</p>}
               </div></li>
@@ -789,6 +791,7 @@ function OrderDetail({ id }: { id: string }) {
       {modal === 'correct' && <CorrectSaleModal order={o} onClose={() => setModal('')} />}
       {modal === 'rectify' && <RectifyModal order={o} onClose={() => setModal('')} />}
       {modal === 'rejectRect' && <RejectRectifyModal order={o} onClose={() => setModal('')} />}
+      {modal === 'approveRect' && <ApproveRectifyModal order={o} onClose={() => setModal('')} />}
     </>
   );
 }
@@ -801,18 +804,20 @@ export function DispatchModal({ orders, onClose }: { orders: Order[]; onClose: (
   const [courierId, setCourierId] = useState(suggested?.id ?? couriers[0]?.id ?? '');
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [day, setDay] = useState(todayYmdLocal());
   return (
     <Modal title={orders.length > 1 ? `Remettre ${orders.length} commandes au livreur` : `Remettre ${orders[0]?.number ?? ''} au livreur`} onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} disabled={!courierId || (courierId === '__new' && !newName.trim())} onClick={async () => {
         setBusy(true);
         let cid = courierId;
         if (cid === '__new') { const [c] = await save('couriers', { name: newName.trim(), active: true }); cid = c.id; }
-        try { for (const o of orders) await dispatchOrder(o, cid); } catch (e: any) { toast(e.message, 'error'); setBusy(false); return; }
+        try { for (const o of orders) await dispatchOrder(o, cid, day); } catch (e: any) { toast(e.message, 'error'); setBusy(false); return; }
         toast(`${orders.length} commande(s) remise(s) au livreur`); setBusy(false); onClose();
       }}>Remettre</Button></>}>
       <div className="stack">
         <SelectField label="Livreur" required value={courierId} onChange={setCourierId} options={[...couriers.map((c) => ({ value: c.id, label: c.name })), { value: '__new', label: '+ Nouveau livreur…' }]} />
         {courierId === '__new' && <TextField label="Nom du livreur" required value={newName} onChange={setNewName} autoFocus />}
+        <ValidationDay value={day} onChange={setDay} />
         <p className="small muted">Les articles (y compris ceux en choix) sortent du stock de la boutique. Ce qui revient sera remis en stock au retour du livreur.</p>
         <ul className="small">{orders.map((o) => <li key={o.id}>{o.number} — {orderLabel(o)} — à encaisser {fmtAr(Math.max(0, remaining(o)))}</li>)}</ul>
       </div>
@@ -839,6 +844,7 @@ export function ReturnModal({ order: o, onClose }: { order: Order; onClose: () =
   const [busy, setBusy] = useState(false);
   const [toShop, setToShop] = useState(false);
   const [postpone, setPostpone] = useState(false);
+  const [day, setDay] = useState(todayYmdLocal());
   const amountVal = amount == null ? toCollect : parseAr(amount) ?? 0;
   const c = o.kind === 'exchange' ? exchangeBalance(sim) : orderTotal(sim);
   const prepaid = (o.payments || []).filter((p) => p.receivedBy === 'shop').reduce((t, p) => t + p.amount, 0);
@@ -851,7 +857,7 @@ export function ReturnModal({ order: o, onClose }: { order: Order; onClose: () =
     <Modal title={hasChoice ? `Préciser le choix du client — ${o.number}` : `Retour du livreur — ${o.number}`} onClose={onClose} wide
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} disabled={choiceMissing.length > 0} onClick={async () => {
         setBusy(true);
-        try { await recordReturn(o, { kept: keptNum, feeCharged: feeVal, collected: [{ amount: amountVal, method, ref: ref.trim() || undefined, receivedBy: byShop ? 'shop' : 'courier' }], note: note.trim() || undefined }); }
+        try { await recordReturn(o, { kept: keptNum, feeCharged: feeVal, collected: [{ amount: amountVal, method, ref: ref.trim() || undefined, receivedBy: byShop ? 'shop' : 'courier' }], note: note.trim() || undefined }, day); }
         catch (e: any) { toast(e.message, 'error'); setBusy(false); return; }
         toast(toSettle ? 'Retour confirmé : la commande passe dans « À régler (livreur) »' : 'Retour enregistré'); setBusy(false); onClose();
       }}>{choiceMissing.length ? `Indiquez le choix (${choiceMissing.length} ligne(s))` : 'Confirmer le retour'}</Button></>}>
@@ -908,6 +914,7 @@ export function ReturnModal({ order: o, onClose }: { order: Order; onClose: () =
           {byShop && <p className="small muted" style={{ margin: 0 }}>Le paiement est compté sur le compte {PAY_METHODS[method]} de la boutique : le livreur ne doit pas cet argent{x.feeOwed ? <>, et la boutique lui reverse ses frais ({fmtAr(x.feeOwed)})</> : null}.</p>}
         </div>
         <TextField label="Remarque (motif de refus, etc.)" value={note} onChange={setNote} placeholder="Ex. taille trop petite, client absent…" />
+        <ValidationDay value={day} onChange={setDay} />
         {toSettle && <p className="small muted">Étape suivante : le règlement avec le livreur (onglet « À régler »), pour une ou plusieurs commandes à la fois.</p>}
       </div>
     </Modal>
@@ -1086,17 +1093,20 @@ function RectifyModal({ order: o, onClose }: { order: Order; onClose: () => void
   const [ref, setRef] = useState('');
   const amountVal = amount == null ? Math.max(0, plan.rest) : parseAr(amount) ?? 0;
   const restAfter = plan.rest - amountVal;
+  const sup = isSuper(currentUser());
+  const [dates, setDates] = useState<RectifyDates>(() => ({ saleDay: rectifySaleDay(o), payDay: todayYmdLocal() }));
   const refunds = (o.payments || []).filter((p) => p.amount < 0);
   const who = cancelledBy(o).name;
   const request = right.mode === 'request';
   return (
     <Modal title={`Rectifier une annulation — ${o.number}`} onClose={onClose} wide
-      footer={<><Button variant="ghost" onClick={onClose}>Fermer</Button><Button busy={busy} disabled={!plan.keptAny || !reason.trim()} onClick={async () => {
+      footer={<><Button variant="ghost" onClick={onClose}>Fermer</Button><Button busy={busy} onClick={async () => {
+        if (!plan.keptAny) { toast('Indiquez au moins 1 article livré (colonne « Livré »).', 'error'); return; }
         setBusy(true);
         try {
           const input = { kept: keptNum, feeCharged: parseNum(fee) ?? 0, reason, collected: amountVal > 0 ? { amount: amountVal, method, ref: ref.trim() || undefined, receivedBy: by } : undefined };
           if (request) { await requestRectify(o, input); toast('Demande envoyée : le super-admin doit la valider'); }
-          else { await rectifyCancellation(o, input); toast(`${o.number} rouverte : ${ORDER_STATUS[plan.status].label}`); }
+          else { await rectifyCancellation(o, input, sup ? dates : undefined); toast(`${o.number} rouverte : ${ORDER_STATUS[plan.status].label}`); }
           onClose();
         } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
       }}>{request ? 'Envoyer au super-admin' : 'Rectifier'}</Button></>}>
@@ -1141,10 +1151,41 @@ function RectifyModal({ order: o, onClose }: { order: Order; onClose: () => void
         </div>
         {plan.stock.length > 0 && <p className="small muted">Stock : {plan.stock.map((m) => `${get<Variant>('variants', m.variantId)?.sku ?? '?'} ${m.qty > 0 ? `+${m.qty} (remis)` : `${m.qty} (livré)`}`).join(' ; ')}.</p>}
         {refunds.length > 0 && <p className="small" style={{ color: 'var(--warn, #9a6700)' }}>L’annulation avait enregistré un remboursement ({refunds.map((p) => fmtAr(-p.amount)).join(', ')}). S’il n’a pas eu lieu, corrigez-le ensuite avec le crayon du paiement (« Modifier paiement »).</p>}
-        {!plan.keptAny && <p className="small muted">Aucun article livré : l’annulation est juste, rien à rectifier.</p>}
-        <TextField label="Motif de la rectification" value={reason} onChange={setReason} placeholder="Ex. le client a gardé 2 articles, « Annuler » touché par erreur" required />
+        {!plan.keptAny && <div className="notice notice-danger"><Icon name="alert" /><span>Aucun article livré : indiquez dans la colonne « Livré » le nombre de pièces que le client a gardées.</span></div>}
+        {sup && <RectifyDatesFields order={o} value={dates} onChange={setDates} withPay={amountVal > 0} />}
+        <TextField label="Motif de la rectification" value={reason} onChange={setReason} placeholder="Annulée par erreur" hint="Facultatif" />
       </div>
     </Modal>
+  );
+}
+
+export const todayYmdLocal = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
+/** Super-admin : jour où la vente compte et jour où l'argent compte (même si la semaine est déjà clôturée). */
+function RectifyDatesFields({ order: o, value, onChange, withPay }: { order: Order; value: RectifyDates; onChange: (d: RectifyDates) => void; withPay: boolean }) {
+  const orig = rectifySaleDay(o);
+  const closed = [value.saleDay, withPay ? value.payDay : undefined, orig].filter((d): d is string => !!d).map((d) => closedBy(d)).filter(Boolean);
+  return (
+    <div className="card stack-s settle-box">
+      <h3>Date de comptabilisation (super-admin)</h3>
+      <div className="grid-2">
+        {!isWalkIn(o) && <TextField label="La vente compte le" type="date" value={value.saleDay || orig} onChange={(v) => onChange({ ...value, saleDay: v })} hint={`Date d’origine : ${fmtDate(orig)}`} />}
+        {withPay && <TextField label="L’argent reçu compte le" type="date" value={value.payDay || ''} onChange={(v) => onChange({ ...value, payDay: v })} hint="Par défaut aujourd’hui (1er / 2ème paiement du reste)" />}
+      </div>
+      {closed.length > 0 && <p className="small" style={{ color: 'var(--warn, #9a6700)', margin: 0 }}>Semaine déjà clôturée (versement au patron) : la correction est faite quand même et notée « après clôture » dans l’historique et le journal.</p>}
+    </div>
+  );
+}
+
+/** Le super-admin valide une demande de rectification et choisit les dates de comptabilisation. */
+function ApproveRectifyModal({ order: o, onClose }: { order: Order; onClose: () => void }) {
+  const rq = o.rectifyRequest;
+  const [dates, setDates] = useState<RectifyDates>(() => ({ saleDay: rectifySaleDay(o), payDay: todayYmdLocal() }));
+  if (!rq) return null;
+  return (
+    <Confirm title={`Valider la rectification — ${o.number}`} confirmLabel="Valider la rectification" onClose={onClose}
+      message={<div className="stack"><p>Demandée par {rq.byName || '?'} — {rq.reason}.</p><RectifyDatesFields order={o} value={dates} onChange={setDates} withPay={!!rq.collected?.amount} /></div>}
+      onConfirm={async () => { await approveRectify(o, dates); toast('Rectification validée : commande rouverte'); }} />
   );
 }
 
@@ -1255,11 +1296,12 @@ function PickupModal({ order: o, onClose }: { order: Order; onClose: () => void 
   const [method, setMethod] = useState<PayMethod>('cash');
   const [ref, setRef] = useState('');
   const [busy, setBusy] = useState(false);
+  const [day, setDay] = useState(todayYmdLocal());
   return (
     <Modal title={`Retrait en boutique — ${o.number}`} onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} onClick={async () => {
         setBusy(true);
-        try { await handOverAtShop(o, parseAr(amount) ? { amount: parseAr(amount)!, method, ref: ref.trim() || undefined } : undefined); } catch (e: any) { toast(e.message, 'error'); setBusy(false); return; }
+        try { await handOverAtShop(o, parseAr(amount) ? { amount: parseAr(amount)!, method, ref: ref.trim() || undefined } : undefined, day); } catch (e: any) { toast(e.message, 'error'); setBusy(false); return; }
         toast('Commande remise au client'); setBusy(false); onClose();
       }}>Valider</Button></>}>
       <div className="stack">
@@ -1267,8 +1309,25 @@ function PickupModal({ order: o, onClose }: { order: Order; onClose: () => void 
         <TextField label="Montant encaissé (Ar)" value={amount} onChange={setAmount} inputMode="numeric" hint={`Reste à payer : ${fmtAr(rest)}`} />
         <SelectField label="Moyen de paiement" value={method} onChange={(v) => setMethod(v as PayMethod)} options={Object.entries(PAY_METHODS).map(([value, label]) => ({ value, label }))} />
         {method !== 'cash' && <TextField label="Référence de la transaction" value={ref} onChange={setRef} />}
+        <ValidationDay value={day} onChange={setDay} />
       </div>
     </Modal>
+  );
+}
+
+/**
+ * Super-admin seulement : jour de validation (ex. commande oubliée « en attente de livraison » hier) ; la vente, le stock
+ * et l'argent comptent ce jour-là, même si la semaine est déjà versée au patron. Les autres utilisateurs ne le voient pas.
+ */
+export function ValidationDay({ value, onChange }: { value: string; onChange: (d: string) => void }) {
+  if (!isSuperUser()) return null;
+  const today = todayYmdLocal();
+  const closed = value && value !== today ? closedBy(value) : undefined;
+  return (
+    <div className="stack-s">
+      <div style={{ maxWidth: 240 }}><TextField label="Date de validation (super-admin)" type="date" max={today} value={value} onChange={(v) => onChange(v || today)} /></div>
+      {value !== today && <p className="small" style={{ color: 'var(--warn, #9a6700)', margin: 0 }}>La vente comptera le {fmtDate(value)} (et non aujourd’hui) : totaux du jour, du vendeur et de la page. Noté dans l’historique et le journal{closed ? ' — semaine déjà clôturée : correction après clôture' : ''}.</p>}
+    </div>
   );
 }
 

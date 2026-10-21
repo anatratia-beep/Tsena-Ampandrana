@@ -10,7 +10,7 @@ import { Help, Badge, FilterSelect, MultiPick, Button, Confirm, Empty, IconButto
 import { Icon } from '../ui/icons';
 import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period';
 import { matchQuery } from '../lib/catalog';
-import { ReassignModal, ReturnModal, OrderRow } from './Orders';
+import { ReassignModal, ReturnModal, OrderRow, ValidationDay, todayYmdLocal } from './Orders';
 import { CourierReturn } from './CourierReturn';
 import { useCompany } from '../lib/settings';
 import { useMyScope } from '../lib/scope';
@@ -156,6 +156,7 @@ function BatchDispatch({ orders, onClose, onDone }: { orders: Order[]; onClose: 
   const zoneIds = new Set(missing.map((o) => o.zoneId));
   const [forMissing, setForMissing] = useState(couriers.find((c) => c.zoneIds?.some((z) => zoneIds.has(z)))?.id ?? '');
   const [busy, setBusy] = useState(false);
+  const [day, setDay] = useState(todayYmdLocal());
   const cidOf = (o: Order) => (has(o) ? o.courierId! : forMissing);
   const groups = couriers.map((c) => ({ c, list: orders.filter((o) => cidOf(o) === c.id) })).filter((x) => x.list.length);
   return (
@@ -163,12 +164,13 @@ function BatchDispatch({ orders, onClose, onDone }: { orders: Order[]; onClose: 
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} icon="truck" disabled={missing.length > 0 && !forMissing} onClick={async () => {
         setBusy(true);
         let n = 0;
-        try { for (const o of orders) { await dispatchOrder(o, cidOf(o)); n++; } }
+        try { for (const o of orders) { await dispatchOrder(o, cidOf(o), day); n++; } }
         catch (e: any) { toast(`${n} remise(s) ; erreur : ${e.message}`, 'error'); setBusy(false); return; }
         toast(`${n} commande(s) remise(s) à ${groups.length} livreur(s)`); setBusy(false); onDone(); onClose();
       }}>Valider tout</Button></>}>
       <div className="stack">
         {missing.length > 0 && <SelectField label={`Livreur pour les ${missing.length} commande(s) sans livreur`} required value={forMissing} onChange={setForMissing} options={[{ value: '', label: '— Choisir —' }, ...couriers.map((c) => ({ value: c.id, label: c.name }))]} />}
+        <ValidationDay value={day} onChange={setDay} />
         {groups.map(({ c, list }) => (
           <div key={c.id} className="card stack-s" style={{ background: 'var(--surface-2)' }}>
             <strong>{c.name} · {list.length} colis · à encaisser {fmtAr(list.reduce((t, o) => t + courierSplit(o).toCollect, 0))}</strong>

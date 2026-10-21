@@ -3,7 +3,8 @@ import { all, applyRemote, bizNow, get, newId, save, type BaseRecord } from './d
 import { audit, currentUser } from './auth';
 import { addMoves, nextNumber, stockOf, variantLabel, type Product, type StockMove, type Variant } from './catalog';
 import { DEFAULT_COMPANY, type Company } from './settings';
-import { assertOpenNow } from './closed';
+import { assertOpenNow, closedBy } from './closed';
+import { SUPERADMIN_ROLE } from './permissions';
 import { adjustsKeptTotal, adjustsTotal, computeAdjusts, type Adjust } from './lots';
 import type { Rectification, RectifyRequest } from './rectify';
 
@@ -97,6 +98,8 @@ export interface Order extends BaseRecord {
   pickedUp?: boolean;
   /** Livraisons reportées à la demande du client (au plus 3 fois, ensuite la commande est annulée). */
   reports?: { at: string; to?: string; reason?: string; user?: string; courierId?: string }[];
+  /** Validations datées d'un autre jour par le super-admin (commande oubliée « en attente ») : jour choisi, heure réelle. */
+  backdated?: { what: string; day: string; at: string; by?: string; closed?: string }[];
   /** Qui a annulé (pour « Rectifier une annulation » : le vendeur rectifie ses propres annulations). */
   cancelledById?: string; cancelledByName?: string;
   /** Annulations rectifiées (annulée par erreur) : historique, et demande en attente du super-admin. */
@@ -287,9 +290,36 @@ export function availableOf(variantId: string, reserved: Map<string, number>) {
   return stockOf(variantId) - (reserved.get(variantId) ?? 0);
 }
 
+// ---------- Date de validation (super-admin) ----------
+const ymdLocal = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+export const isSuperUser = () => currentUser()?.roleId === SUPERADMIN_ROLE;
+/**
+ * Heure de l'opération. Le super-admin peut choisir un autre jour (ex. commande oubliée « en attente de livraison »
+ * hier, validée ce matin) : la vente compte ce jour-là (même heure), même si la semaine est déjà versée au patron.
+ */
+function validationAt(day: string | undefined, what: string): { at: string; back?: { day: string; closed?: string } } {
+  const now = bizNow();
+  if (!day || day === ymdLocal(now)) { assertOpenNow(what); return { at: now }; }
+  if (!isSuperUser()) throw new Error('Seul le super-admin peut choisir la date de validation.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day > ymdLocal(new Date().toISOString())) throw new Error('Date de validation invalide.');
+  const d = new Date(now); const [y, m, dd] = day.split('-').map(Number); d.setFullYear(y, m - 1, dd);
+  const p = closedBy(day);
+  return { at: d.toISOString(), back: { day, closed: p ? `${p.weekStart} → ${p.weekEnd}` : undefined } };
+}
+/** Trace d'une validation datée d'un autre jour : historique de la commande et journal (date réelle gardée). */
+async function noteBackdate(id: string, back: { day: string; closed?: string } | undefined, what: string) {
+  if (!back) return;
+  const f = get<Order>('orders', id); if (!f) return;
+  const u = currentUser(); const real = new Date().toISOString();
+  const dayFr = new Date(`${back.day}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const text = `${what} validé(e) à la date du ${dayFr} par le super-admin (saisi le ${new Date(real).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })})${back.closed ? ` — après clôture (semaine ${back.closed})` : ''}`;
+  await save('orders', { id, backdated: [...(f.backdated || []), { what, day: back.day, at: real, by: u?.fullName, closed: back.closed }], events: [...(f.events || []), { at: real, text, user: u?.fullName }] });
+  await audit(back.closed ? 'Validation datée après clôture' : 'Validation datée', `${f.number} : ${text}`, 'orders', id, 'high');
+}
+
 // ---------- Actions ----------
-async function setStatus(o: Order, status: OrderStatus, extra: Partial<Order> = {}) {
-  await save('orders', { id: o.id, status, statusDates: { ...(o.statusDates || {}), [status]: bizNow() }, ...extra });
+async function setStatus(o: Order, status: OrderStatus, extra: Partial<Order> = {}, at = bizNow()) {
+  await save('orders', { id: o.id, status, statusDates: { ...(o.statusDates || {}), [status]: at }, ...extra });
   await audit(status === 'cancelled' ? 'Commande annulée' : 'Commande', `${o.number} : ${ORDER_STATUS[status].label}${status === 'cancelled' && extra.notes ? ` — ${String(extra.notes).split('\n').pop()}` : ''}`, 'orders', o.id);
 }
 export const confirmOrder = (o: Order) => setStatus(o, 'confirmed');
@@ -297,17 +327,16 @@ export const markReady = (o: Order) => setStatus(o, 'ready');
 export const backToPrepare = (o: Order) => setStatus(o, 'confirmed');
 
 /** Remise au livreur : les articles (y compris les choix) quittent la boutique. */
-export async function dispatchOrder(o: Order, courierId: string) {
-  assertOpenNow('Remise au livreur');
-  const at = bizNow();
+export async function dispatchOrder(o: Order, courierId: string, day?: string) {
+  const { at, back } = validationAt(day, 'Remise au livreur');
   await addMoves(o.lines.map((l) => ({ variantId: l.variantId, qty: -l.qty, type: 'dispatch' as const, refType: 'order', refId: o.id, reason: `${o.number}${l.isChoice ? ' (choix)' : ''}`, at })));
-  await setStatus(o, 'out', { courierId, dispatchedAt: at });
+  await setStatus(o, 'out', { courierId, dispatchedAt: at }, at);
+  await noteBackdate(o.id, back, 'Remise au livreur');
 }
 
 /** Retour du livreur : ce qui est gardé, rendu, l'argent encaissé. */
-export async function recordReturn(o: Order, r: { kept: Record<string, number>; feeCharged: number; collected: { amount: number; method: PayMethod; ref?: string; receivedBy?: 'shop' | 'courier' }[]; note?: string }) {
-  assertOpenNow('Retour du livreur');
-  const at = bizNow();
+export async function recordReturn(o: Order, r: { kept: Record<string, number>; feeCharged: number; collected: { amount: number; method: PayMethod; ref?: string; receivedBy?: 'shop' | 'courier' }[]; note?: string }, day?: string) {
+  const { at, back } = validationAt(day, 'Retour du livreur');
   const lines = o.lines.map((l) => {
     const kept = Math.max(0, Math.min(l.qty, r.kept[l.id] ?? 0));
     return { ...l, qtyKept: kept, qtyReturned: l.qty - kept };
@@ -326,7 +355,8 @@ export async function recordReturn(o: Order, r: { kept: Record<string, number>; 
   if (o.kind === 'exchange' && o.returnLines?.length && status !== 'refused') {
     await addMoves(o.returnLines.map((rl) => ({ variantId: rl.variantId, qty: rl.qty, type: 'exchange_in' as const, refType: 'order', refId: o.id, reason: `${o.number} — article repris (échange)`, at })));
   }
-  await setStatus(o, status, { lines, feeCharged: r.feeCharged, payments: [...(o.payments || []), ...pays], returnedAt: at, notes: r.note ? [o.notes, `Retour : ${r.note}`].filter(Boolean).join('\n') : o.notes });
+  await setStatus(o, status, { lines, feeCharged: r.feeCharged, payments: [...(o.payments || []), ...pays], returnedAt: at, notes: r.note ? [o.notes, `Retour : ${r.note}`].filter(Boolean).join('\n') : o.notes }, at);
+  await noteBackdate(o.id, back, 'Retour du livreur');
 }
 
 /** Échange traité directement en boutique (sans livraison). */
@@ -343,10 +373,9 @@ export async function completeAtShop(o: Order, pay?: { amount: number; method: P
 }
 
 /** Retrait en boutique : le client repart avec ses articles et paie sur place. */
-export async function handOverAtShop(o: Order, pay?: { amount: number; method: PayMethod; ref?: string }) {
-  assertOpenNow('Retrait en boutique');
+export async function handOverAtShop(o: Order, pay?: { amount: number; method: PayMethod; ref?: string }, day?: string) {
   if (o.status === 'out') throw new Error('Le colis est chez le livreur : enregistrez d’abord son retour (« Le client vient chercher en boutique »).');
-  const at = bizNow();
+  const { at, back } = validationAt(day, 'Retrait en boutique');
   // Une commande prévue en livraison devient une vente sur place : plus de livreur ni de frais de livraison.
   if (!isPickupZone(o.zoneId) || o.deliveryFee || o.courierId) {
     o = { ...o, zoneId: 'zone-retrait', deliveryFee: 0, courierId: undefined };
@@ -358,7 +387,8 @@ export async function handOverAtShop(o: Order, pay?: { amount: number; method: P
   if (o.kind === 'exchange' && o.returnLines?.length) {
     await addMoves(o.returnLines.map((rl) => ({ variantId: rl.variantId, qty: rl.qty, type: 'exchange_in' as const, refType: 'order', refId: o.id, reason: `${o.number} — article repris (échange)`, at })));
   }
-  await setStatus(o, 'delivered', { lines: o.lines.map((l) => ({ ...l, qtyKept: l.isChoice ? 0 : l.qty, qtyReturned: 0 })), feeCharged: 0, payments: [...(o.payments || []), ...pays], returnedAt: at, dispatchedAt: at });
+  await setStatus(o, 'delivered', { lines: o.lines.map((l) => ({ ...l, qtyKept: l.isChoice ? 0 : l.qty, qtyReturned: 0 })), feeCharged: 0, payments: [...(o.payments || []), ...pays], returnedAt: at, dispatchedAt: at }, at);
+  await noteBackdate(o.id, back, 'Retrait en boutique');
 }
 
 /**
