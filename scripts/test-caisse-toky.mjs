@@ -54,6 +54,6 @@ ok(cash0 === cash1, 'aucun mouvement de caisse / trésorerie créé');
 await p.goto('http://localhost:5173/#/'); await p.waitForTimeout(900);
 const acc = N(await p.locator('main').innerText());
 if (process.env.DBG) console.log(acc.slice(0, 1500));
-ok(/Total des ventes[\s\S]{0,40}?285 000 Ar/.test(acc), 'accueil : total des ventes 285 000 = 3 × 95 000, sans les frais de Toky (ni d’Andry)');
+ok(/Total commandes\s+380 000 Ar/.test(acc) && /= Ventes\s+285 000 Ar/.test(acc), 'accueil : total commandes 380 000 et ventes 285 000 (3 × 95 000), sans les frais de Toky ni d’Andry');
 await p.goto('http://localhost:5173/#/livraisons/caisse-frais'); await p.waitForTimeout(4500); await p.locator('main').screenshot({ path: process.env.SHOT || '/tmp/caisse-toky.png' });
 await b.close(); process.exit(fail ? 1 : 0);
