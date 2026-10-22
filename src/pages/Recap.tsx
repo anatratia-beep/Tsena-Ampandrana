@@ -261,16 +261,8 @@ function SynthesisCard({ date }: { date: string }) {
       </table></div>
       <div className="synth-grid">
         <div>
-          <h3 className="card-pad" style={{ paddingBottom: 0 }}>Livreurs</h3>
-          {s.couriers.length === 0 ? <p className="card-pad small muted">Aucune livraison ce jour.</p> : (
-            <div className="table-wrap"><table className="table">
-              <thead><tr><th>Livreur</th><th className="t-num">Nombre de livraisons</th><th className="t-num">Frais gagnés</th></tr></thead>
-              <tbody>
-                {s.couriers.map((c) => <tr key={c.id}><td><strong>{c.name}</strong></td><td className="t-num">{c.count}</td><td className="t-num">{fmtAr(c.fees)}</td></tr>)}
-                <tr className="t-total"><td>Total</td><td className="t-num">{s.deliv.count}</td><td className="t-num">{fmtAr(s.fees)}</td></tr>
-              </tbody>
-            </table></div>
-          )}
+          <h3 className="card-pad" style={{ paddingBottom: 0 }}>Livreurs : livraisons et frais</h3>
+          {s.couriers.length === 0 ? <p className="card-pad small muted">Aucune livraison ce jour.</p> : <FeeBoard s={s} />}
         </div>
         <div>
           <h3 className="card-pad" style={{ paddingBottom: 0 }}>Par catégorie (page)</h3>
@@ -286,6 +278,27 @@ function SynthesisCard({ date }: { date: string }) {
         </div>
       </div>
       <p className="card-pad small muted">Les frais de livraison reviennent aux livreurs : ils ne sont pas compris dans les montants. Les articles « en choix » gardés par le client s’ajoutent au montant avec retour.</p>
+    </div>
+  );
+}
+
+/** Livreurs en lignes : colis, total des commandes emportées, frais, frais en espèces, frais par MVola, retours, et la ligne TOTAL. */
+export function FeeBoard({ s }: { s: ReturnType<typeof daySynthesis> }) {
+  const rows = [...s.couriers.map((c) => ({ key: c.id, name: c.name, count: c.count, value: c.sans, fees: c.fees, cash: c.feesCash, mvola: c.feesMvola, returns: c.returns })),
+    { key: '_total', name: 'TOTAL', count: s.deliv.count, value: s.deliv.sans, fees: s.fees, cash: s.feesCash, mvola: s.feesMvola, returns: s.deliv.returns }];
+  return (
+    <div className="card-pad">
+      <div className="table-wrap fee-board"><table className="table">
+        <thead><tr><th>Livreur</th><th className="t-num">Colis</th><th className="t-num">Total commandes<div className="fee-sub">emportées, sans frais</div></th><th className="t-num">Total frais</th>
+          <th className="t-num">Frais en espèces<div className="fee-sub">gardés par le livreur</div></th>
+          <th className="t-num">Frais MVola / Orange Money<div className="fee-sub">payés par la caisse</div></th><th className="t-num">Retours</th></tr></thead>
+        <tbody>
+          {rows.map((r) => <tr key={r.key} className={r.key === '_total' ? 'fee-total' : ''}>
+            <th scope="row">{r.name}</th><td className="t-num num">{r.count}</td><td className="t-num num">{fmtAr(r.value)}</td><td className="t-num num fee-main">{fmtAr(r.fees)}</td>
+            <td className="t-num num">{fmtAr(r.cash)}</td><td className="t-num num fee-mvola">{fmtAr(r.mvola)}</td><td className="t-num num">{r.returns}</td></tr>)}
+        </tbody>
+      </table></div>
+      <p className="small muted" style={{ marginTop: 8 }}>Espèces : frais encaissés par le livreur auprès du client, il les garde. MVola / Orange Money : frais payés à la boutique par Mobile Money, c’est la caisse qui les paie au livreur (sortie de caisse).</p>
     </div>
   );
 }
