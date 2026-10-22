@@ -109,8 +109,8 @@ function DayRecapTab() {
 
 /** Onglet « Caisse frais » : une caisse à part par livreur dont les frais vont à la caisse (ex. Toky), mois par mois. */
 function FundTab({ couriers }: { couriers: Courier[] }) {
-  const [month, setMonth] = useState(todayYmdLocal().slice(0, 8) + '01');
-  const shift = (n: number) => { const d = new Date(`${month}T12:00:00`); d.setMonth(d.getMonth() + n); setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`); };
+  const [period, setPeriod] = useState<Period>(defaultPeriod('month'));
+  const from = period.from ?? '0000-01-01', to = period.to ?? todayYmdLocal();
   if (!couriers.length) return (
     <div className="card stack-s">
       <h2>Caisse frais</h2>
@@ -122,39 +122,36 @@ function FundTab({ couriers }: { couriers: Courier[] }) {
     <div className="stack">
       <div className="card row-between">
         <p className="small muted" style={{ flex: '1 1 260px', margin: 0 }}>Caisse à part, seulement pour vérifier : elle ne change ni la caisse ni la trésorerie. Les frais des livraisons terminées entrent tout seuls ; ajoutez les dépenses (carburant, réparation moto…), les sorties d’argent et les rectifications.</p>
-        <div className="row" style={{ alignItems: 'center', gap: 6 }}>
-          <IconButton icon="chevronLeft" label="Mois précédent" onClick={() => shift(-1)} />
-          <strong style={{ minWidth: 130, textAlign: 'center' }}>{new Date(`${month}T12:00:00`).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</strong>
-          <IconButton icon="chevronRight" label="Mois suivant" onClick={() => shift(1)} />
-        </div>
+        <div style={{ flex: '1 1 300px' }}><PeriodPicker value={period} onChange={setPeriod} idp="fund" /></div>
       </div>
-      {couriers.map((c) => <CourierFundCard key={c.id} courier={c} date={month} />)}
+      {couriers.map((c) => <CourierFundCard key={c.id} courier={c} from={from} to={to} />)}
     </div>
   );
 }
 
 /** Caisse frais à part (ne touche ni la caisse ni la trésorerie) : frais du mois, dépenses, sorties, rectifications, solde. */
-function CourierFundCard({ courier, date }: { courier: Courier; date: string }) {
+function CourierFundCard({ courier, from, to }: { courier: Courier; from: string; to: string }) {
   const can = useCan();
   useTable<Order>('orders'); useTable<FundMove>('courierFund');
-  const from = date.slice(0, 8) + '01', to = addDays(addDays(from, 32).slice(0, 8) + '01', -1);
   const st = fundStatement(courier.id, from, to);
   const [form, setForm] = useState(false);
   const [del, setDel] = useState<FundMove | null>(null);
-  const month = new Date(`${from}T12:00:00`).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  const fr = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR');
+  const label = from === '0000-01-01' ? `jusqu’au ${fr(to)}` : from === to ? fr(from) : `du ${fr(from)} au ${fr(to)}`;
+  const today = todayYmdLocal();
   return (
     <div className="card card-flush synth">
       <div className="card-pad row-between">
-        <div><h2>Caisse frais {courier.name}</h2><p className="small muted" style={{ margin: 0 }}>{month} · suivi à part, ne change pas la caisse ni la trésorerie</p></div>
+        <div><h2>Caisse frais {courier.name}</h2><p className="small muted" style={{ margin: 0 }}>{label} · suivi à part, ne change pas la caisse ni la trésorerie</p></div>
         {can('couriers.settle') && <Button icon="plus" onClick={() => setForm(true)}>Dépense, sortie ou rectification</Button>}
       </div>
       <div className="card-pad fund-stats">
-        <div><span className="small muted">Solde début du mois</span><strong className="num">{fmtAr(st.start)}</strong></div>
+        <div><span className="small muted">Solde au début</span><strong className="num">{fmtAr(st.start)}</strong></div>
         <div><span className="small muted">Entrées (frais, rectif. +)</span><strong className="num pos">+ {fmtAr(st.in)}</strong></div>
         <div><span className="small muted">Dépenses et sorties</span><strong className="num neg">− {fmtAr(st.out)}</strong></div>
         <div className="fund-end"><span className="small">Solde</span><strong className="num">{fmtAr(st.end)}</strong></div>
       </div>
-      {st.lines.length === 0 ? <p className="card-pad small muted">Aucun mouvement ce mois-ci.</p> : (
+      {st.lines.length === 0 ? <p className="card-pad small muted">Aucun mouvement sur cette période.</p> : (
         <div className="card-pad"><div className="table-wrap fee-board"><table className="table">
           <thead><tr><th>Jour</th><th>Libellé</th><th className="t-num">Entrée</th><th className="t-num">Sortie</th><th></th></tr></thead>
           <tbody>
@@ -164,7 +161,7 @@ function CourierFundCard({ courier, date }: { courier: Courier; date: string }) 
           </tbody>
         </table></div></div>
       )}
-      {form && <FundForm courier={courier} date={todayYmdLocal().startsWith(date.slice(0, 8)) ? todayYmdLocal() : date} onClose={() => setForm(false)} />}
+      {form && <FundForm courier={courier} date={today >= from && today <= to ? today : to} onClose={() => setForm(false)} />}
       {del && <Confirm title="Supprimer ce mouvement" danger confirmLabel="Supprimer" message={<p>{FUND_KINDS[del.kind]} de {fmtAr(Math.abs(del.amount))} du {fmtDate(`${del.day}T12:00:00`)}.</p>} onClose={() => setDel(null)} onConfirm={async () => { await removeFundMove(del, courier.name); toast('Mouvement supprimé'); }} />}
     </div>
   );
