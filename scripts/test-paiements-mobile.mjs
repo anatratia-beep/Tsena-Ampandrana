@@ -32,8 +32,8 @@ const day = async (d) => {
 let tx = await day('2026-10-10');
 ok(/MVola\s*45 000 Ar/.test(tx) && /Orange Money\s*10 000 Ar/.test(tx), 'MVola 15 000 + 1er paiement MVola 30 000 = 45 000 ; Orange 2ème paiement 10 000');
 ok(/1er paiement du reste\s*20 000 Ar/.test(tx) && /2ème paiement du reste\s*0 Ar/.test(tx) && /Reste à payer\s*25 000 Ar/.test(tx), 'cases 1er / 2ème paiement : espèces seulement (20 000 / 0), reste 25 000');
-await p.locator('.situation-card button.stat', { hasText: 'MVola' }).first().click(); await p.waitForTimeout(200);
+await p.locator('.sit-table tbody button', { hasText: '45 000' }).first().click(); await p.waitForTimeout(200);
 tx = N(await p.locator('.situation-card').innerText());
-ok(/du jour de la vente : 15 000 Ar/.test(tx) && /1er paiement MVola : 30 000 Ar/.test(tx) && /Total : 45 000 Ar/.test(tx), 'détail MVola : 15 000 + 30 000 = 45 000');
+ok(/Jour de la vente : 15 000 Ar/.test(tx) && /1er paiement MVola : 30 000 Ar/.test(tx) && /Total : 45 000 Ar/.test(tx), 'détail MVola de la page (clic dans le tableau) : 15 000 + 30 000 = 45 000');
 if (fail) console.log(tx.slice(0, 1500));
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
