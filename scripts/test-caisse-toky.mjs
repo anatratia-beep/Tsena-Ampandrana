@@ -26,6 +26,11 @@ await p.goto('http://localhost:5173/#/livraisons/recap'); await p.waitForTimeout
 let tx = N(await p.locator('main').innerText());
 ok(/Récap livraison\s+Caisse frais Toky/.test(tx), 'onglet « Caisse frais Toky » juste après « Récap livraison »');
 ok(!/Solde au début/.test(tx), 'la caisse frais n’est pas sous le récap livraison');
+ok(/Caisse frais\s+le livreur ne les garde pas/i.test(tx), 'récap livraison : colonne « Caisse frais »');
+ok(/Toky\s+3\s+285 000 Ar\s+9 000 Ar\s+0 Ar\s+0 Ar\s+9 000 Ar\s+1/i.test(tx), 'récap : Toky comme les autres livreurs, 9 000 de frais qui vont dans sa caisse frais');
+ok(/Andry\s+1\s+95 000 Ar\s+3 000 Ar\s+3 000 Ar\s+0 Ar\s+0 Ar\s+0/i.test(tx), 'récap : Andry 3 000 en espèces');
+ok(/TOTAL\s+4\s+380 000 Ar\s+12 000 Ar\s+3 000 Ar\s+0 Ar\s+9 000 Ar\s+1/.test(tx), 'récap : total frais 12 000 = 3 000 espèces + 0 MVola + 9 000 caisse frais');
+await p.locator('.fee-board').screenshot({ path: '/mnt/project-files/captures/recap-livraison-toky.png' });
 await p.getByRole('tab', { name: 'Caisse frais Toky' }).click(); await p.waitForTimeout(700);
 tx = N(await p.locator('main').innerText());
 ok(/Caisse frais Toky[\s\S]*Solde au début/.test(tx), 'onglet Caisse frais Toky : la caisse à part');

@@ -9,7 +9,7 @@ import { dayOf } from './money';
 
 /** fees = feesCash + feesMvola : frais gardés par le livreur sur ce que le client lui a payé (espèces) et frais payés à la
  *  boutique (MVola…), que l'entreprise doit lui payer. */
-export interface SynthCourier { id: string; name: string; count: number; fees: number; feesCash: number; feesMvola: number; returns: number; pending: number; sans: number; avec: number }
+export interface SynthCourier { id: string; name: string; count: number; fees: number; feesCash: number; feesMvola: number; feesFund: number; returns: number; pending: number; sans: number; avec: number }
 export interface SynthCategory { id: string; name: string; sellers: string[]; sans: number; avec: number }
 export interface Synthesis {
   date: string;
@@ -22,6 +22,8 @@ export interface Synthesis {
   categories: SynthCategory[];
   fees: number;
   feesCash: number; feesMvola: number;
+  /** Frais des livreurs « frais pour la caisse » (ex. Toky) : vont dans leur caisse frais, pas au livreur. */
+  feesFund: number;
   corrected: boolean;       // des retours ont été constatés après ce jour
   lastUpdate?: string;      // dernière mise à jour par un retour
 }
@@ -59,7 +61,7 @@ function orderLines(o: Order) {
 export function daySynthesis(date: string): Synthesis {
   const s: Synthesis = {
     date, walk: { count: 0, sans: 0, avec: 0 }, internal: { count: 0, amount: 0 }, deliv: { count: 0, sans: 0, avec: 0, pending: 0, returns: 0 }, pickup: { count: 0, sans: 0, avec: 0 },
-    total: { sans: 0, avec: 0, diff: 0 }, couriers: [], categories: [], fees: 0, feesCash: 0, feesMvola: 0, corrected: false,
+    total: { sans: 0, avec: 0, diff: 0 }, couriers: [], categories: [], fees: 0, feesCash: 0, feesMvola: 0, feesFund: 0, corrected: false,
   };
   const couriers = new Map<string, SynthCourier>();
   const cats = new Map<string, SynthCategory & { sellerSet: Set<string> }>();
@@ -87,14 +89,14 @@ export function daySynthesis(date: string): Synthesis {
     if (x.pending) s.deliv.pending++;
     if (hadReturn) s.deliv.returns++;
     const id = o.courierId || '';
-    if (!couriers.has(id)) couriers.set(id, { id, name: get<Courier>('couriers', id)?.name ?? 'Sans livreur', count: 0, fees: 0, feesCash: 0, feesMvola: 0, returns: 0, pending: 0, sans: 0, avec: 0 });
+    if (!couriers.has(id)) couriers.set(id, { id, name: get<Courier>('couriers', id)?.name ?? 'Sans livreur', count: 0, fees: 0, feesCash: 0, feesMvola: 0, feesFund: 0, returns: 0, pending: 0, sans: 0, avec: 0 });
     const c = couriers.get(id)!;
     const sp = o.status === 'cancelled' ? null : courierSplit(o);
-    const fee = sp ? sp.fee : 0, feeCash = sp ? sp.feeKept : 0, feeMvola = sp ? sp.feeOwed : 0;
-    c.count++; c.fees += fee; c.feesCash += feeCash; c.feesMvola += feeMvola; c.sans += sans; c.avec += avec;
+    const fee = sp ? sp.fee : 0, feeCash = sp ? sp.feeKept : 0, feeMvola = sp ? sp.feeOwed : 0, feeFund = sp ? sp.shopFee : 0;
+    c.count++; c.fees += fee; c.feesCash += feeCash; c.feesMvola += feeMvola; c.feesFund += feeFund; c.sans += sans; c.avec += avec;
     if (x.pending) c.pending++;
     if (hadReturn) c.returns++;
-    s.fees += fee; s.feesCash += feeCash; s.feesMvola += feeMvola;
+    s.fees += fee; s.feesCash += feeCash; s.feesMvola += feeMvola; s.feesFund += feeFund;
   }
   s.total.sans = s.walk.sans + s.deliv.sans + s.pickup.sans;
   s.total.avec = s.walk.avec + s.deliv.avec + s.pickup.avec;
