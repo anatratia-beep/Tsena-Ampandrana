@@ -282,24 +282,20 @@ function SynthesisCard({ date }: { date: string }) {
   );
 }
 
-/** Livreurs en colonnes (comme le cahier) : colis, frais, frais en espèces, frais par MVola, retours, et la colonne TOTAL. */
+/** Livreurs en lignes : colis, frais, frais en espèces, frais par MVola, retours, et la ligne TOTAL. */
 function FeeBoard({ s }: { s: ReturnType<typeof daySynthesis> }) {
-  const cols = [...s.couriers.map((c) => ({ key: c.id, name: c.name, count: c.count, fees: c.fees, cash: c.feesCash, mvola: c.feesMvola, returns: c.returns })),
+  const rows = [...s.couriers.map((c) => ({ key: c.id, name: c.name, count: c.count, fees: c.fees, cash: c.feesCash, mvola: c.feesMvola, returns: c.returns })),
     { key: '_total', name: 'TOTAL', count: s.deliv.count, fees: s.fees, cash: s.feesCash, mvola: s.feesMvola, returns: s.deliv.returns }];
-  const rows: { label: string; hint?: string; v: (c: (typeof cols)[number]) => string; cls?: string }[] = [
-    { label: 'Nombre de colis', v: (c) => String(c.count) },
-    { label: 'Total frais', v: (c) => fmtAr(c.fees), cls: 'fee-main' },
-    { label: 'Frais en espèces', hint: 'gardés par le livreur', v: (c) => fmtAr(c.cash) },
-    { label: 'Frais par MVola', hint: 'à payer par l’entreprise', v: (c) => fmtAr(c.mvola), cls: 'fee-mvola' },
-    { label: 'Nombre de retours', v: (c) => String(c.returns) },
-  ];
   return (
     <div className="card-pad">
       <div className="table-wrap fee-board"><table className="table">
-        <thead><tr><th></th>{cols.map((c) => <th key={c.key} className={`t-num${c.key === '_total' ? ' fee-total' : ''}`}>{c.name}</th>)}</tr></thead>
+        <thead><tr><th>Livreur</th><th className="t-num">Colis</th><th className="t-num">Total frais</th>
+          <th className="t-num">Frais en espèces<div className="fee-sub">gardés par le livreur</div></th>
+          <th className="t-num">Frais par MVola<div className="fee-sub">à payer par l’entreprise</div></th><th className="t-num">Retours</th></tr></thead>
         <tbody>
-          {rows.map((r) => <tr key={r.label} className={r.cls}><th scope="row">{r.label}{r.hint && <div className="small muted">{r.hint}</div>}</th>
-            {cols.map((c) => <td key={c.key} className={`t-num num${c.key === '_total' ? ' fee-total' : ''}`}>{r.v(c)}</td>)}</tr>)}
+          {rows.map((r) => <tr key={r.key} className={r.key === '_total' ? 'fee-total' : ''}>
+            <th scope="row">{r.name}</th><td className="t-num num">{r.count}</td><td className="t-num num fee-main">{fmtAr(r.fees)}</td>
+            <td className="t-num num">{fmtAr(r.cash)}</td><td className="t-num num fee-mvola">{fmtAr(r.mvola)}</td><td className="t-num num">{r.returns}</td></tr>)}
         </tbody>
       </table></div>
       <p className="small muted" style={{ marginTop: 8 }}>Espèces : frais encaissés par le livreur auprès du client, il les garde. MVola : frais payés à la boutique (MVola…), c’est l’entreprise qui les paie au livreur.</p>
