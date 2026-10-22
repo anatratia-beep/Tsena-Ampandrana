@@ -29,6 +29,7 @@ const TABS = [
   { key: 'retour', label: 'Retour livreur', perm: 'deliveries.manage' },
   { key: 'zones', label: 'Zones et frais', perm: 'couriers.view' },
   { key: 'recap', label: 'Récap livraison', perm: 'couriers.view' },
+  { key: 'caisse-frais', label: 'Caisse frais', perm: 'couriers.view' },
 ];
 
 /** Filtres communs : livreur, période, recherche (tout le contenu de la commande). */
@@ -62,20 +63,22 @@ export function DeliveriesPage() {
   const route = useRoute();
   const scope = useMyScope();
   // Vendeur limité à ses pages : pas les comptes de tous les livreurs (argent de toutes les pages).
-  const tabs = TABS.filter((t) => can(t.perm) && !(scope.strict && (t.key === 'livreurs' || t.key === 'recap')));
+  const tabs = TABS.filter((t) => can(t.perm) && !(scope.strict && (t.key === 'livreurs' || t.key === 'recap' || t.key === 'caisse-frais')));
   const cur = tabs.find((t) => route.endsWith('/' + t.key)) ?? tabs[0];
+  const fundCouriers = useTable<Courier>('couriers').filter((c) => c.feeToShop && !c.removed);
   if (!cur) return <Empty icon="lock" title="Accès réservé" />;
   return (
     <>
       <PageHead title="Livraisons" />
       {scope.strict && <ScopeBar scope={scope} text="Vous voyez seulement les livraisons de vos pages" />}
-      <div className="tabs" role="tablist">{tabs.map((t) => <button key={t.key} role="tab" aria-selected={cur.key === t.key} onClick={() => navigate('/livraisons/' + t.key)}>{t.label}</button>)}</div>
+      <div className="tabs" role="tablist">{tabs.map((t) => <button key={t.key} role="tab" aria-selected={cur.key === t.key} onClick={() => navigate('/livraisons/' + t.key)}>{t.key === 'caisse-frais' && fundCouriers.length ? `Caisse frais ${fundCouriers.map((c) => c.name).join(', ')}` : t.label}</button>)}</div>
       {cur.key === 'a-livrer' && <ToDeliver />}
       {cur.key === 'en-cours' && <OutNow />}
       {cur.key === 'retour' && <CourierReturn />}
       {cur.key === 'livreurs' && <Couriers />}
       {cur.key === 'zones' && <Zones />}
-      {cur.key === 'recap' && <RecapTab />}
+      {cur.key === 'recap' && <DayRecapTab />}
+      {cur.key === 'caisse-frais' && <FundTab couriers={fundCouriers} />}
     </>
   );
 }
@@ -99,14 +102,33 @@ function DayRecap({ date, setDate }: { date: string; setDate: (d: string) => voi
   );
 }
 
-/** Récap livraison + caisse frais de chaque livreur dont les frais vont à la caisse (ex. Toky). */
-function RecapTab() {
-  const couriers = useTable<Courier>('couriers').filter((c) => c.feeToShop && !c.removed);
+function DayRecapTab() {
   const [date, setDate] = useState(todayYmdLocal());
+  return <DayRecap date={date} setDate={setDate} />;
+}
+
+/** Onglet « Caisse frais » : une caisse à part par livreur dont les frais vont à la caisse (ex. Toky), mois par mois. */
+function FundTab({ couriers }: { couriers: Courier[] }) {
+  const [month, setMonth] = useState(todayYmdLocal().slice(0, 8) + '01');
+  const shift = (n: number) => { const d = new Date(`${month}T12:00:00`); d.setMonth(d.getMonth() + n); setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`); };
+  if (!couriers.length) return (
+    <div className="card stack-s">
+      <h2>Caisse frais</h2>
+      <p>Aucun livreur n’a encore ses frais pour la caisse.</p>
+      <p className="small muted">Pour ouvrir la caisse frais d’un livreur (ex. Toky) : onglet <strong>Comptes livreurs</strong> → touchez le livreur → <strong>Modifier</strong> → cochez <strong>« Frais de livraison pour la caisse (le livreur ne les garde pas) »</strong> → Enregistrer. Ses frais s’ajoutent alors ici tout seuls.</p>
+    </div>
+  );
   return (
     <div className="stack">
-      <DayRecap date={date} setDate={setDate} />
-      {couriers.map((c) => <CourierFundCard key={c.id} courier={c} date={date} />)}
+      <div className="card row-between">
+        <p className="small muted" style={{ flex: '1 1 260px', margin: 0 }}>Caisse à part, seulement pour vérifier : elle ne change ni la caisse ni la trésorerie. Les frais des livraisons terminées entrent tout seuls ; ajoutez les dépenses (carburant, réparation moto…), les sorties d’argent et les rectifications.</p>
+        <div className="row" style={{ alignItems: 'center', gap: 6 }}>
+          <IconButton icon="chevronLeft" label="Mois précédent" onClick={() => shift(-1)} />
+          <strong style={{ minWidth: 130, textAlign: 'center' }}>{new Date(`${month}T12:00:00`).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</strong>
+          <IconButton icon="chevronRight" label="Mois suivant" onClick={() => shift(1)} />
+        </div>
+      </div>
+      {couriers.map((c) => <CourierFundCard key={c.id} courier={c} date={month} />)}
     </div>
   );
 }
@@ -142,7 +164,7 @@ function CourierFundCard({ courier, date }: { courier: Courier; date: string }) 
           </tbody>
         </table></div></div>
       )}
-      {form && <FundForm courier={courier} date={date} onClose={() => setForm(false)} />}
+      {form && <FundForm courier={courier} date={todayYmdLocal().startsWith(date.slice(0, 8)) ? todayYmdLocal() : date} onClose={() => setForm(false)} />}
       {del && <Confirm title="Supprimer ce mouvement" danger confirmLabel="Supprimer" message={<p>{FUND_KINDS[del.kind]} de {fmtAr(Math.abs(del.amount))} du {fmtDate(`${del.day}T12:00:00`)}.</p>} onClose={() => setDel(null)} onConfirm={async () => { await removeFundMove(del, courier.name); toast('Mouvement supprimé'); }} />}
     </div>
   );
@@ -565,7 +587,7 @@ function CourierForm({ courier, onClose }: { courier?: Courier; onClose: () => v
         </div>
         <TextField label="Notes" value={notes} onChange={setNotes} />
         <Toggle checked={feeToShop} onChange={setFeeToShop} label="Frais de livraison pour la caisse (le livreur ne les garde pas)" />
-        {feeToShop && <p className="small muted" style={{ margin: 0 }}>Le livreur remet à la boutique tout ce que le client a payé, frais compris : les frais entrent dans la caisse et la boutique ne lui doit aucun frais.</p>}
+        {feeToShop && <p className="small muted" style={{ margin: 0 }}>Le livreur remet à la boutique tout ce que le client a payé, frais compris : les frais entrent dans la caisse et la boutique ne lui doit aucun frais. Ses frais sont aussi suivis à part dans l’onglet <strong>Caisse frais {name.trim() || 'du livreur'}</strong> (dépenses carburant, réparations, sorties, rectifications).</p>}
         {courier && <Toggle checked={active} onChange={setActive} label="Livreur actif" />}
       </div>
     </Modal>
