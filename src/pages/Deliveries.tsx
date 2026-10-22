@@ -12,12 +12,14 @@ import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period
 import { matchQuery } from '../lib/catalog';
 import { ReassignModal, ReturnModal, OrderRow, ValidationDay, todayYmdLocal } from './Orders';
 import { CourierReturn } from './CourierReturn';
+import { FeeBoard } from './Recap';
+import { daySynthesis } from '../lib/synthesis';
 import { useCompany } from '../lib/settings';
 import { useMyScope } from '../lib/scope';
 import { ScopeBar } from '../ui/scope';
 import { deliveryNoteDoc, joinDocs, parcelLabelDoc, routeSheetDoc } from '../lib/print';
 import { PrintButton } from '../ui/print';
-import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, courierBalance, courierRemovalBlockers, removeCourier, deferredOrders, deliveryNet, feeState, payDeferredFees, settleCourier, type AccountId, type CourierSettlement } from '../lib/money';
+import { addDays, ACCOUNTS, ACCOUNT_IDS, FEE_STATE, courierBalance, courierRemovalBlockers, removeCourier, deferredOrders, deliveryNet, feeState, payDeferredFees, settleCourier, type AccountId, type CourierSettlement } from '../lib/money';
 
 const TABS = [
   { key: 'livreurs', label: 'Comptes livreurs', perm: 'couriers.view' },
@@ -25,6 +27,7 @@ const TABS = [
   { key: 'en-cours', label: 'En livraison', perm: 'deliveries.manage' },
   { key: 'retour', label: 'Retour livreur', perm: 'deliveries.manage' },
   { key: 'zones', label: 'Zones et frais', perm: 'couriers.view' },
+  { key: 'recap', label: 'Récap livraison', perm: 'couriers.view' },
 ];
 
 /** Filtres communs : livreur, période, recherche (tout le contenu de la commande). */
@@ -58,7 +61,7 @@ export function DeliveriesPage() {
   const route = useRoute();
   const scope = useMyScope();
   // Vendeur limité à ses pages : pas les comptes de tous les livreurs (argent de toutes les pages).
-  const tabs = TABS.filter((t) => can(t.perm) && !(scope.strict && t.key === 'livreurs'));
+  const tabs = TABS.filter((t) => can(t.perm) && !(scope.strict && (t.key === 'livreurs' || t.key === 'recap')));
   const cur = tabs.find((t) => route.endsWith('/' + t.key)) ?? tabs[0];
   if (!cur) return <Empty icon="lock" title="Accès réservé" />;
   return (
@@ -71,7 +74,28 @@ export function DeliveriesPage() {
       {cur.key === 'retour' && <CourierReturn />}
       {cur.key === 'livreurs' && <Couriers />}
       {cur.key === 'zones' && <Zones />}
+      {cur.key === 'recap' && <DayRecap />}
     </>
+  );
+}
+
+/** Récap livraison du jour : par livreur, colis, total des commandes emportées, frais (espèces / MVola, Orange Money), retours. */
+function DayRecap() {
+  useTable<Order>('orders'); useTable<Courier>('couriers');
+  const [date, setDate] = useState(todayYmdLocal());
+  const s = daySynthesis(date);
+  return (
+    <div className="card card-flush synth">
+      <div className="card-pad row-between">
+        <h2>Récap livraison</h2>
+        <div className="row" style={{ alignItems: 'center', gap: 6 }}>
+          <IconButton icon="chevronLeft" label="Jour précédent" onClick={() => setDate(addDays(date, -1))} />
+          <input type="date" aria-label="Jour" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
+          <IconButton icon="chevronRight" label="Jour suivant" onClick={() => setDate(addDays(date, 1))} />
+        </div>
+      </div>
+      {s.couriers.length === 0 ? <p className="card-pad small muted">Aucune livraison ce jour.</p> : <FeeBoard s={s} />}
+    </div>
   );
 }
 

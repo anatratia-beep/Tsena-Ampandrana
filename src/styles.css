@@ -498,6 +498,7 @@ a.btn { text-decoration: none; }
 .fee-board { border: 1px solid var(--line); border-radius: var(--radius-m); }
 .fee-board table { min-width: 560px; }
 .fee-board thead th { background: var(--brand); color: var(--brand-ink); font: 700 .9rem var(--font-display); text-transform: uppercase; letter-spacing: .03em; vertical-align: bottom; }
+.fee-board thead th { white-space: normal; max-width: 150px; }
 .fee-board .fee-sub { font: 400 .72rem var(--font-body); text-transform: none; letter-spacing: 0; opacity: .85; }
 .fee-board tbody th { text-align: left; font: 700 1rem var(--font-display); text-transform: uppercase; color: var(--ink); background: var(--surface-2); }
 .fee-board tbody td { font-size: 1rem; font-weight: 700; }

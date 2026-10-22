@@ -282,19 +282,19 @@ function SynthesisCard({ date }: { date: string }) {
   );
 }
 
-/** Livreurs en lignes : colis, frais, frais en espèces, frais par MVola, retours, et la ligne TOTAL. */
-function FeeBoard({ s }: { s: ReturnType<typeof daySynthesis> }) {
-  const rows = [...s.couriers.map((c) => ({ key: c.id, name: c.name, count: c.count, fees: c.fees, cash: c.feesCash, mvola: c.feesMvola, returns: c.returns })),
-    { key: '_total', name: 'TOTAL', count: s.deliv.count, fees: s.fees, cash: s.feesCash, mvola: s.feesMvola, returns: s.deliv.returns }];
+/** Livreurs en lignes : colis, total des commandes emportées, frais, frais en espèces, frais par MVola, retours, et la ligne TOTAL. */
+export function FeeBoard({ s }: { s: ReturnType<typeof daySynthesis> }) {
+  const rows = [...s.couriers.map((c) => ({ key: c.id, name: c.name, count: c.count, value: c.sans, fees: c.fees, cash: c.feesCash, mvola: c.feesMvola, returns: c.returns })),
+    { key: '_total', name: 'TOTAL', count: s.deliv.count, value: s.deliv.sans, fees: s.fees, cash: s.feesCash, mvola: s.feesMvola, returns: s.deliv.returns }];
   return (
     <div className="card-pad">
       <div className="table-wrap fee-board"><table className="table">
-        <thead><tr><th>Livreur</th><th className="t-num">Colis</th><th className="t-num">Total frais</th>
+        <thead><tr><th>Livreur</th><th className="t-num">Colis</th><th className="t-num">Total commandes<div className="fee-sub">emportées, sans frais</div></th><th className="t-num">Total frais</th>
           <th className="t-num">Frais en espèces<div className="fee-sub">gardés par le livreur</div></th>
           <th className="t-num">Frais MVola / Orange Money<div className="fee-sub">payés par la caisse</div></th><th className="t-num">Retours</th></tr></thead>
         <tbody>
           {rows.map((r) => <tr key={r.key} className={r.key === '_total' ? 'fee-total' : ''}>
-            <th scope="row">{r.name}</th><td className="t-num num">{r.count}</td><td className="t-num num fee-main">{fmtAr(r.fees)}</td>
+            <th scope="row">{r.name}</th><td className="t-num num">{r.count}</td><td className="t-num num">{fmtAr(r.value)}</td><td className="t-num num fee-main">{fmtAr(r.fees)}</td>
             <td className="t-num num">{fmtAr(r.cash)}</td><td className="t-num num fee-mvola">{fmtAr(r.mvola)}</td><td className="t-num num">{r.returns}</td></tr>)}
         </tbody>
       </table></div>
