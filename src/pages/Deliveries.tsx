@@ -6,7 +6,7 @@ import { audit, useCan } from '../lib/auth';
 import { get, remove, save, useTable } from '../lib/db';
 import { fmtAr, fmtNum, parseNum, parseAr } from '../lib/catalog';
 import { dispatchOrder, orderText, choiceQty, hasPendingChoice, courierAccount, courierSplit, fmtPhone, isPickupZone, orderLabel, remaining, totalQty, type Courier, type Order, type Zone } from '../lib/orders';
-import { Help, Badge, FilterSelect, MultiPick, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, Toggle, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
+import { Help, Badge, FilterSelect, MultiPick, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, Toggle, fmtDate, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period';
 import { matchQuery } from '../lib/catalog';
@@ -14,6 +14,7 @@ import { ReassignModal, ReturnModal, OrderRow, ValidationDay, todayYmdLocal } fr
 import { CourierReturn } from './CourierReturn';
 import { FeeBoard } from './Recap';
 import { daySynthesis } from '../lib/synthesis';
+import { FUND_KINDS, addFundMove, fundStatement, removeFundMove, type FundKind, type FundMove } from '../lib/courierFund';
 import { useCompany } from '../lib/settings';
 import { useMyScope } from '../lib/scope';
 import { ScopeBar } from '../ui/scope';
@@ -74,15 +75,14 @@ export function DeliveriesPage() {
       {cur.key === 'retour' && <CourierReturn />}
       {cur.key === 'livreurs' && <Couriers />}
       {cur.key === 'zones' && <Zones />}
-      {cur.key === 'recap' && <DayRecap />}
+      {cur.key === 'recap' && <RecapTab />}
     </>
   );
 }
 
 /** Récap livraison du jour : par livreur, colis, total des commandes emportées, frais (espèces / MVola, Orange Money), retours. */
-function DayRecap() {
+function DayRecap({ date, setDate }: { date: string; setDate: (d: string) => void }) {
   useTable<Order>('orders'); useTable<Courier>('couriers');
-  const [date, setDate] = useState(todayYmdLocal());
   const s = daySynthesis(date);
   return (
     <div className="card card-flush synth">
@@ -96,6 +96,85 @@ function DayRecap() {
       </div>
       {s.couriers.length === 0 ? <p className="card-pad small muted">Aucune livraison ce jour.</p> : <FeeBoard s={s} />}
     </div>
+  );
+}
+
+/** Récap livraison + caisse frais de chaque livreur dont les frais vont à la caisse (ex. Toky). */
+function RecapTab() {
+  const couriers = useTable<Courier>('couriers').filter((c) => c.feeToShop && !c.removed);
+  const [date, setDate] = useState(todayYmdLocal());
+  return (
+    <div className="stack">
+      <DayRecap date={date} setDate={setDate} />
+      {couriers.map((c) => <CourierFundCard key={c.id} courier={c} date={date} />)}
+    </div>
+  );
+}
+
+/** Caisse frais à part (ne touche ni la caisse ni la trésorerie) : frais du mois, dépenses, sorties, rectifications, solde. */
+function CourierFundCard({ courier, date }: { courier: Courier; date: string }) {
+  const can = useCan();
+  useTable<Order>('orders'); useTable<FundMove>('courierFund');
+  const from = date.slice(0, 8) + '01', to = addDays(addDays(from, 32).slice(0, 8) + '01', -1);
+  const st = fundStatement(courier.id, from, to);
+  const [form, setForm] = useState(false);
+  const [del, setDel] = useState<FundMove | null>(null);
+  const month = new Date(`${from}T12:00:00`).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  return (
+    <div className="card card-flush synth">
+      <div className="card-pad row-between">
+        <div><h2>Caisse frais {courier.name}</h2><p className="small muted" style={{ margin: 0 }}>{month} · suivi à part, ne change pas la caisse ni la trésorerie</p></div>
+        {can('couriers.settle') && <Button icon="plus" onClick={() => setForm(true)}>Dépense, sortie ou rectification</Button>}
+      </div>
+      <div className="card-pad fund-stats">
+        <div><span className="small muted">Solde début du mois</span><strong className="num">{fmtAr(st.start)}</strong></div>
+        <div><span className="small muted">Entrées (frais, rectif. +)</span><strong className="num pos">+ {fmtAr(st.in)}</strong></div>
+        <div><span className="small muted">Dépenses et sorties</span><strong className="num neg">− {fmtAr(st.out)}</strong></div>
+        <div className="fund-end"><span className="small">Solde</span><strong className="num">{fmtAr(st.end)}</strong></div>
+      </div>
+      {st.lines.length === 0 ? <p className="card-pad small muted">Aucun mouvement ce mois-ci.</p> : (
+        <div className="card-pad"><div className="table-wrap fee-board"><table className="table">
+          <thead><tr><th>Jour</th><th>Libellé</th><th className="t-num">Entrée</th><th className="t-num">Sortie</th><th></th></tr></thead>
+          <tbody>
+            {st.lines.map((l, i) => <tr key={i}><td>{fmtDate(`${l.day}T12:00:00`)}</td><td>{l.label}{l.move?.userName && <div className="small muted">{l.move.userName}</div>}</td>
+              <td className="t-num num fee-main">{l.amount > 0 ? fmtAr(l.amount) : ''}</td><td className="t-num num fee-mvola">{l.amount < 0 ? fmtAr(-l.amount) : ''}</td>
+              <td>{l.move && can('couriers.settle') && <IconButton icon="trash" label="Supprimer ce mouvement" onClick={() => setDel(l.move!)} />}</td></tr>)}
+          </tbody>
+        </table></div></div>
+      )}
+      {form && <FundForm courier={courier} date={date} onClose={() => setForm(false)} />}
+      {del && <Confirm title="Supprimer ce mouvement" danger confirmLabel="Supprimer" message={<p>{FUND_KINDS[del.kind]} de {fmtAr(Math.abs(del.amount))} du {fmtDate(`${del.day}T12:00:00`)}.</p>} onClose={() => setDel(null)} onConfirm={async () => { await removeFundMove(del, courier.name); toast('Mouvement supprimé'); }} />}
+    </div>
+  );
+}
+
+function FundForm({ courier, date, onClose }: { courier: Courier; date: string; onClose: () => void }) {
+  const [kind, setKind] = useState<FundKind>('expense');
+  const [sign, setSign] = useState<'-' | '+'>('-');
+  const [amount, setAmount] = useState('');
+  const [label, setLabel] = useState('');
+  const [day, setDay] = useState(date);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal title={`Caisse frais ${courier.name}`} onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} onClick={async () => {
+        const a = parseNum(amount);
+        if (!(a != null && a > 0)) return setError('Indiquez le montant.');
+        if (kind !== 'fix' && !label.trim()) return setError('Indiquez le motif (ex. carburant, réparation moto).');
+        setBusy(true);
+        await addFundMove({ courierId: courier.id, day, kind, amount: kind === 'fix' && sign === '+' ? a : -a, label: label.trim() }, courier.name);
+        toast('Mouvement enregistré'); setBusy(false); onClose();
+      }}>Enregistrer</Button></>}>
+      <div className="stack">
+        <SelectField label="Type" value={kind} onChange={(v) => setKind(v as FundKind)} options={(Object.keys(FUND_KINDS) as FundKind[]).map((k) => ({ value: k, label: FUND_KINDS[k] }))} />
+        {kind === 'fix' && <SelectField label="Rectification" value={sign} onChange={(v) => setSign(v as '-' | '+')} options={[{ value: '-', label: 'En moins (ex. le client a payé moins de frais)' }, { value: '+', label: 'En plus' }]} />}
+        <TextField label="Montant (Ar)" required value={amount} onChange={setAmount} inputMode="numeric" autoFocus />
+        <TextField label={kind === 'fix' ? 'Motif (facultatif)' : 'Motif'} required={kind !== 'fix'} value={label} onChange={setLabel} placeholder={kind === 'expense' ? 'Ex. carburant, réparation moto' : kind === 'out' ? 'Ex. avance à Toky' : 'Ex. commande C-H0020 : frais 3 000 au lieu de 4 000'} />
+        <TextField label="Jour" type="date" value={day} onChange={(v) => v && setDay(v)} />
+        {error && <div className="notice notice-danger"><Icon name="alert" /><span>{error}</span></div>}
+      </div>
+    </Modal>
   );
 }
 
