@@ -495,6 +495,17 @@ a.btn { text-decoration: none; }
 .synth-table td, .synth-table th { font-size: 1rem; }
 .synth-table tr.synth-total td { font-weight: 800; font-size: 1.1rem; background: var(--brand-soft); }
 .synth-grid { display: grid; grid-template-columns: 1fr; }
+.fee-board { border: 1px solid var(--line); border-radius: var(--radius-m); }
+.fee-board table { min-width: 480px; }
+.fee-board thead th { background: var(--brand); color: var(--brand-ink); font: 700 .95rem var(--font-display); text-transform: uppercase; letter-spacing: .03em; text-align: center; }
+.fee-board tbody th { text-align: left; font-weight: 600; white-space: nowrap; background: var(--surface-2); }
+.fee-board th.t-num, .fee-board td.t-num { text-align: center; }
+.fee-board tbody td { text-align: center; font-size: 1rem; font-weight: 700; }
+.fee-board tbody tr:nth-child(even) td { background: var(--surface-2); }
+.fee-board tr.fee-main td { font-size: 1.1rem; color: var(--brand); }
+.fee-board tr.fee-mvola td { color: var(--gold); }
+.fee-board .fee-total { background: var(--brand-soft) !important; font-weight: 800; }
+.fee-board thead th.fee-total { background: var(--ink) !important; color: var(--surface); }
 .scope-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-radius: var(--radius-m); background: var(--brand-soft); color: var(--ink); } .scope-bar > span { flex: 1; min-width: 180px; } .scope-bar svg { color: var(--brand); }
 .thumb-zoom { cursor: zoom-in; }
 .lightbox { position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,.82); display: grid; place-items: center; padding: 20px; cursor: zoom-out; }
