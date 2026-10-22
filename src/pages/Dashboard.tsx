@@ -337,7 +337,7 @@ function SituationCard({ from: f, to: t }: { from?: string; to?: string }) {
   const MobileStat = ({ m, label, extra }: { m: PayMethod; label: string; extra?: string }) => {
     const late = T.later[m].l1 + T.later[m].l2;
     return (
-      <button type="button" className="card stat" style={{ textAlign: 'left', font: 'inherit', color: 'inherit', cursor: 'pointer' }} aria-expanded={detail === m} onClick={() => setDetail(detail === m ? '' : m)}>
+      <button type="button" className="card stat" style={{ textAlign: 'left', font: 'inherit', color: 'inherit', cursor: 'pointer', alignContent: 'start' }} aria-expanded={detail === m} onClick={() => setDetail(detail === m ? '' : m)}>
         <span className="small muted">{label}</span><strong className="stat-value num">{fmtAr(mob(T, m))}</strong>
         {detail === m ? (
           <span className="small" style={{ display: 'block' }}>
