@@ -16,16 +16,21 @@ const cash0 = await p.evaluate(async () => { const t = window.__tsena;
   await t.save('products', [{ id: 'a', code: 'A', name: 'Plaque', categoryId: 'ind', priceRetail: 95000, active: true }]);
   await t.save('variants', [{ id: 'va', productId: 'a', sku: 'A', costAvg: 50000, active: true }]);
   await t.save('couriers', [{ id: 'ct', name: 'Toky', active: true, feeToShop: true }, { id: 'c1', name: 'Andry', active: true }]);
-  const o = (id, courierId, fee, status = 'delivered') => ({ id, number: id, kind: 'order', channel: 'online', phone: '0340000000', status, courierId, zoneId: 'z1',
+  const o = (id, courierId, fee, status = 'delivered', method = 'cash') => ({ id, number: id, kind: 'order', channel: 'online', phone: '0340000000', status, courierId, zoneId: 'z1',
     lines: [{ id: 'l' + id, variantId: 'va', qty: 1, unitPrice: 95000, qtyKept: 1 }], deliveryFee: fee, feeCharged: fee, discount: 0, createdAt: at, dispatchedAt: at, returnedAt: back,
-    payments: status === 'cancelled' ? [] : [{ id: 'p' + id, at: back, amount: 95000 + fee, method: 'cash', receivedBy: 'courier', courierId }] });
-  await t.save('orders', [o('t1', 'ct', 4000), o('t2', 'ct', 5000), o('t3', 'ct', 4000, 'cancelled'), o('a1', 'c1', 3000)]);
+    payments: status === 'cancelled' ? [] : method === 'mvola' ? [{ id: 'p' + id, at, amount: 95000 + fee, method: 'mvola', receivedBy: 'shop' }] : [{ id: 'p' + id, at: back, amount: 95000 + fee, method: 'cash', receivedBy: 'courier', courierId }] });
+  await t.save('orders', [o('t1', 'ct', 4000), o('t2', 'ct', 5000, 'delivered', 'mvola'), o('t3', 'ct', 4000, 'cancelled'), o('a1', 'c1', 3000)]);
   return (await t.all('cashMoves')).length;
 });
 await p.goto('http://localhost:5173/#/livraisons/recap'); await p.waitForTimeout(900);
 let tx = N(await p.locator('main').innerText());
 ok(/Récap livraison\s+Caisse frais Toky/.test(tx), 'onglet « Caisse frais Toky » juste après « Récap livraison »');
 ok(!/Solde au début/.test(tx), 'la caisse frais n’est pas sous le récap livraison');
+ok(!/Caisse frais\s+le livreur ne les garde pas/i.test(tx), 'récap livraison : pas de colonne en plus');
+ok(/Toky\s+→ caisse frais Toky\s+3\s+285 000 Ar\s+9 000 Ar\s+4 000 Ar\s+5 000 Ar\s+1/i.test(tx), 'récap : Toky comme les autres livreurs : 9 000 = 4 000 espèces + 5 000 MVola, marqué « → caisse frais Toky »');
+ok(/Andry\s+1\s+95 000 Ar\s+3 000 Ar\s+3 000 Ar\s+0 Ar\s+0/i.test(tx), 'récap : Andry 3 000 en espèces');
+ok(/TOTAL\s+4\s+380 000 Ar\s+12 000 Ar\s+7 000 Ar\s+5 000 Ar\s+1/.test(tx), 'récap : total frais 12 000 = 7 000 espèces + 5 000 MVola');
+await p.locator('.fee-board').screenshot({ path: '/mnt/project-files/captures/recap-livraison-toky.png' });
 await p.getByRole('tab', { name: 'Caisse frais Toky' }).click(); await p.waitForTimeout(700);
 tx = N(await p.locator('main').innerText());
 ok(/Caisse frais Toky[\s\S]*Solde au début/.test(tx), 'onglet Caisse frais Toky : la caisse à part');
