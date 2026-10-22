@@ -32,7 +32,7 @@ await p.evaluate(async () => { const t = window.__tsena;
 await p.goto('http://localhost:5173/#/recapitulatif'); await p.waitForTimeout(900);
 const tx = N(await p.locator('main').innerText());
 if (process.env.DBG) console.log(tx);
-ok(/Livreur\s+Colis\s+Total frais\s+Frais en espèces\s+gardés par le livreur\s+Frais par MVola\s+à payer par l’entreprise\s+Retours/i.test(tx), 'colonnes : livreur, colis, total frais, espèces, MVola, retours');
+ok(/Livreur\s+Colis\s+Total frais\s+Frais en espèces\s+gardés par le livreur\s+Frais MVola \/ Orange Money\s+payés par la caisse\s+Retours/i.test(tx), 'colonnes : livreur, colis, total frais, espèces, MVola, retours');
 ok(/Andry\s+2\s+9 000 Ar\s+4 000 Ar\s+5 000 Ar\s+0/i.test(tx), 'Andry : 2 colis, 9 000 de frais = 4 000 espèces + 5 000 MVola, 0 retour');
 ok(/Solo\s+2\s+3 000 Ar\s+3 000 Ar\s+0 Ar\s+1/i.test(tx), 'Solo : 3 000 de frais en espèces, la commande annulée ne compte pas dans les frais, 1 retour');
 ok(/TOTAL\s+4\s+12 000 Ar\s+7 000 Ar\s+5 000 Ar\s+1/.test(tx), 'ligne TOTAL : 4 colis, 12 000 = 7 000 espèces + 5 000 MVola, 1 retour');

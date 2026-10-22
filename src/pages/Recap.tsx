@@ -291,14 +291,14 @@ function FeeBoard({ s }: { s: ReturnType<typeof daySynthesis> }) {
       <div className="table-wrap fee-board"><table className="table">
         <thead><tr><th>Livreur</th><th className="t-num">Colis</th><th className="t-num">Total frais</th>
           <th className="t-num">Frais en espèces<div className="fee-sub">gardés par le livreur</div></th>
-          <th className="t-num">Frais par MVola<div className="fee-sub">à payer par l’entreprise</div></th><th className="t-num">Retours</th></tr></thead>
+          <th className="t-num">Frais MVola / Orange Money<div className="fee-sub">payés par la caisse</div></th><th className="t-num">Retours</th></tr></thead>
         <tbody>
           {rows.map((r) => <tr key={r.key} className={r.key === '_total' ? 'fee-total' : ''}>
             <th scope="row">{r.name}</th><td className="t-num num">{r.count}</td><td className="t-num num fee-main">{fmtAr(r.fees)}</td>
             <td className="t-num num">{fmtAr(r.cash)}</td><td className="t-num num fee-mvola">{fmtAr(r.mvola)}</td><td className="t-num num">{r.returns}</td></tr>)}
         </tbody>
       </table></div>
-      <p className="small muted" style={{ marginTop: 8 }}>Espèces : frais encaissés par le livreur auprès du client, il les garde. MVola : frais payés à la boutique (MVola…), c’est l’entreprise qui les paie au livreur.</p>
+      <p className="small muted" style={{ marginTop: 8 }}>Espèces : frais encaissés par le livreur auprès du client, il les garde. MVola / Orange Money : frais payés à la boutique par Mobile Money, c’est la caisse qui les paie au livreur (sortie de caisse).</p>
     </div>
   );
 }

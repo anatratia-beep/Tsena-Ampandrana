@@ -87,10 +87,10 @@ export function synthSections(s: Synthesis): Section[] {
   if (s.couriers.length) out.push({ title: 'Livreurs : livraisons et frais', lines: [
     ...s.couriers.flatMap((c) => [{ label: `${c.name} : ${c.count} livraison(s)`, value: `frais ${fmtAr(c.fees)}` },
       { label: 'en espèces (gardés par le livreur)', value: fmtAr(c.feesCash), sub: true },
-      { label: 'par MVola (payés par l’entreprise)', value: fmtAr(c.feesMvola), sub: true }]),
+      { label: 'par MVola / Orange Money (payés par la caisse)', value: fmtAr(c.feesMvola), sub: true }]),
     { label: `TOTAL GÉNÉRAL : ${s.deliv.count} livraison(s)`, value: `frais ${fmtAr(s.fees)}`, strong: true },
     { label: 'en espèces (gardés par les livreurs)', value: fmtAr(s.feesCash), sub: true },
-    { label: 'par MVola (à payer par l’entreprise)', value: fmtAr(s.feesMvola), sub: true },
+    { label: 'par MVola / Orange Money (payés par la caisse)', value: fmtAr(s.feesMvola), sub: true },
   ] });
   if (s.categories.length) out.push({ title: 'Ventes par catégorie (page)', lines: s.categories.map((c) => ({ label: `${c.name}${c.sellers.length ? ` (${c.sellers.join(', ')})` : ''}`, value: sa(c.sans, c.avec) })) });
   return out;
