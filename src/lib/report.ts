@@ -133,13 +133,15 @@ function restLikeAccueil(from: string, to: string): WeekUnpaid {
 
 /**
  * Paiements repris de « Situation par page » (accueil) : espèces, MVola, Orange Money payés le jour de la vente.
- * 1re case : Total à verser = espèces (sans dépenses ni anciens impayés).
+ * 1re case : Total à verser = espèces du jour de la vente + 1er paiement espèces + 2ème paiement espèces des ventes de la
+ * période (sans dépenses ni anciens impayés : ce qui est payé pour une vente d'une semaine déjà comptée va dans
+ * « Impayé précédent à verser »).
  * 2e case : Total à verser − dépenses espèces + anciens impayés encaissés pendant la période (« Impayé précédent à verser »).
  * MVola / Orange Money − dépenses payées avec ce compte.
  */
 export function bossMoney(from: string, to: string): BossMoney {
   const s = salesWithUnpaid(from, to);
-  const pay = situation(from, to).total.pay;
+  const sit = situation(from, to).total, pay = sit.pay;
   const paid = { mvola: pay.mvola, orange: pay.orange, airtel: pay.airtel };
   const exp = { cash: 0, mvola: 0, orange: 0 };
   for (const m of all<CashMove>('cashMoves')) {
@@ -148,7 +150,7 @@ export function bossMoney(from: string, to: string): BossMoney {
   }
   const mobile = paid.mvola + paid.orange + paid.airtel;
   const end = to < today() ? to : today(), mon = mondayOf(end);
-  const weekPrev = frozenUnpaid(addDays(mon, -7), addDays(mon, -1), mon), total = pay.cash;
+  const weekPrev = frozenUnpaid(addDays(mon, -7), addDays(mon, -1), mon), total = pay.cash + sit.later.cash.l1 + sit.later.cash.l2;
   const prev = prevUnpaidPaid(from, end);
   return {
     sales: s.sales, mobile, unpaid: s.unpaid, unpaidN: s.n,
