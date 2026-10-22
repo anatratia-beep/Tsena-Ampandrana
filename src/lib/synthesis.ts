@@ -4,7 +4,7 @@
 import { adjustKept } from './lots';
 import { all, get } from './db';
 import type { Category, Product, Variant } from './catalog';
-import { courierSplit, isPickupZone, isWalkIn, type Courier, type Order } from './orders';
+import { courierSplit, exchangeBalance, isPickupZone, isWalkIn, orderTotal, remaining, type Courier, type Order } from './orders';
 import { dayOf } from './money';
 
 /** fees = feesCash + feesMvola : frais gardés par le livreur sur ce que le client lui a payé (espèces) et frais payés à la
@@ -22,7 +22,8 @@ export interface Synthesis {
   categories: SynthCategory[];
   fees: number;
   feesCash: number; feesMvola: number;
-  /** Frais des livreurs « frais pour la caisse » (ex. Toky) : vont dans leur caisse frais, pas au livreur. */
+  /** Frais des livreurs « frais pour la caisse » (ex. Toky) : vont dans leur caisse frais, pas au livreur. Ils sont aussi
+   *  comptés dans feesCash / feesMvola (comme pour les autres livreurs), mais pas dans fees. */
   feesFund: number;
   corrected: boolean;       // des retours ont été constatés après ce jour
   lastUpdate?: string;      // dernière mise à jour par un retour
@@ -38,6 +39,18 @@ function rootCategory(variantId: string): { id: string; name: string } {
 }
 
 const CLOSED = ['delivered', 'partial', 'refused'];
+
+/** Frais d'un livreur « frais pour la caisse » (ex. Toky) répartis comme pour les autres livreurs : payés en espèces au
+ *  livreur, ou déjà payés à la boutique (MVola / Orange Money). Même règle que courierSplit (articles d'abord, puis frais). */
+function fundSplit(o: Order, charged: number) {
+  if (!charged) return { cash: 0, mvola: 0 };
+  const shopPaid = (o.payments || []).filter((p) => p.receivedBy === 'shop').reduce((t, p) => t + p.amount, 0);
+  const got = (o.payments || []).filter((p) => p.receivedBy === 'courier' && p.courierId === o.courierId).reduce((t, p) => t + p.amount, 0);
+  const itemsDue = Math.max(0, (o.kind === 'exchange' ? exchangeBalance(o) : orderTotal(o)) - charged);
+  const clientPays = CLOSED.includes(o.status) ? got : got + Math.max(0, remaining(o));
+  const cash = Math.min(clientPays, Math.max(0, charged - Math.max(0, shopPaid - itemsDue)));
+  return { cash, mvola: charged - cash };
+}
 
 /** Valeurs d'une commande, ligne par ligne (remise répartie), sans retour et avec retour. */
 function orderLines(o: Order) {
@@ -92,7 +105,8 @@ export function daySynthesis(date: string): Synthesis {
     if (!couriers.has(id)) couriers.set(id, { id, name: get<Courier>('couriers', id)?.name ?? 'Sans livreur', count: 0, fees: 0, feesCash: 0, feesMvola: 0, feesFund: 0, returns: 0, pending: 0, sans: 0, avec: 0 });
     const c = couriers.get(id)!;
     const sp = o.status === 'cancelled' ? null : courierSplit(o);
-    const fee = sp ? sp.fee : 0, feeCash = sp ? sp.feeKept : 0, feeMvola = sp ? sp.feeOwed : 0, feeFund = sp ? sp.shopFee : 0;
+    const feeFund = sp ? sp.shopFee : 0, fs = sp ? fundSplit(o, feeFund) : { cash: 0, mvola: 0 };
+    const fee = sp ? sp.fee : 0, feeCash = (sp ? sp.feeKept : 0) + fs.cash, feeMvola = (sp ? sp.feeOwed : 0) + fs.mvola;
     c.count++; c.fees += fee; c.feesCash += feeCash; c.feesMvola += feeMvola; c.feesFund += feeFund; c.sans += sans; c.avec += avec;
     if (x.pending) c.pending++;
     if (hadReturn) c.returns++;
