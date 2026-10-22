@@ -17,6 +17,9 @@ export interface PageSit {
   pay: Record<PayMethod, number>; paid: number;
   /** Reste payé plus tard : 1er paiement du reste (jour de travail suivant la vente), 2ème paiement (jours d'après). */
   later1: number; later2: number;
+  /** Les mêmes 1er / 2ème paiements, par moyen : l'accueil affiche ceux en MVola / Orange Money / Airtel / carte dans le
+   *  total de ce moyen (avec le détail), et seulement les espèces dans les cases 1er / 2ème paiement. */
+  later: Record<PayMethod, { l1: number; l2: number }>;
   /** Reste encore à payer aujourd'hui. */
   rest: number; restN: number;
   cancelled: number; cancelledN: number;
@@ -24,7 +27,8 @@ export interface PageSit {
   exchange: number; exchangeN: number;
   reported: number; reportedN: number;
 }
-const empty = (id: string, name: string): PageSit => ({ id, name, gross: 0, sales: 0, qty: 0, orders: 0, pay: { cash: 0, mvola: 0, orange: 0, airtel: 0, card: 0 }, paid: 0, later1: 0, later2: 0, rest: 0, restN: 0, cancelled: 0, cancelledN: 0, exchange: 0, exchangeN: 0, reported: 0, reportedN: 0 });
+const empty = (id: string, name: string): PageSit => ({ id, name, gross: 0, sales: 0, qty: 0, orders: 0, pay: { cash: 0, mvola: 0, orange: 0, airtel: 0, card: 0 }, paid: 0, later1: 0, later2: 0, later: laterEmpty(), rest: 0, restN: 0, cancelled: 0, cancelledN: 0, exchange: 0, exchangeN: 0, reported: 0, reportedN: 0 });
+const laterEmpty = (): PageSit['later'] => ({ cash: { l1: 0, l2: 0 }, mvola: { l1: 0, l2: 0 }, orange: { l1: 0, l2: 0 }, airtel: { l1: 0, l2: 0 }, card: { l1: 0, l2: 0 } });
 const inRange = (iso: string | undefined, from: string, to: string) => { if (!iso) return false; const d = dayOf(iso); return d >= from && d <= to; };
 
 /** Part de chaque page dans une commande (valeur des articles) : sert à répartir annulations et reports. */
@@ -88,18 +92,22 @@ export function situation(from: string, to: string, pages?: string[]) {
     // n'apparaît plus en « reste à payer »). Ce qui dépasse la valeur des articles (frais de livraison) n'est pas compté.
     const byM: Record<PayMethod, number> = { cash: 0, mvola: 0, orange: 0, airtel: 0, card: 0 };
     let l1 = 0, l2 = 0;
+    const l1m: Partial<Record<PayMethod, number>> = {}, l2m: Partial<Record<PayMethod, number>> = {};
     const p1Day = firstPayDay(day);
     for (const pay of o.payments || []) {
       const d = payDay(o, pay);
       if (!d) continue; // espèces encore chez le livreur : pas encore reçues
       if (d <= day) { byM[pay.method] = (byM[pay.method] ?? 0) + pay.amount; continue; }
-      if (d <= p1Day) l1 += pay.amount; else l2 += pay.amount;
+      if (d <= p1Day) { l1 += pay.amount; l1m[pay.method] = (l1m[pay.method] ?? 0) + pay.amount; } else { l2 += pay.amount; l2m[pay.method] = (l2m[pay.method] ?? 0) + pay.amount; }
     }
     const sameTot = Math.max(0, Object.values(byM).reduce((s, x) => s + x, 0));
     const counted = Math.max(0, Math.min(sameTot + l1 + l2, sold));
     const takeSame = Math.min(sameTot, counted);
     const take1 = Math.min(Math.max(0, l1), counted - takeSame);
     const take2 = Math.max(0, counted - takeSame - take1);
+    // Part de chaque moyen dans le 1er / 2ème paiement compté (un paiement mixte est réparti entre ses moyens).
+    const shares = (m: Partial<Record<PayMethod, number>>) => { const pos = Object.values(m).reduce((t, x) => t + Math.max(0, x ?? 0), 0); return (Object.keys(m) as PayMethod[]).map((k) => [k, pos ? Math.max(0, m[k] ?? 0) / pos : 0] as const); };
+    const sh1 = shares(l1m), sh2 = shares(l2m);
     const isEx = o.kind === 'exchange';
     let mine = false;
     for (const [p, a] of pg) {
@@ -108,6 +116,8 @@ export function situation(from: string, to: string, pages?: string[]) {
       r.sales += a;
       for (const m of Object.keys(byM) as PayMethod[]) { const v = sameTot ? (Math.max(0, byM[m]) / Object.values(byM).reduce((s, x) => s + Math.max(0, x), 0)) * takeSame * f : 0; r.pay[m] += v; r.paid += v; }
       r.later1 += take1 * f; r.later2 += take2 * f; r.paid += (take1 + take2) * f;
+      for (const [m, x] of sh1) r.later[m].l1 += take1 * x * f;
+      for (const [m, x] of sh2) r.later[m].l2 += take2 * x * f;
       const rest = (sold - counted) * f; if (rest > 0.5) { r.rest += rest; r.restN++; }
       if (isEx) { r.exchange += a; r.exchangeN++; }
       r.orders++;
@@ -148,7 +158,7 @@ export function situation(from: string, to: string, pages?: string[]) {
   for (const r of list) {
     total.gross += r.gross; total.sales += r.sales; total.qty += r.qty; total.paid += r.paid; total.rest += r.rest; total.later1 += r.later1; total.later2 += r.later2;
     total.cancelled += r.cancelled; total.exchange += r.exchange; total.reported += r.reported;
-    for (const k of Object.keys(r.pay) as PayMethod[]) total.pay[k] += r.pay[k];
+    for (const k of Object.keys(r.pay) as PayMethod[]) { total.pay[k] += r.pay[k]; total.later[k].l1 += r.later[k].l1; total.later[k].l2 += r.later[k].l2; }
   }
   // Une commande sur plusieurs pages ne compte qu'une fois dans les totaux.
   total.orders = uniq.orders.size; total.restN = uniq.rest.size; total.cancelledN = uniq.cancelled.size; total.exchangeN = uniq.exchange.size; total.reportedN = uniq.reported.size;

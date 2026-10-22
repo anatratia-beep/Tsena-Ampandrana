@@ -17,7 +17,7 @@ import { BarChart } from '../ui/chart';
 import { Delta } from './Reports';
 import { useMyScope } from '../lib/scope';
 import { situation, type PageSit } from '../lib/situation';
-import type { Courier } from '../lib/orders';
+import type { Courier, PayMethod } from '../lib/orders';
 import { managesOwnPassword, roleOf, SUPERADMIN_ID, useCan, useCurrentUser, type User, useMe } from '../lib/auth';
 import { useMeta, useTable } from '../lib/db';
 import type { Order } from '../lib/orders';
@@ -330,23 +330,37 @@ function SituationCard({ from: f, to: t }: { from?: string; to?: string }) {
   const from = f ?? own.from ?? '2000-01-01', to = t ?? own.to ?? todayYmd();
   const sit = useMemo(() => situation(from, to, scope.strict ? scope.pages : undefined), [from, to, scope.strict, scope.pages.join(), ords]);
   const T = sit.total;
-  const cols: { k: string; l: string; v: (r: PageSit) => number; money?: boolean; n?: (r: PageSit) => number; cls?: string; strong?: boolean; minus?: boolean }[] = [
+  // Un 1er / 2ème paiement en MVola, Orange Money, Airtel ou carte s'ajoute au total de ce moyen ; les cases
+  // 1er / 2ème paiement ne gardent que les espèces. Chaque montant n'est compté qu'une fois.
+  const mob = (r: PageSit, m: PayMethod) => (r.pay[m] || 0) + r.later[m].l1 + r.later[m].l2;
+  // Détail d'un total MVola / Orange Money… d'une page (clic sur la case du tableau) : jour de la vente, 1er, 2ème paiement.
+  const [detail, setDetail] = useState('');
+  const mobileStat = (m: PayMethod, label: string, extra?: string) => <div className="card stat"><span className="small muted">{label}</span><strong className="stat-value num">{fmtAr(mob(T, m))}</strong>{extra && <span className="small muted">{extra}</span>}</div>;
+  const cols: { k: string; l: string; v: (r: PageSit) => number; pm?: PayMethod; money?: boolean; n?: (r: PageSit) => number; cls?: string; strong?: boolean; minus?: boolean }[] = [
     { k: 'gross', l: 'Total commandes', v: (r) => r.gross, money: true },
     { k: 'cancel', l: 'Annulé', v: (r) => r.cancelled, money: true, n: (r) => r.cancelledN, minus: true },
     { k: 'rep', l: 'Reporté', v: (r) => r.reported, money: true, n: (r) => r.reportedN, minus: true },
     { k: 'sales', l: 'Ventes', v: (r) => r.sales, money: true, strong: true },
     { k: 'cash', l: 'Espèces', v: (r) => r.pay.cash, money: true },
-    { k: 'mvola', l: 'MVola', v: (r) => r.pay.mvola, money: true },
-    { k: 'orange', l: 'Orange Money', v: (r) => r.pay.orange, money: true },
-    { k: 'airtel', l: 'Airtel Money', v: (r) => r.pay.airtel, money: true },
-    ...(Math.round(T.pay.card || 0) ? [{ k: 'card', l: 'Carte (site web)', v: (r: PageSit) => r.pay.card || 0, money: true }] : []),
-    { k: 'l1', l: '1er paiement du reste', v: (r) => r.later1, money: true },
-    { k: 'l2', l: '2ème paiement du reste', v: (r) => r.later2, money: true },
+    { k: 'mvola', l: 'MVola', v: (r) => mob(r, 'mvola'), pm: 'mvola', money: true },
+    { k: 'orange', l: 'Orange Money', v: (r) => mob(r, 'orange'), pm: 'orange', money: true },
+    { k: 'airtel', l: 'Airtel Money', v: (r) => mob(r, 'airtel'), pm: 'airtel', money: true },
+    ...(Math.round(mob(T, 'card')) ? [{ k: 'card', l: 'Carte (site web)', v: (r: PageSit) => mob(r, 'card'), pm: 'card' as PayMethod, money: true }] : []),
+    { k: 'l1', l: '1er paiement du reste (espèces)', v: (r) => r.later.cash.l1, money: true },
+    { k: 'l2', l: '2ème paiement du reste (espèces)', v: (r) => r.later.cash.l2, money: true },
     { k: 'rest', l: 'Reste à payer', v: (r) => r.rest, money: true, n: (r) => r.restN, cls: 'neg' },
     { k: 'exch', l: 'dont échange', v: (r) => r.exchange, money: true, n: (r) => r.exchangeN },
   ];
   const sub = (c: (typeof cols)[number], r: PageSit) => c.k === 'sales' ? `${fmtNum(r.qty)} produit(s)` : c.n ? `${c.n(r)} commande(s)` : '';
-  const cell = (c: (typeof cols)[number], r: PageSit) => { const v = c.v(r); return <td key={c.k} className={`t-num ${v && c.cls ? c.cls : ''} ${c.strong ? 'sit-strong' : ''}`}>{v ? <>{c.minus ? '− ' : ''}{c.money ? fmtAr(v) : fmtNum(v)}</> : <span className="muted">—</span>}{v && sub(c, r) ? <div className="small muted">{sub(c, r)}</div> : null}</td>; };
+  const cell = (c: (typeof cols)[number], r: PageSit) => {
+    const v = c.v(r);
+    if (c.pm && v) {
+      const m = c.pm, key = `${r.id}:${m}`, open = detail === key;
+      return <td key={c.k} className="t-num"><button type="button" className="link-btn num" style={{ padding: 0, font: 'inherit' }} aria-expanded={open} title="Voir le détail" onClick={() => setDetail(open ? '' : key)}>{fmtAr(v)}</button>
+        {open ? <div className="small" style={{ whiteSpace: 'nowrap' }}>Jour de la vente : {fmtAr(r.pay[m] || 0)}<br />1er paiement {c.l} : {fmtAr(r.later[m].l1)}<br />2ème paiement {c.l} : {fmtAr(r.later[m].l2)}<br /><strong>Total : {fmtAr(v)}</strong></div> : null}</td>;
+    }
+    return <td key={c.k} className={`t-num ${v && c.cls ? c.cls : ''} ${c.strong ? 'sit-strong' : ''}`}>{v ? <>{c.minus ? '− ' : ''}{c.money ? fmtAr(v) : fmtNum(v)}</> : <span className="muted">—</span>}{v && sub(c, r) ? <div className="small muted">{sub(c, r)}</div> : null}</td>;
+  };
   return (
     <div className="card card-flush situation-card">
       <div className="card-pad stack-s">
@@ -357,15 +371,15 @@ function SituationCard({ from: f, to: t }: { from?: string; to?: string }) {
           <a className="card stat" href="#/commandes/attente" style={{ textDecoration: 'none', color: 'inherit' }}><span className="small muted">− Reporté</span><strong className="stat-value num">{fmtAr(T.reported)}</strong><span className="small muted">{T.reportedN} commande(s), passées à leur nouvelle date</span></a>
           <div className="card stat stat-strong"><span className="small muted">= Ventes</span><strong className="stat-value num">{fmtAr(T.sales)}</strong><span className="small muted">{fmtNum(T.qty)} produit(s) · {T.orders} vente(s){T.exchange ? ` · dont échange ${fmtAr(T.exchange)}` : ''}</span></div>
           <div className="card stat"><span className="small muted">Espèces</span><strong className="stat-value num">{fmtAr(T.pay.cash)}</strong><span className="small muted">payé le jour de la vente</span></div>
-          <div className="card stat"><span className="small muted">MVola</span><strong className="stat-value num">{fmtAr(T.pay.mvola)}</strong></div>
-          <div className="card stat"><span className="small muted">Orange Money</span><strong className="stat-value num">{fmtAr(T.pay.orange)}</strong></div>
-          <div className="card stat"><span className="small muted">Airtel Money</span><strong className="stat-value num">{fmtAr(T.pay.airtel)}</strong></div>
-          {Math.round(T.pay.card || 0) ? <div className="card stat"><span className="small muted">Carte bancaire (site web)</span><strong className="stat-value num">{fmtAr(T.pay.card)}</strong><span className="small muted">payé en ligne (Stripe)</span></div> : null}
-          <div className="card stat"><span className="small muted">1er paiement du reste</span><strong className="stat-value num">{fmtAr(T.later1)}</strong><span className="small muted">payé le jour de travail suivant</span></div>
-          <div className="card stat"><span className="small muted">2ème paiement du reste</span><strong className="stat-value num">{fmtAr(T.later2)}</strong><span className="small muted">payé les jours d’après</span></div>
+          {mobileStat('mvola', 'MVola')}
+          {mobileStat('orange', 'Orange Money')}
+          {mobileStat('airtel', 'Airtel Money')}
+          {Math.round(mob(T, 'card')) ? mobileStat('card', 'Carte bancaire (site web)', 'payé en ligne (Stripe)') : null}
+          <div className="card stat"><span className="small muted">1er paiement du reste</span><strong className="stat-value num">{fmtAr(T.later.cash.l1)}</strong><span className="small muted">en espèces, payé le jour de travail suivant</span></div>
+          <div className="card stat"><span className="small muted">2ème paiement du reste</span><strong className="stat-value num">{fmtAr(T.later.cash.l2)}</strong><span className="small muted">en espèces, payé les jours d’après</span></div>
           <a className="card stat" href="#/commandes/terminees" style={{ textDecoration: 'none', color: 'inherit' }}><span className="small muted">Reste à payer</span><strong className={`stat-value num ${T.rest ? 'neg' : ''}`}>{fmtAr(T.rest)}</strong><span className="small muted">{T.restN} commande(s)</span></a>
         </div>
-        <p className="small muted" style={{ margin: 0 }}>Total commandes − annulé − reporté = <strong>ventes</strong> ; ventes = espèces + MVola + Orange Money + Airtel Money (payés le jour de la vente) + 1er paiement du reste + <strong>2ème paiement du reste</strong> + reste à payer.<br />Le <strong>reste impayé</strong> après le <strong>1er paiement</strong> passe automatiquement au <strong>2ème paiement</strong> quand il est réglé les jours d’après (il n’apparaît plus séparément en « reste impayé » mais est comptabilisé dans le 2ème paiement). Le 1er paiement est le jour de travail suivant la vente (le dimanche n’est pas travaillé : vente du samedi → 1er paiement le lundi).<br />Une livraison reportée passe à sa nouvelle date ; un échange pris par le client compte dans les ventes, un échange non pris est retiré.<br />Une commande avec des articles de plusieurs pages est répartie selon la valeur de chaque page.</p>
+        <p className="small muted" style={{ margin: 0 }}>Total commandes − annulé − reporté = <strong>ventes</strong> ; ventes = espèces (payées le jour de la vente) + MVola + Orange Money + Airtel Money + 1er paiement du reste + <strong>2ème paiement du reste</strong> + reste à payer.<br />Un 1er ou 2ème paiement fait en MVola ou Orange Money s’ajoute au total MVola ou Orange Money (cliquez sur le montant d’une page dans le tableau pour le détail) ; les cases 1er / 2ème paiement ne gardent que les espèces. Un paiement mixte est réparti entre ses moyens.<br />Le <strong>reste impayé</strong> après le <strong>1er paiement</strong> passe automatiquement au <strong>2ème paiement</strong> quand il est réglé les jours d’après (il n’apparaît plus séparément en « reste impayé » mais est comptabilisé dans le 2ème paiement). Le 1er paiement est le jour de travail suivant la vente (le dimanche n’est pas travaillé : vente du samedi → 1er paiement le lundi).<br />Une livraison reportée passe à sa nouvelle date ; un échange pris par le client compte dans les ventes, un échange non pris est retiré.<br />Une commande avec des articles de plusieurs pages est répartie selon la valeur de chaque page.</p>
       </div>
       {sit.rows.length === 0 ? <p className="card-pad small muted">Aucune activité sur cette période.</p> : (
         <div className="table-wrap"><table className="table table-grid sit-table">
