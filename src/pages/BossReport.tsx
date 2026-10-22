@@ -54,7 +54,7 @@ export function BossReport() {
   const dd = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
   // Deux cases principales : le total à verser, puis ce total − dépenses espèces + anciens impayés encaissés (après le comptage).
   const main = [
-    { id: 'total', label: 'Total à verser', cur: m.cash.total, hint: 'Espèces payées le jour de la vente (comme l’accueil)' },
+    { id: 'total', label: 'Total à verser', cur: m.cash.total, hint: 'Espèces du jour de la vente + 1er et 2ème paiements en espèces (comme l’accueil)' },
     { id: 'net', label: 'Total à verser après dépenses et anciens impayés encaissés', cur: m.cash.toPay, hint: `${fmtAr(m.cash.total)} − dépenses ${fmtAr(m.cash.expenses)} + anciens impayés ${fmtAr(m.cash.prevPaid)}` },
   ];
   const toBoss: { id: string; label: string; cur: number; prev: number; hint: string; invert?: boolean }[] = [
