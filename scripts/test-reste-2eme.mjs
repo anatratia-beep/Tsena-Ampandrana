@@ -1,5 +1,6 @@
 // 1er / 2ème paiement du reste selon le jour : vente du samedi 10/10/2026 de 100 000 payée 20 000 le jour (espèces),
-// 10 000 le dimanche et 30 000 le lundi (1er paiement : jour de travail suivant), 40 000 le mardi (2ème paiement).
+// 10 000 MVola le dimanche et 30 000 le lundi (1er paiement : jour de travail suivant ; la part MVola va dans le total MVola),
+// 40 000 le mardi (2ème paiement).
 // Vente du mardi 13/10 : 50 000 le jeudi (2 jours après) → 2ème paiement, rien en 1er paiement.
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
@@ -32,7 +33,7 @@ const day = async (d) => {
   return N(await p.locator('.situation-card').innerText());
 };
 let tx = await day('2026-10-10');
-ok(/Espèces\s*20 000 Ar/.test(tx) && /1er paiement du reste\s*40 000 Ar/.test(tx) && /2ème paiement du reste\s*40 000 Ar/.test(tx) && /Reste à payer\s*0 Ar/.test(tx), 'samedi : espèces 20 000, 1er paiement (dimanche + lundi) 40 000, 2ème paiement (mardi) 40 000, reste 0');
+ok(/Espèces\s*20 000 Ar/.test(tx) && /MVola\s*10 000 Ar/.test(tx) && /1er paiement du reste\s*30 000 Ar/.test(tx) && /2ème paiement du reste\s*40 000 Ar/.test(tx) && /Reste à payer\s*0 Ar/.test(tx), 'samedi : espèces 20 000, 1er paiement (dimanche MVola → total MVola 10 000 ; lundi espèces 30 000), 2ème paiement (mardi) 40 000, reste 0');
 if (fail) console.log(tx.slice(0, 900));
 tx = await day('2026-10-13');
 ok(/1er paiement du reste\s*0 Ar/.test(tx) && /2ème paiement du reste\s*50 000 Ar/.test(tx) && /Reste à payer\s*50 000 Ar/.test(tx), 'mardi : rien le mercredi, 50 000 le jeudi → 2ème paiement, reste 50 000');
