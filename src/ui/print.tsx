@@ -1,8 +1,9 @@
 // Fenêtre « Imprimer » : aperçu du ticket, choix de l'imprimante par son nom, nombre d'exemplaires.
 import { useMemo, useState } from 'react';
 import { useCompany } from '../lib/settings';
-import { useMeta } from '../lib/db';
-import { defaultTarget, docHtml, findPrinter, printTo, useTargets, type PrintDoc } from '../lib/print';
+import { useMeta, useTable } from '../lib/db';
+import { cancelJobs, defaultTarget, docHtml, findPrinter, printTo, useTargets, type PrintDoc, type PrintJob } from '../lib/print';
+import { fmtDateTime } from './kit';
 import { Button, IconButton, Modal, navigate, toast } from './kit';
 import { Icon } from './icons';
 
@@ -22,11 +23,18 @@ export function PrintDialog({ docs, onClose }: { docs: DocChoice[]; onClose: () 
   const paper = printer?.paper ?? '58';
   const html = useMemo(() => docHtml(doc, paper, printer && !printer.logo ? null : company.logo ?? ''), [doc, paper, printer, company.logo]);
   const t = targets.find((x) => x.id === target);
+  const jobs = useTable<PrintJob>('printJobs');
+  const waiting = t?.kind === 'station' ? jobs.filter((j) => 'station:' + j.stationId === target && j.status === 'pending').sort((a, b) => a.createdAt.localeCompare(b.createdAt)) : [];
+  const already = waiting.some((j) => j.doc?.title === doc.title);
 
   async function go() {
     setBusy(true);
-    try { toast(await printTo(target, doc, copies)); onClose(); }
-    catch (e: any) { if (e?.name !== 'NotFoundError' && e?.name !== 'AbortError') toast(e?.message ?? String(e), 'error'); }
+    try {
+      const msg = await printTo(target, doc, copies);
+      toast(msg, 'ok', { ms: 10_000, sticky: t?.kind === 'station' && !!t.alert });
+      onClose();
+    }
+    catch (e: any) { if (e?.name !== 'NotFoundError' && e?.name !== 'AbortError') toast(e?.message ?? String(e), 'error', { sticky: true }); }
     finally { setBusy(false); }
   }
 
@@ -67,6 +75,15 @@ export function PrintDialog({ docs, onClose }: { docs: DocChoice[]; onClose: () 
           )}
           {printer?.kind === 'system' && <p className="small muted">La fenêtre d’impression de l’appareil va s’ouvrir : choisissez-y votre imprimante par son nom. Pour un ticket, réglez les marges sur « Aucune ».</p>}
           {t?.kind === 'station' && !t.online && <div className="notice"><Icon name="alert" /><span>Ce poste semble éteint ou hors ligne : le ticket sortira dès qu’il sera rallumé avec Trésor en ligne ouvert.</span></div>}
+          {t?.kind === 'station' && t.alert && <div className="notice notice-danger"><Icon name="alert" /><span>L’imprimante de ce poste est à reconnecter : le ticket attendra qu’on clique « Reconnecter l’imprimante » sur le poste.</span></div>}
+          {waiting.length > 0 && (
+            <div className="notice"><Icon name="printer" /><span>
+              <strong>{waiting.length} ticket(s) déjà en attente sur ce poste :</strong>
+              {waiting.slice(0, 5).map((j) => <span key={j.id} className="small" style={{ display: 'block' }}>{j.doc?.title} · {fmtDateTime(j.createdAt)}{j.byName ? ` · ${j.byName}` : ''}</span>)}
+              {already && <strong className="small" style={{ display: 'block' }}>Ce document est déjà en attente : inutile de le renvoyer.</strong>}
+              <button type="button" className="link-btn" onClick={async () => { await cancelJobs(waiting.map((j) => j.id)); toast('Tickets en attente annulés'); }}>Annuler ces tickets en attente</button>
+            </span></div>
+          )}
         </div>
         <div className="ticket-preview" aria-label="Aperçu">
           <div className={`ticket paper-${paper === 'a4' ? '80' : paper}`} dangerouslySetInnerHTML={{ __html: html }} />

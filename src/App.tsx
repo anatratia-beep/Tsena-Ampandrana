@@ -1,6 +1,6 @@
 // Structure de l'application : démarrage, accès, menu adapté au rôle, pages.
 import { useEffect, useState, type ReactNode } from 'react';
-import { usePrintStationWorker } from './lib/print';
+import { reconnectStation, usePrintJobWatcher, usePrintStationWorker, useStationAlert } from './lib/print';
 import { TreasuryPage } from './pages/Treasury';
 import { RecapPage } from './pages/Recap';
 import { WorkDateBanner } from './pages/Tools';
@@ -15,7 +15,7 @@ import { dailyRestorePoint } from './lib/restorePoints';
 import { logMissedBoosts } from './lib/boosts';
 import { EmailResetScreen } from './pages/Auth';
 import { Icon, type IconName } from './ui/icons';
-import { Button, IconButton, Toasts, markMenuNav, navigate, restoreScroll, useBackTarget, useRoute } from './ui/kit';
+import { Button, IconButton, Toasts, markMenuNav, navigate, restoreScroll, toast, useBackTarget, useRoute } from './ui/kit';
 import { BrandLogo, FirstSetupScreen, LockScreen, LoginScreen } from './pages/Auth';
 import { DashboardPage } from './pages/Dashboard';
 import { InstallScreen, wantsInstallPage } from './pages/Install';
@@ -75,6 +75,20 @@ const NAV: NavItem[] = [
   { path: '/parametres', label: 'Paramètres', icon: 'settings', group: 'Administration', page: () => <SettingsPage /> },
   { path: '/compte', label: 'Mon compte', icon: 'user', group: 'hidden', page: () => <AccountPage /> },
 ];
+/** Poste d'impression : son imprimante attend un clic (le navigateur exige un geste, ou elle est déconnectée). */
+function StationAlert() {
+  const a = useStationAlert();
+  const [busy, setBusy] = useState(false);
+  if (!a) return null;
+  return (
+    <div className="station-alert" role="alert">
+      <Icon name="printer" />
+      <span><strong>Poste d’impression : imprimante à reconnecter.</strong> {a.waiting ? `${a.waiting} ticket(s) en attente.` : ''} <span className="small muted">{a.station.alert}</span></span>
+      <Button icon="printer" busy={busy} onClick={async () => { setBusy(true); try { await reconnectStation(); toast('Imprimante reconnectée : les tickets en attente partent', 'ok', { ms: 10_000 }); } catch (e: any) { toast(e?.message ?? String(e), 'error', { sticky: true }); } finally { setBusy(false); } }}>Reconnecter l’imprimante</Button>
+    </div>
+  );
+}
+
 /** Flèche « Retour » vers l'écran d'où l'on vient (quand on y est arrivé par un lien, pas par le menu). */
 function BackBar({ items }: { items: NavItem[] }) {
   const back = useBackTarget();
@@ -152,6 +166,7 @@ function SyncPill() {
 function Shell() {
   const user = useMe();
   usePrintStationWorker();
+  usePrintJobWatcher();
   const can = useCan();
   const company = useCompany();
   const route = useRoute();
@@ -206,7 +221,7 @@ function Shell() {
           <SyncPill />
         </header>
         <main className="main">
-          <div className="content"><UpdatedBanner /><WorkDateBanner /><NotifBar /><BackBar items={items} />{current.page()}</div>
+          <div className="content"><StationAlert /><UpdatedBanner /><WorkDateBanner /><NotifBar /><BackBar items={items} />{current.page()}</div>
         </main>
         <nav className="bottom-nav" aria-label="Raccourcis">
           {mobileItems.map((i) => (

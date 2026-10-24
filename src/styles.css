@@ -426,11 +426,16 @@ button.stat { text-align: left; font: inherit; color: inherit; cursor: pointer; 
 .ticket .tk-row { overflow: hidden; }
 .ticket .b { font-weight: 700; }
 .ticket .big { font-size: 2em; line-height: 1.15; font-weight: 700; }
+/* Double hauteur, largeur normale (nom de la boutique) */
+.ticket .tall { display: block; transform: scaleY(2); transform-origin: top; height: 2.5em; }
+/* 2 cm d'espace blanc en bas, comme sur le papier */
+.ticket .tk-bottom { height: 20mm; }
+.print-area .ticket .tk-bottom, .print-area .tk-bottom { height: 0; }
 .ticket .tk-logo { text-align: center; padding: 4px 0 8px; }
 .ticket .tk-logo img { max-width: 60%; max-height: 90px; filter: grayscale(1) contrast(1.4); }
 .ticket .tk-cut { border-top: 1px dashed #999; margin: 12px 0; }
 .ticket .tk-qr { text-align: center; padding: 6px 0; }
-.ticket .tk-qr svg { width: 34mm; height: auto; max-width: 70%; }
+.ticket .tk-qr svg { width: 22mm; height: auto; max-width: 50%; }
 .print-area { display: none; }
 @media print {
   body.printing > *:not(.print-area) { display: none !important; }
@@ -1276,3 +1281,12 @@ a.bell { text-decoration: none; }
 
 /* Commandes : totaux de la liste filtrée */
 .order-sums { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 8px 12px; border-radius: var(--radius-m); background: var(--surface-2); }
+
+/* Notifications : bouton × pour fermer */
+.toast { pointer-events: auto; }
+.toast > span { flex: 1; }
+.toast-close { margin-left: 4px; background: transparent; border: 0; color: inherit; font-size: 20px; line-height: 1; cursor: pointer; opacity: .8; padding: 2px 6px; border-radius: 8px; }
+.toast-close:hover { opacity: 1; background: rgba(255,255,255,.15); }
+/* Bandeau du poste d'impression : imprimante à reconnecter */
+.station-alert { position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 10px 16px; background: var(--danger-soft, #fde8ec); border-bottom: 2px solid var(--danger, #c0392b); }
+.station-alert strong { color: var(--danger, #c0392b); }

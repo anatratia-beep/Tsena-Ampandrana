@@ -2,6 +2,25 @@
 // La plus récente en premier. `date` : AAAA-MM-JJ.
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
+  { date: '2026-10-24', items: [
+    'Tickets : 2 cm d’espace blanc en bas pour déchirer sans couper le texte (réglable de 1 à 3 cm dans la fiche de l’imprimante).',
+    'Tickets plus compacts (moins de papier) : « A ENCAISSER », « TOTAL » et le nom / téléphone du client en gras taille normale, QR code plus petit sans texte dessous, marge un peu plus large, moins de papier blanc à la fin ; « Ticket client » est choisi par défaut dans la fenêtre Imprimer d’une commande.',
+    'Tickets, bons de livraison et étiquettes revus : marge à gauche et à droite, écriture moins grosse, plus de montants répétés.',
+    'Message de fin : « Merci pour votre achat » (vente sur place) ou « Merci pour votre commande » (commande livrée, aussi sur l’étiquette) ; le message personnalisé de la page ou de la société reste prioritaire.',
+    'Accents : les imprimantes réglées sur l’ancien « PC858 » utilisent maintenant PC850, qui imprime correctement « À », « é »… sur les imprimantes chinoises.',
+    'Notifications d’impression plus visibles : « Envoyé » et « Imprimé » restent 10 secondes ; les erreurs et les tickets en attente restent affichés jusqu’à ce qu’on les ferme. Toutes les notifications ont un bouton × pour les fermer.',
+    'Historique des impressions envoyées aux postes : « Réessayer » et « Réimprimer » ; le poste dont l’imprimante est à reconnecter est signalé.',
+    'Poste d’impression : les tickets en attente repartent tout seuls dès que l’imprimante du poste fonctionne (nouvel essai toutes les 20 s, ou dès une impression réussie sur le poste).',
+    'Fenêtre « Imprimer » : tickets déjà en attente sur le poste affichés et annulables ; alerte si un ticket est encore en attente après 25 s ; corbeille dans l’historique et bouton pour tout effacer.',
+    'Poste d’impression partagé : si son imprimante est « déconnectée », les tickets attendent, le poste affiche « Reconnecter l’imprimante » et les autres appareils voient « imprimante à reconnecter sur le poste ».',
+    'Imprimantes Bluetooth « classiques » (ex. JK-301PL) : explications pour les appairer puis les choisir en « Port série / Bluetooth appairé ».',
+    'Correction : ticket coupé au milieu en Bluetooth sur Android (petits paquets confirmés, renvoi automatique ; réglage « Envoi Bluetooth »).',
+    'Imprimantes : « Déconnecter » pour libérer l’imprimante sans la supprimer, puis « Reconnecter » en un clic.',
+    'Poste d’impression partagé (imprimante « en réseau ») : tous les appareils impriment sur l’imprimante du poste ; l’expéditeur est prévenu quand le ticket est sorti.',
+    'Imprimantes à tickets 58 mm (JK-5803H / POS-58 / KPrinter) : guide pas à pas, sans pilote ni logiciel à installer (Bluetooth, Bluetooth appairé ou USB, dans Chrome ou Edge).',
+    'Nouveau « Test des accents » pour choisir le jeu de caractères (PC850 par défaut).',
+    'Bluetooth : reconnexion plus simple et envoi plus sûr ; avertissement si le navigateur (Safari, Firefox) ne peut pas imprimer directement.',
+  ] },
   { date: '2026-10-21', items: [
     'Super-admin : bouton « Modifier la date de validation » sur une commande déjà validée (partie, livrée, remise en boutique). La vente, l’argent reçu ce jour-là et la sortie du stock passent au jour choisi (ex. hier) : totaux du jour, du vendeur et de la page, sans doublon, même semaine clôturée. Avant / après gardés dans l’historique et le journal.',
     'Super-admin : « Date de validation » dans Remettre au livreur, Valider tout (Livraisons), Retour du livreur et Remise / retrait en boutique. Une commande oubliée « en attente de livraison » hier peut être validée ce matin à la date d’hier : la vente, le stock et l’argent comptent hier (jour, vendeur, page), même si la semaine est clôturée. L’heure réelle et la mention « après clôture » restent dans l’historique et le journal.',

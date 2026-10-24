@@ -599,9 +599,10 @@ export function ItemPicker({ excludeOrderId, onClose, onAdd, onAddLines, noChoic
 // ---------- Détail d'une commande ----------
 /** Documents imprimables d'une commande : ticket, et bon de livraison si elle part avec un livreur. */
 function printDocs(o: Order, company: ReturnType<typeof useCompany>): DocChoice[] {
+  // « Ticket client » en premier (choisi par défaut), puis bon de livraison, puis étiquette du colis.
   const d: DocChoice[] = [{ key: 'ticket', label: isWalkIn(o) ? 'Ticket de caisse' : 'Ticket client', build: () => ticketDoc(o, company) }];
-  if (!isWalkIn(o) && !isPickupZone(o.zoneId)) d.unshift({ key: 'bon', label: 'Bon de livraison', build: () => deliveryNoteDoc(o, company) });
-  if (!isWalkIn(o) && !['delivered', 'partial', 'refused', 'cancelled'].includes(o.status)) d.unshift({ key: 'etiquette', label: 'Étiquette du colis (58 mm)', build: () => parcelLabelDoc(o, company) });
+  if (!isWalkIn(o) && !isPickupZone(o.zoneId)) d.push({ key: 'bon', label: 'Bon de livraison', build: () => deliveryNoteDoc(o, company) });
+  if (!isWalkIn(o) && !['delivered', 'partial', 'refused', 'cancelled'].includes(o.status)) d.push({ key: 'etiquette', label: 'Étiquette du colis (58 mm)', build: () => parcelLabelDoc(o, company) });
   return d;
 }
 
