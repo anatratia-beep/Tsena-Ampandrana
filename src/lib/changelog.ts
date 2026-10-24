@@ -3,6 +3,11 @@
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
   { date: '2026-10-24', items: [
+    'Poste d’impression qui ne se coupe plus : écran gardé allumé tant que Trésor en ligne est ouvert sur le poste, reconnexion Bluetooth automatique dès que la liaison lâche (sans clic), liaison entretenue toutes les 20 s, reconnexion dès que le téléphone se rallume ; conseils affichés (chargeur, batterie « Sans restriction » pour Chrome…).',
+    'Imprimantes : état de la liaison en direct, vert « Connectée » ou rouge « À reconnecter », avec le bouton « Se reconnecter maintenant ».',
+    'Impression plus rapide, même qualité : le logo envoyé à l’imprimante est 2 à 4 fois plus léger (seulement sa largeur, sans les lignes blanches) et calculé une seule fois ; le poste reçoit les tickets en 2 à 3 secondes ; la fenêtre « Imprimer » se ferme tout de suite et l’impression continue.',
+    'Poste d’impression : une coupure pendant l’envoi n’est plus une erreur, le ticket est réessayé tout seul (3 essais).',
+    'Erreur d’impression : la notification contient un lien « Historique des impressions » pour réessayer ou réimprimer.',
     'Tickets : 2 cm d’espace blanc en bas pour déchirer sans couper le texte (réglable de 1 à 3 cm dans la fiche de l’imprimante).',
     'Tickets plus compacts (moins de papier) : « A ENCAISSER », « TOTAL » et le nom / téléphone du client en gras taille normale, QR code plus petit sans texte dessous, marge un peu plus large, moins de papier blanc à la fin ; « Ticket client » est choisi par défaut dans la fenêtre Imprimer d’une commande.',
     'Tickets, bons de livraison et étiquettes revus : marge à gauche et à droite, écriture moins grosse, plus de montants répétés.',

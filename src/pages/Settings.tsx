@@ -31,7 +31,7 @@ export function SettingsPage() {
   const can = useCan();
   const route = useRoute();
   const tabs = TABS.filter((t) => !t.perm || can(t.perm));
-  const current = tabs.find((t) => route.endsWith('/' + t.key)) ?? tabs[0];
+  const current = tabs.find((t) => route.split('?')[0].endsWith('/' + t.key)) ?? tabs[0];
   return (
     <>
       <PageHead title="Paramètres" />

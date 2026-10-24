@@ -53,32 +53,50 @@ export function feedBytes(mm: number): number[] {
 }
 export const DEFAULT_FEED_MM = 20;
 
-/** Logo de la société converti en image noir et blanc (points de l'imprimante). */
+/**
+ * Logo converti en image noir et blanc (points de l'imprimante). Même qualité, mais seulement la largeur du logo
+ * (centré par l'imprimante) et sans les lignes blanches autour : 2 à 3 fois moins d'octets à envoyer en Bluetooth.
+ * Le résultat est gardé en mémoire : le logo n'est calculé qu'une fois.
+ */
+const rasterCache = new Map<string, number[]>();
 export async function logoRaster(dataUrl: string, dots: number): Promise<number[]> {
+  const key = `${dots}|${dataUrl.length}|${dataUrl.slice(-64)}`;
+  const hit = rasterCache.get(key);
+  if (hit) return hit;
   const img = new Image();
   img.src = dataUrl;
   await img.decode();
   const maxW = Math.min(dots, Math.round(dots * 0.6));
   const scale = Math.min(maxW / img.width, 160 / img.height, 1.5);
   const w = Math.max(8, Math.round(img.width * scale)), h = Math.max(1, Math.round(img.height * scale));
+  const W = Math.ceil(w / 8) * 8; // largeur arrondie à l'octet
   const canvas = document.createElement('canvas');
-  canvas.width = dots; canvas.height = h;
+  canvas.width = W; canvas.height = h;
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, dots, h);
-  ctx.drawImage(img, Math.round((dots - w) / 2), 0, w, h);
-  const px = ctx.getImageData(0, 0, dots, h).data;
-  const bytesPerRow = dots / 8;
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, h);
+  ctx.drawImage(img, Math.round((W - w) / 2), 0, w, h);
+  const px = ctx.getImageData(0, 0, W, h).data;
+  const bytesPerRow = W / 8;
   // Tramage (Floyd-Steinberg) pour garder les nuances du logo.
-  const lum = new Float32Array(dots * h);
-  for (let i = 0; i < dots * h; i++) lum[i] = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2];
+  const lum = new Float32Array(W * h);
+  for (let i = 0; i < W * h; i++) lum[i] = px[i * 4 + 3] < 16 ? 255 : 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2];
   const data: number[] = new Array(bytesPerRow * h).fill(0);
-  for (let y = 0; y < h; y++) for (let x = 0; x < dots; x++) {
-    const i = y * dots + x, old = lum[i], val = old < 128 ? 0 : 255, err = old - val;
+  for (let y = 0; y < h; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x, old = lum[i], val = old < 128 ? 0 : 255, err = old - val;
     if (val === 0) data[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7);
-    if (x + 1 < dots) lum[i + 1] += (err * 7) / 16;
-    if (y + 1 < h) { if (x > 0) lum[i + dots - 1] += (err * 3) / 16; lum[i + dots] += (err * 5) / 16; if (x + 1 < dots) lum[i + dots + 1] += err / 16; }
+    if (x + 1 < W) lum[i + 1] += (err * 7) / 16;
+    if (y + 1 < h) { if (x > 0) lum[i + W - 1] += (err * 3) / 16; lum[i + W] += (err * 5) / 16; if (x + 1 < W) lum[i + W + 1] += err / 16; }
   }
-  return [GS, 0x76, 0x30, 0x00, bytesPerRow & 0xff, bytesPerRow >> 8, h & 0xff, h >> 8, ...data];
+  // Lignes entièrement blanches en haut et en bas : retirées (rien ne change à l'impression).
+  const blank = (y: number) => { for (let k = 0; k < bytesPerRow; k++) if (data[y * bytesPerRow + k]) return false; return true; };
+  let top = 0, bot = h - 1;
+  while (top < bot && blank(top)) top++;
+  while (bot > top && blank(bot)) bot--;
+  const rows = bot - top + 1;
+  const body = data.slice(top * bytesPerRow, (bot + 1) * bytesPerRow);
+  const out = [GS, 0x76, 0x30, 0x00, bytesPerRow & 0xff, bytesPerRow >> 8, rows & 0xff, rows >> 8, ...body];
+  rasterCache.set(key, out);
+  return out;
 }
 
 export interface EncodeOpts { cols: number; charset: Charset; cut: boolean; logo?: string | null; copies?: number; feedMm?: number }

@@ -1,15 +1,15 @@
 // Paramètres → Imprimantes : imprimantes de cet appareil, poste d'impression partagé, options.
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useCan } from '../lib/auth';
 import { newId, remove, setMeta, useMeta, useTable } from '../lib/db';
 import { getCloud } from '../lib/sync';
 import { useCompany } from '../lib/settings';
 import {
   BT_SPEEDS, CHARSETS, DEFAULT_FEED_MM, KINDS, PAPERS, SYSTEM_PRINTER, accentTest, cancelJobs, charsetOptions, deletePrinter, disconnectPrinter, makeStation, pairBluetooth, pairSerial, pairUsb,
-  printOn, reconnectPrinter, reprintJob, retryJob, savePrinter, stationOnline, stopStation, support, testDoc, usePrinters,
+  HISTORY_ACTION, printOn, reconnectPrinter, reprintJob, retryJob, savePrinter, stationOnline, stopStation, support, testDoc, usePrinterLink, usePrinters, useWakeState,
   type BtSpeed, type Charset, type Paper, type PrintJob, type PrintStation, type Printer, type PrinterKind,
 } from '../lib/print';
-import { Help, Badge, Button, Confirm, Empty, IconButton, Modal, SelectField, TextField, Toggle, fmtDateTime, timeAgo, toast } from '../ui/kit';
+import { Help, Badge, Button, Confirm, Empty, IconButton, Modal, SelectField, TextField, Toggle, fmtDateTime, timeAgo, toast, useRoute } from '../ui/kit';
 import { Icon } from '../ui/icons';
 
 /** Appareil utilisé (pour des explications adaptées). */
@@ -56,14 +56,19 @@ export function PrintersTab() {
   const recent = [...jobs].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 12);
   const stuck = jobs.filter((j) => j.status !== 'done');
   const hasDirect = printers.some((p) => p.kind !== 'system');
+  const wake = useWakeState();
+  const route = useRoute();
+  const histRef = useRef<HTMLDetailsElement>(null);
+  const wantHist = route.includes('historique');
+  useEffect(() => { if (wantHist && histRef.current) { histRef.current.open = true; histRef.current.scrollIntoView({ block: 'start' }); } }, [wantHist, recent.length]);
 
   async function test(p: Printer) {
     try { await printOn(p, testDoc(company, p.name)); toast(p.kind === 'system' ? 'Fenêtre d’impression ouverte' : 'Page de test envoyée', 'ok', { ms: 10_000 }); }
-    catch (e: any) { if (e?.name !== 'NotFoundError') toast(errText(e), 'error', { sticky: true }); }
+    catch (e: any) { if (e?.name !== 'NotFoundError') toast(errText(e), 'error', { sticky: true, action: HISTORY_ACTION }); }
   }
   async function reconnect(p: Printer) {
-    try { await reconnectPrinter(p); toast(`« ${p.name} » est reconnectée à cet appareil`, 'ok', { ms: 10_000 }); }
-    catch (e: any) { if (e?.name !== 'NotFoundError') toast(errText(e), 'error', { sticky: true }); }
+    try { await reconnectPrinter(p); toast(`« ${p.name} » est connectée à cet appareil`, 'ok', { ms: 10_000 }); }
+    catch (e: any) { if (e?.name !== 'NotFoundError') toast(errText(e), 'error', { sticky: true, action: HISTORY_ACTION }); }
   }
 
   return (
@@ -81,22 +86,7 @@ export function PrintersTab() {
           </Empty>
         ) : (
           <ul className="list">
-            {printers.map((p) => (
-              <li key={p.id} className="list-item">
-                <Icon name="printer" />
-                <div className="list-item-main">
-                  <span className="list-item-title">{p.name} {def === p.id && <Badge tone="brand">Par défaut</Badge>} {p.kind !== 'system' && (p.paused ? <Badge tone="warn">Déconnectée</Badge> : p.ref ? <Badge tone="ok">Associée à cet appareil</Badge> : null)}</span>
-                  <p className="small muted">{KINDS[p.kind]} · {PAPERS[p.paper]}{p.deviceName ? ` · ${p.deviceName}` : ''}{p.kind !== 'system' && !p.ref ? ' · pas encore appairée' : ''}</p>
-                </div>
-                <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
-                  {p.paused ? <Button variant="ghost" onClick={() => reconnect(p)}>Reconnecter</Button> : <Button variant="ghost" onClick={() => test(p)}>Test</Button>}
-                  {p.kind !== 'system' && p.ref && !p.paused && <Button variant="quiet" className="hide-sm" onClick={() => setPause(p)}>Déconnecter</Button>}
-                  {def !== p.id && <Button variant="quiet" className="hide-sm" onClick={() => setMeta('printDefault', p.id)}>Par défaut</Button>}
-                  <IconButton icon="edit" label="Modifier" onClick={() => setEdit(p)} />
-                  <IconButton icon="trash" label="Supprimer" onClick={() => setDel(p)} />
-                </div>
-              </li>
-            ))}
+            {printers.map((p) => <PrinterRow key={p.id} p={p} isDefault={def === p.id} onTest={() => test(p)} onReconnect={() => reconnect(p)} onPause={() => setPause(p)} onEdit={() => setEdit(p)} onDelete={() => setDel(p)} />)}
           </ul>
         )}
         <div className="list-item" style={{ padding: 0 }}>
@@ -111,6 +101,16 @@ export function PrintersTab() {
         <div><h2>Poste d’impression partagé</h2>
           <Help>N’importe quel appareil peut être le poste : un ordinateur, ou un téléphone Android avec Chrome (pas un iPhone). Il est relié à l’imprimante ; les autres appareils (iPhone, téléphones sans Bluetooth…) lui envoient les tickets par le cloud, comme une imprimante « en réseau ». Le poste doit rester allumé avec Trésor en ligne ouvert. Pour le poste, préférez l’USB ou le Bluetooth appairé (« Port série »), qui se reconnectent tout seuls.</Help></div>
         {!getCloud() && <div className="notice"><Icon name="cloudOff" /><span>Reliez d’abord le cloud (onglet « Cloud et synchronisation ») pour utiliser un poste partagé.</span></div>}
+        {myStation && (
+          <div className="notice"><Icon name="alert" /><span>
+            <strong>Pour que le poste ne se coupe jamais :</strong>
+            <span className="small" style={{ display: 'block' }}>• Écran : {wake === 'on' ? 'gardé allumé automatiquement ✓' : wake === 'unsupported' ? 'ce navigateur ne peut pas le garder allumé : réglez la mise en veille de l’écran sur « Jamais » (ou « 30 min »)' : 'gardé allumé dès que Trésor en ligne est à l’écran'}. Laissez Trésor en ligne ouvert au premier plan (pas d’autre application par-dessus).</span>
+            <span className="small" style={{ display: 'block' }}>• Branchez le téléphone sur son chargeur.</span>
+            <span className="small" style={{ display: 'block' }}>• Android : Paramètres → Applications → Chrome → Batterie → « Sans restriction » (ou « Non optimisée »), pour qu’Android ne coupe pas le Bluetooth.</span>
+            <span className="small" style={{ display: 'block' }}>• Désactivez l’« Économiseur de batterie » sur ce téléphone, et laissez le Bluetooth et le Wi-Fi / les données allumés.</span>
+            <span className="small" style={{ display: 'block' }}>• Si possible, utilisez un ordinateur ou l’imprimante en USB (câble OTG) : ils ne se mettent pas en veille.</span>
+          </span></div>
+        )}
         {myStation ? (
           <div className="notice notice-ok"><Icon name="check" /><span><strong>Cet appareil est le poste « {myStation.name} ».</strong> Il imprime sur « {myStation.printerName} » les tickets envoyés par les autres. <button className="link-btn" onClick={() => setStation(true)}>Modifier</button> · <button className="link-btn" onClick={async () => { await stopStation(); toast('Cet appareil n’est plus un poste d’impression'); }}>Arrêter</button></span></div>
         ) : (
@@ -135,7 +135,7 @@ export function PrintersTab() {
           </ul>
         )}
         {recent.length > 0 && (
-          <details>
+          <details ref={histRef} id="historique" open={wantHist}>
             <summary className="small">Dernières impressions envoyées aux postes</summary>
             <ul className="list">
               {recent.map((j) => (
@@ -170,6 +170,34 @@ export function PrintersTab() {
   );
 }
 
+/** Une imprimante : état de la liaison en direct (vert : connectée ; rouge : à reconnecter) et « Se reconnecter maintenant ». */
+function PrinterRow({ p, isDefault, onTest, onReconnect, onPause, onEdit, onDelete }: { p: Printer; isDefault: boolean; onTest: () => void; onReconnect: () => void; onPause: () => void; onEdit: () => void; onDelete: () => void }) {
+  const link = usePrinterLink(p);
+  const [busy, setBusy] = useState(false);
+  const direct = p.kind !== 'system';
+  const reconnect = async () => { setBusy(true); try { await onReconnect(); } finally { setBusy(false); } };
+  return (
+    <li className="list-item">
+      <Icon name="printer" />
+      <div className="list-item-main">
+        {direct && p.ref && (link === 'connected'
+          ? <span className="link-state is-on">Connectée</span>
+          : <span className="link-state is-off">{p.paused ? 'Déconnectée de cet appareil' : 'À reconnecter'}</span>)}
+        <span className="list-item-title">{p.name} {isDefault && <Badge tone="brand">Par défaut</Badge>} {direct && !p.paused && p.ref && <Badge tone="ok">Associée à cet appareil</Badge>}</span>
+        <p className="small muted">{KINDS[p.kind]} · {PAPERS[p.paper]}{p.deviceName ? ` · ${p.deviceName}` : ''}{direct && !p.ref ? ' · pas encore appairée' : ''}</p>
+      </div>
+      <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+        {direct && p.ref && link !== 'connected' && <Button variant="primary" className="btn-sm" busy={busy} onClick={reconnect}>Se reconnecter maintenant</Button>}
+        {!p.paused && <Button variant="ghost" onClick={onTest}>Test</Button>}
+        {direct && p.ref && !p.paused && <Button variant="quiet" className="hide-sm" onClick={onPause}>Déconnecter</Button>}
+        {!isDefault && <Button variant="quiet" className="hide-sm" onClick={() => setMeta('printDefault', p.id)}>Par défaut</Button>}
+        <IconButton icon="edit" label="Modifier" onClick={onEdit} />
+        <IconButton icon="trash" label="Supprimer" onClick={onDelete} />
+      </div>
+    </li>
+  );
+}
+
 function PrinterForm({ printer, onClose }: { printer?: Printer; onClose: () => void }) {
   const company = useCompany();
   const firstKind: PrinterKind = support.bluetooth ? 'bluetooth' : support.usb ? 'usb' : 'system';
@@ -188,7 +216,7 @@ function PrinterForm({ printer, onClose }: { printer?: Printer; onClose: () => v
       toast(`Imprimante trouvée : ${r.name}`);
     } catch (e: any) {
       if (e?.name === 'NotFoundError' && p.kind === 'bluetooth') setBtMiss(true);
-      else if (e?.name !== 'NotFoundError') toast(errText(e), 'error', { sticky: true });
+      else if (e?.name !== 'NotFoundError') toast(errText(e), 'error', { sticky: true, action: HISTORY_ACTION });
     } finally { setBusy(false); }
   }
   async function submit() {
@@ -198,7 +226,7 @@ function PrinterForm({ printer, onClose }: { printer?: Printer; onClose: () => v
   }
   async function accents() {
     try { await accentTest(p); toast('Test des accents envoyé : choisissez la lettre dont la ligne est bien imprimée', 'ok', { ms: 10_000 }); }
-    catch (e: any) { if (e?.name !== 'NotFoundError') toast(errText(e), 'error', { sticky: true }); }
+    catch (e: any) { if (e?.name !== 'NotFoundError') toast(errText(e), 'error', { sticky: true, action: HISTORY_ACTION }); }
   }
   const help: Record<PrinterKind, string> = {
     bluetooth: available('bluetooth') ? 'Android (Chrome), ordinateur (Chrome/Edge). Allumez l’imprimante avant de chercher.' : 'Pas disponible sur ce navigateur (iPhone/Safari, Firefox) : ouvrez Google Chrome ou Microsoft Edge.',
@@ -212,7 +240,7 @@ function PrinterForm({ printer, onClose }: { printer?: Printer; onClose: () => v
   return (
     <Modal title={printer ? 'Modifier l’imprimante' : 'Ajouter une imprimante'} onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button>
-        {(!direct || p.ref) && <Button variant="ghost" onClick={async () => { try { await printOn({ ...p, paused: false }, testDoc(company, p.name || 'Imprimante')); } catch (e: any) { toast(errText(e), 'error', { sticky: true }); } }}>Page de test</Button>}
+        {(!direct || p.ref) && <Button variant="ghost" onClick={async () => { try { await printOn({ ...p, paused: false }, testDoc(company, p.name || 'Imprimante')); } catch (e: any) { toast(errText(e), 'error', { sticky: true, action: HISTORY_ACTION }); } }}>Page de test</Button>}
         <Button onClick={submit}>Enregistrer</Button></>}>
       <div className="stack">
         <TextField label="Nom de l’imprimante" required hint="Le nom que vous choisirez au moment d’imprimer, ex. « Ticket caisse »." value={p.name} onChange={(v) => set({ name: v })} />
@@ -258,7 +286,7 @@ function StationForm({ current, printers, onClose }: { current?: PrintStation; p
   const chosen = choices.find((c) => c.id === pid);
   return (
     <Modal title="Poste d’impression" onClose={onClose}
-      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={!name.trim()} onClick={async () => { try { await makeStation(name.trim(), pid); toast('Cet appareil est maintenant un poste d’impression'); onClose(); } catch (e: any) { toast(errText(e), 'error', { sticky: true }); } }}>Enregistrer</Button></>}>
+      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={!name.trim()} onClick={async () => { try { await makeStation(name.trim(), pid); toast('Cet appareil est maintenant un poste d’impression'); onClose(); } catch (e: any) { toast(errText(e), 'error', { sticky: true, action: HISTORY_ACTION }); } }}>Enregistrer</Button></>}>
       <div className="stack">
         <TextField label="Nom du poste (vu par les autres appareils)" required value={name} onChange={setName} />
         <SelectField label="Imprimante utilisée par ce poste" value={pid} onChange={setPid} options={choices.map((c) => ({ value: c.id, label: c.name + (c.paused ? ' (déconnectée : elle sera reconnectée)' : '') }))} />

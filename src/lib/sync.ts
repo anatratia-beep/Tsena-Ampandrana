@@ -238,3 +238,21 @@ export async function ensureDeviceCode() {
     await save('devices', { id: me, code, name: getMeta('deviceName', ''), lastSeen: new Date().toISOString() });
   }
 }
+
+/**
+ * Vérification rapide et légère (poste d'impression) : y a-t-il dans le cloud une fiche plus récente de cette table ?
+ * Si oui, on synchronise tout de suite (au lieu d'attendre le prochain passage). Quelques octets par appel.
+ */
+export async function peekNewer(tbl: string): Promise<boolean> {
+  const cfg = getCloud();
+  if (!cfg || !navigator.onLine || running) return false;
+  try {
+    const c = await freshConfig();
+    if (!c) return false;
+    const res = await fetch(`${c.url}/rest/v1/records?select=rev&tbl=eq.${encodeURIComponent(tbl)}&rev=gt.${getMeta<number>('lastRev', 0)}&limit=1`, { headers: headers(c) });
+    if (!res.ok) return false;
+    const rows = await res.json();
+    if (Array.isArray(rows) && rows.length) { void syncNow(); return true; }
+  } catch { /* hors ligne */ }
+  return false;
+}

@@ -1290,3 +1290,8 @@ a.bell { text-decoration: none; }
 /* Bandeau du poste d'impression : imprimante à reconnecter */
 .station-alert { position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 10px 16px; background: var(--danger-soft, #fde8ec); border-bottom: 2px solid var(--danger, #c0392b); }
 .station-alert strong { color: var(--danger, #c0392b); }
+.toast-action { background: transparent; border: 0; color: inherit; text-decoration: underline; font: inherit; font-weight: 700; cursor: pointer; padding: 0; pointer-events: auto; }
+.link-state { display: inline-flex; align-items: center; gap: 6px; font-size: .82rem; font-weight: 700; padding: 2px 10px; border-radius: 99px; }
+.link-state.is-on { background: var(--ok-soft); color: var(--ok); }
+.link-state.is-off { background: var(--danger-soft, #fde8ec); color: var(--danger, #c0392b); }
+.link-state::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }

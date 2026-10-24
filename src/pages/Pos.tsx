@@ -15,7 +15,7 @@ import { PayLines, type PayLine } from '../ui/payments';
 import { Badge, Choice, Button, DiscountField, Empty, MoreMatches, IconButton, Modal, PageHead, SelectField, TextField, fmtDateTime, toast, useKeep } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { ItemPicker, OrderGroupHead, StockTag, groupOrdersByPage } from './Orders';
-import { defaultTarget, printTo, ticketDoc } from '../lib/print';
+import { HISTORY_ACTION, defaultTarget, printTo, ticketDoc } from '../lib/print';
 import { PrintButton, PrintDialog } from '../ui/print';
 import { Thumb } from './Products';
 import { AdjustList, LotTag, lotPhoto } from './Lots';
@@ -228,7 +228,7 @@ export function PosPage() {
         const o = await createWalkInSale({ lines: priced, adjusts, discount: discAr, wholesale: undefined, phone: internal ? undefined : phone.trim() || undefined, name: internal ? undefined : name.trim() || undefined, payments, cashGiven, outsideHours: isOutsideHours(new Date(), company), employee: internal && employee ? { id: employee.id, name: employee.fullName } : undefined });
         setLast(o); reset(); setPaying(false); toast(`Vente ${o.number} enregistrée`);
         if (getMeta('printAutoTicket', false)) {
-          printTo(defaultTarget(), ticketDoc(o, company)).then((m) => toast(m, 'ok', { ms: 10_000 })).catch((e) => toast(`Ticket non imprimé : ${e?.message ?? e}`, 'error', { sticky: true }));
+          printTo(defaultTarget(), ticketDoc(o, company)).then((m) => toast(m, 'ok', { ms: 10_000 })).catch((e) => toast(`Ticket non imprimé : ${e?.message ?? e}`, 'error', { sticky: true, action: HISTORY_ACTION }));
         }
       }} />}
       {printFor && <PrintDialog docs={[{ key: 'ticket', label: 'Ticket de caisse', build: () => ticketDoc(printFor, company) }]} onClose={() => setPrintFor(null)} />}

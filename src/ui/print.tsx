@@ -2,7 +2,7 @@
 import { useMemo, useState } from 'react';
 import { useCompany } from '../lib/settings';
 import { useMeta, useTable } from '../lib/db';
-import { cancelJobs, defaultTarget, docHtml, findPrinter, printTo, useTargets, type PrintDoc, type PrintJob } from '../lib/print';
+import { HISTORY_ACTION, cancelJobs, defaultTarget, docHtml, findPrinter, printTo, useTargets, type PrintDoc, type PrintJob } from '../lib/print';
 import { fmtDateTime } from './kit';
 import { Button, IconButton, Modal, navigate, toast } from './kit';
 import { Icon } from './icons';
@@ -28,13 +28,20 @@ export function PrintDialog({ docs, onClose }: { docs: DocChoice[]; onClose: () 
   const already = waiting.some((j) => j.doc?.title === doc.title);
 
   async function go() {
+    // Imprimante de cet appareil (Bluetooth, USB, port série) : la fenêtre se ferme tout de suite, l'impression continue.
+    if (printer && printer.kind !== 'system') {
+      onClose();
+      toast(`Impression sur « ${printer.name} »…`, 'info', { ms: 4000 });
+      printTo(target, doc, copies).then((m) => toast(m, 'ok', { ms: 10_000 })).catch((e: any) => { if (e?.name !== 'NotFoundError' && e?.name !== 'AbortError') toast(e?.message ?? String(e), 'error', { sticky: true, action: HISTORY_ACTION }); });
+      return;
+    }
     setBusy(true);
     try {
       const msg = await printTo(target, doc, copies);
       toast(msg, 'ok', { ms: 10_000, sticky: t?.kind === 'station' && !!t.alert });
       onClose();
     }
-    catch (e: any) { if (e?.name !== 'NotFoundError' && e?.name !== 'AbortError') toast(e?.message ?? String(e), 'error', { sticky: true }); }
+    catch (e: any) { if (e?.name !== 'NotFoundError' && e?.name !== 'AbortError') toast(e?.message ?? String(e), 'error', { sticky: true, action: HISTORY_ACTION }); }
     finally { setBusy(false); }
   }
 

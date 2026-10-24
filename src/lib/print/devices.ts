@@ -22,6 +22,39 @@ const btDevices = new Map<string, any>();
 const btChars = new Map<string, any>();
 const btNames = new Map<string, string>();
 
+// ---------- État de la liaison (vert : connectée ; rouge : à reconnecter) ----------
+export type LinkState = 'connected' | 'disconnected' | 'unknown';
+const linkSubs = new Set<() => void>();
+export const onLinkChange = (f: () => void) => { linkSubs.add(f); return () => { linkSubs.delete(f); }; };
+const linkChanged = () => linkSubs.forEach((f) => f());
+const usbOpen = new Set<string>();
+const serialOpen = new Set<string>();
+/** État actuel de la liaison avec l'imprimante (sans rien envoyer). */
+export function linkState(kind: 'bluetooth' | 'usb' | 'serial', ref: string): LinkState {
+  if (kind === 'bluetooth') { const d = btDevices.get(ref); return d?.gatt?.connected && btChars.has(ref) ? 'connected' : 'disconnected'; }
+  if (kind === 'usb') return usbOpen.has(ref) ? 'connected' : 'disconnected';
+  return serialOpen.has(ref) ? 'connected' : 'disconnected';
+}
+/** Reconnexion automatique quand la liaison Bluetooth lâche (imprimante en veille, téléphone en veille…). */
+let autoReconnect = false;
+export const setAutoReconnect = (on: boolean) => { autoReconnect = on; };
+function watchDevice(ref: string, dev: any) {
+  if (dev.__tsenaWatch) return;
+  dev.__tsenaWatch = true;
+  dev.addEventListener?.('gattserverdisconnected', () => {
+    btChars.delete(ref); linkChanged();
+    if (!autoReconnect) return;
+    // Pas besoin de geste de l'utilisateur pour se reconnecter à un appareil déjà autorisé.
+    let n = 0;
+    const retry = async () => {
+      if (!autoReconnect || dev.gatt.connected) return;
+      try { await btCharacteristic(ref, undefined, true); linkChanged(); }
+      catch { if (++n < 8) setTimeout(retry, Math.min(30_000, 1000 * 2 ** n)); }
+    };
+    setTimeout(retry, 500);
+  });
+}
+
 export async function pairBluetooth(): Promise<{ ref: string; name: string }> {
   if (!support.bluetooth) throw new Error('Bluetooth non disponible sur ce navigateur. Ouvrez Trésor en ligne dans Google Chrome ou Microsoft Edge.');
   const dev = await nav.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: BT_SERVICES });
@@ -42,6 +75,8 @@ async function btCharacteristic(ref: string, name?: string, fresh = false): Prom
       : { acceptAllDevices: true, optionalServices: BT_SERVICES });
   }
   btDevices.set(ref, dev);
+  if (dev.name) btNames.set(ref, dev.name);
+  watchDevice(ref, dev);
   const cached = btChars.get(ref);
   if (cached && dev.gatt.connected && !fresh) return cached;
   const server = await dev.gatt.connect();
@@ -50,11 +85,11 @@ async function btCharacteristic(ref: string, name?: string, fresh = false): Prom
   let fallback: any = null;
   for (const sv of services) {
     for (const ch of await sv.getCharacteristics()) {
-      if (ch.properties.write) { btChars.set(ref, ch); return ch; }
+      if (ch.properties.write) { btChars.set(ref, ch); linkChanged(); return ch; }
       if (ch.properties.writeWithoutResponse && !fallback) fallback = ch;
     }
   }
-  if (fallback) { btChars.set(ref, fallback); return fallback; }
+  if (fallback) { btChars.set(ref, fallback); linkChanged(); return fallback; }
   throw new Error('Cette imprimante Bluetooth n’accepte pas l’impression directe. Elle utilise peut-être le Bluetooth classique : appairez-la dans les réglages Bluetooth de l’appareil puis choisissez « Port série / Bluetooth appairé ».');
 }
 
@@ -94,6 +129,7 @@ async function writeUsb(ref: string, data: Uint8Array) {
   let d = (await nav.usb.getDevices()).find((x: any) => usbRef(x) === ref);
   if (!d) d = await nav.usb.requestDevice({ filters: [] });
   if (!d.opened) await d.open();
+  usbOpen.add(ref); linkChanged();
   if (!d.configuration) await d.selectConfiguration(1);
   for (const itf of d.configuration.interfaces) {
     for (const alt of itf.alternates) {
@@ -129,7 +165,7 @@ async function writeSerial(ref: string, data: Uint8Array, baud: number) {
   let port = await findSerial(ref);
   if (!port) port = await requestSerial();
   if (!port.writable) {
-    try { await port.open({ baudRate: baud || 9600 }); }
+    try { await port.open({ baudRate: baud || 9600 }); serialOpen.add(ref); linkChanged(); }
     catch (e: any) { throw new Error(`Impossible d’ouvrir l’imprimante (port série) : vérifiez qu’elle est allumée, appairée et qu’aucune autre application ne l’utilise. (${e?.message ?? e})`); }
   }
   const w = port.writable.getWriter();
@@ -137,6 +173,34 @@ async function writeSerial(ref: string, data: Uint8Array, baud: number) {
 }
 
 export interface RawOpts { baud?: number; btSpeed?: BtSpeed; name?: string }
+/**
+ * Reconnecte sans geste de l'utilisateur quand c'est possible (imprimante déjà autorisée et connue de cette page).
+ * Renvoie false s'il faut un clic (le navigateur a oublié l'imprimante).
+ */
+export async function connectSilently(kind: 'bluetooth' | 'usb' | 'serial', ref: string, o: RawOpts = {}): Promise<boolean> {
+  try {
+    if (kind === 'bluetooth') {
+      let dev = btDevices.get(ref);
+      if (!dev && nav.bluetooth?.getDevices) dev = (await nav.bluetooth.getDevices()).find((d: any) => d.id === ref);
+      if (!dev) return false;
+      btDevices.set(ref, dev);
+      await btCharacteristic(ref, o.name, !dev.gatt.connected);
+      return true;
+    }
+    if (kind === 'usb') {
+      const d = (await nav.usb?.getDevices?.() ?? []).find((x: any) => usbRef(x) === ref);
+      if (!d) return false;
+      if (!d.opened) await d.open();
+      usbOpen.add(ref); linkChanged();
+      return true;
+    }
+    const port = await findSerial(ref);
+    if (!port) return false;
+    if (!port.writable) await port.open({ baudRate: o.baud || 9600 });
+    serialOpen.add(ref); linkChanged();
+    return true;
+  } catch { return false; }
+}
 export async function writeRaw(kind: 'bluetooth' | 'usb' | 'serial', ref: string, data: Uint8Array, o: RawOpts = {}) {
   if (kind === 'bluetooth') return writeBluetooth(ref, data, o.btSpeed, o.name);
   if (kind === 'usb') return writeUsb(ref, data);
@@ -154,12 +218,15 @@ export async function disconnectRaw(kind: 'bluetooth' | 'usb' | 'serial', ref: s
       if (dev?.forget) await dev.forget().catch(() => {});
     } else if (kind === 'usb') {
       const d = (await nav.usb.getDevices()).find((x: any) => usbRef(x) === ref);
+      usbOpen.delete(ref);
       if (d?.opened) await d.close();
     } else {
       const port = await findSerial(ref);
+      serialOpen.delete(ref);
       if (port?.writable || port?.readable) await port.close();
     }
   } catch { /* déjà libérée */ }
+  linkChanged();
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
