@@ -53,3 +53,25 @@ grant usage on schema public to authenticated;
 grant select, insert, update, delete on public.records to authenticated;
 grant select, insert, update, delete on public.backups to authenticated;
 grant usage, select on sequence public.records_rev_seq to authenticated;
+
+-- Page de garantie publique : un client qui scanne le QR d'une pièce voit seulement le nom du produit,
+-- la date d'achat et la fin de garantie (jamais le client, le prix ni le reste des données).
+create or replace function public.warranty_lookup(p_serial text)
+returns json language sql stable security definer set search_path = public as $$
+  select json_build_object(
+    'serial', s.data->>'serial',
+    'status', s.data->>'status',
+    'soldAt', case when s.data->>'status' = 'sold' then s.data->>'outAt' end,
+    'product', p.data->>'name',
+    'warrantyMonths', nullif(p.data->>'warrantyMonths', '')::numeric,
+    'company', c.data->>'name',
+    'phone', c.data->>'phone'
+  )
+  from public.records s
+  left join public.records p on p.tbl = 'products' and p.id = s.data->>'productId'
+  left join public.records c on c.tbl = 'settings' and c.id = 'company'
+  where s.tbl = 'serials' and s.id = upper(trim(p_serial)) and coalesce((s.data->>'deleted')::boolean, false) = false
+  limit 1
+$$;
+revoke all on function public.warranty_lookup(text) from public;
+grant execute on function public.warranty_lookup(text) to anon, authenticated;

@@ -18,6 +18,8 @@ import { exportTables } from '../ui/table';
 
 const pageName = (id: string) => (id ? get<Category>('categories', id)?.name ?? 'Page supprimée' : 'Sans page');
 
+import { readScan } from '../lib/serials';
+import { ScanModal } from '../ui/scan';
 export function InventoryTab() {
   const [view, setView] = useState<'count' | 'history'>('count');
   const invs = useTable<Inventory>('inventories');
@@ -64,6 +66,18 @@ function Count({ onDone }: { onDone: () => void }) {
   const gaps = all.map((x) => ({ ...x, d: x.c - stockOf(x.id) })).filter((x) => x.d !== 0);
   const valueGap = gaps.reduce((s, x) => s + x.d * (x.v.costAvg ?? 0), 0);
   const set = (id: string, val: string) => { const d = { ...draft }; if (val.trim() === '') delete d[id]; else d[id] = val; void saveDraft(d); };
+  const [scan, setScan] = useState(false);
+  /** Chaque scan compte une pièce (+1) ; un numéro de série n'est compté qu'une fois. */
+  const scanned = useRef(new Set<string>());
+  const live = useRef(draft); live.current = draft;
+  function countScan(raw: string) {
+    const r = readScan(raw);
+    const v = r.variant;
+    if (!v) { toast(`Code inconnu : ${r.text.length > 30 ? '…' + r.text.slice(-20) : r.text}`, 'error'); return; }
+    if (r.serial) { if (scanned.current.has(r.serial.serial)) { toast(`${r.serial.serial} déjà compté`); return; } scanned.current.add(r.serial.serial); }
+    const d = { ...live.current }; d[v.id] = String((parseNum(d[v.id] ?? '') ?? 0) + 1); live.current = d; void saveDraft(d);
+    toast(`+1 ${get<Product>('products', v.productId)?.name ?? v.sku} (compté : ${d[v.id]})`);
+  }
 
   async function importFile(f: File) {
     try {
@@ -80,8 +94,10 @@ function Count({ onDone }: { onDone: () => void }) {
         <Help>Comptez les articles et saisissez la quantité trouvée (ou importez une feuille de comptage Excel). Le comptage en cours est gardé sur cet appareil même si vous quittez l’écran. À la validation, une fiche d’inventaire est enregistrée (qui, quand, chaque ligne) et les écarts corrigent le stock. Touchez « Détail » pour voir d’où vient un écart (ventes, retours, réceptions…).</Help>
         <div className="row">
           <div className="field" style={{ flex: '0 1 220px' }}><FilterSelect label="Page" value={page} onChange={setPage} options={[{ value: '', label: 'Toutes les pages' }, ...pages.map((p) => ({ value: p.id, label: p.name }))]} /></div>
-          <div className="field" style={{ flex: '1 1 200px' }}><input aria-label="Rechercher" placeholder="Rechercher un code ou un article" value={q} onChange={(e) => { setQ(e.target.value); setAllMatches(false); }} /></div>
+          <div className="field" style={{ flex: '1 1 200px' }}><input aria-label="Rechercher" placeholder="Rechercher un code ou un article (QR scanné + Entrée : +1)" value={q} onChange={(e) => { setQ(e.target.value); setAllMatches(false); }} onKeyDown={(e) => { if (e.key === 'Enter' && readScan(q).variant) { e.preventDefault(); countScan(q); setQ(''); } }} /></div>
+          <Button variant="ghost" icon="eye" onClick={() => setScan(true)}>Compter en scannant</Button>
         </div>
+        {scan && <ScanModal title="Compter en scannant les QR codes" onClose={() => setScan(false)} onCode={countScan} />}
         <MoreMatches n={searched.others} onShow={() => setAllMatches(true)} />
         <div className="row-between">
           <div className="segmented" role="group" aria-label="Afficher">

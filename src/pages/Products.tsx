@@ -10,7 +10,7 @@ import {
   type Category, type Product, type StockMove, type Variant, searchItems } from '../lib/catalog';
 import { blobToThumb } from '../lib/xlsx';
 import { photoBytes } from '../lib/images';
-import { Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDateTime, navigate, toast, useRoute, MoreMatches, useKeep } from '../ui/kit';
+import { Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, Toggle, fmtDateTime, navigate, toast, useRoute, MoreMatches, useKeep } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { rootOf } from '../lib/scope';
 import { findDuplicates, resolveDuplicates, usesOf, type DupGroup } from '../lib/duplicates';
@@ -244,6 +244,7 @@ function ProductDetail({ id }: { id: string }) {
         <div className="page-actions" style={{ alignSelf: 'flex-start' }}>
           {can('catalog.edit') && <Button variant="ghost" icon="edit" onClick={() => setEditing(true)}>Modifier</Button>}
           {can('stock.adjust') && variants.length > 0 && <Button variant="ghost" icon="refresh" onClick={() => setAdjust(variants)}>Ajuster le stock</Button>}
+          <Button variant="ghost" icon="tag" onClick={() => navigate(`/etiquettes?produit=${p.id}`)}>Étiquettes{p.serialTracked ? ' et n° de série' : ''}</Button>
         </div>
       </div>
 
@@ -332,6 +333,19 @@ export function parseList(s: string) {
 }
 const SIZE_CHIPS = ['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL'];
 
+/** Options « QR code et numéro de série » d'un article (création et modification). */
+export function SerialOptions({ tracked, onTracked, warranty, onWarranty, printAfter, onPrintAfter }: { tracked: boolean; onTracked: (v: boolean) => void; warranty: string; onWarranty: (v: string) => void; printAfter?: boolean; onPrintAfter?: (v: boolean) => void }) {
+  return (
+    <div className="card-sub stack-s">
+      <strong className="small">QR code et numéro de série</strong>
+      <Toggle checked={tracked} onChange={onTracked} label="Un numéro de série par pièce (garantie, appareils) : créé à chaque entrée en stock" />
+      {tracked && <TextField label="Garantie (mois, facultatif)" value={warranty} onChange={onWarranty} inputMode="numeric" placeholder="Ex. 6" hint="Le client qui scanne le QR voit la date de fin de garantie." />}
+      {printAfter !== undefined && onPrintAfter && <Toggle checked={printAfter} onChange={onPrintAfter} label="Imprimer les étiquettes QR juste après la création" />}
+      <p className="small muted" style={{ margin: 0 }}>{tracked ? 'Chaque pièce reçoit son propre numéro et son étiquette.' : 'Toutes les pièces partagent l’étiquette QR de l’article.'} Les étiquettes s’impriment dans Articles et stock → Étiquettes et QR.</p>
+    </div>
+  );
+}
+
 export function ProductForm({ product, onClose, onSaved }: { product?: Product; onClose: () => void; onSaved?: (p: Product) => void }) {
   const { categories, products } = useCatalog();
   const [code, setCode] = useState(product?.code ?? '');
@@ -347,6 +361,9 @@ export function ProductForm({ product, onClose, onSaved }: { product?: Product; 
   const [colors, setColors] = useState('');
   const [sizes, setSizes] = useState('');
   const [tiers, setTiers] = useState<PriceTier[]>(product?.tiers ?? []);
+  const [tracked, setTracked] = useState(!!product?.serialTracked);
+  const [warranty, setWarranty] = useState(product?.warrantyMonths?.toString() ?? '');
+  const [printAfter, setPrintAfter] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -371,6 +388,7 @@ export function ProductForm({ product, onClose, onSaved }: { product?: Product; 
         code: code.trim(), name: name.trim(), categoryId: cat || undefined, photo,
         priceRetail: parseNum(priceRetail), priceWholesale: parseNum(priceWholesale), alertQty: parseNum(alertQty),
         link: link.trim() || undefined, notes: notes.trim() || undefined,
+        serialTracked: tracked || undefined, warrantyMonths: parseNum(warranty) || undefined,
         tiers: tiers.filter((t) => t.qty > 1 && t.price > 0).length ? tiers.filter((t) => t.qty > 1 && t.price > 0) : (product?.tiers ? [] : undefined),
       };
       if (product) {
@@ -382,9 +400,9 @@ export function ProductForm({ product, onClose, onSaved }: { product?: Product; 
         const combos: { color?: string; size?: string }[] = [];
         for (const c of colorList.length ? colorList : [undefined]) for (const s of sizeList.length ? sizeList : [undefined]) combos.push({ color: c, size: s });
         const p = await createProduct(data, combos);
-        toast('Article créé');
+        toast('Article créé', 'ok', { action: { label: 'Imprimer les étiquettes', onClick: () => navigate(`/etiquettes?produit=${p.id}`) } });
         onClose();
-        onSaved?.(p);
+        if (printAfter) navigate(`/etiquettes?produit=${p.id}`); else onSaved?.(p);
       }
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
@@ -426,6 +444,7 @@ export function ProductForm({ product, onClose, onSaved }: { product?: Product; 
             <p className="small"><strong>{count}</strong> variante{count > 1 ? 's' : ''} : {colorList.length || sizeList.length ? (colorList.length ? colorList : ['']).flatMap((c) => (sizeList.length ? sizeList : ['']).map((s) => makeSku(code || '…', c, s))).slice(0, 8).join(', ') + (count > 8 ? '…' : '') : 'version unique'}</p>
           </div>
         )}
+        <SerialOptions tracked={tracked} onTracked={setTracked} warranty={warranty} onWarranty={setWarranty} printAfter={product ? undefined : printAfter} onPrintAfter={setPrintAfter} />
         <TextField label="Lien fournisseur (facultatif)" value={link} onChange={setLink} inputMode="url" autoCapitalize="none" />
         <TierEditor tiers={tiers} onChange={setTiers} unit={parseNum(priceRetail)} />
         <TextField label="Notes (facultatif)" value={notes} onChange={setNotes} />

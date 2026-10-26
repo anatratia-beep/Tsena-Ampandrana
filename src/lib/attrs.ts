@@ -115,7 +115,7 @@ export function combinations(cat: Category, picked: Record<string, string[]>): S
   return out;
 }
 
-export interface ArticleInput { sel: Selection; name?: string; cost?: number; retail?: number; wholesale?: number; stock?: number; alertQty?: number; photo?: string }
+export interface ArticleInput { sel: Selection; name?: string; cost?: number; retail?: number; wholesale?: number; stock?: number; alertQty?: number; photo?: string; serialTracked?: boolean; warrantyMonths?: number }
 
 /**
  * Crée ou met à jour des articles d'une page. Nouvel article : article + sa ligne de stock + stock de départ.
@@ -141,7 +141,7 @@ export async function saveArticles(cat: Category, rows: ArticleInput[], reason =
     } else {
       const id = articleId(cat.id, r.sel);
       const vid = `v_${id}`;
-      products.push({ id, code: parts.code, name: r.name?.trim() || parts.name, categoryId: cat.id, attrs: r.sel, priceRetail: r.retail, priceWholesale: r.wholesale ?? r.retail, alertQty: r.alertQty ?? 3, photo: r.photo, active: true });
+      products.push({ id, code: parts.code, name: r.name?.trim() || parts.name, categoryId: cat.id, attrs: r.sel, priceRetail: r.retail, priceWholesale: r.wholesale ?? r.retail, alertQty: r.alertQty ?? 3, photo: r.photo, active: true, serialTracked: r.serialTracked || undefined, warrantyMonths: r.warrantyMonths || undefined });
       variants.push({ id: vid, productId: id, sku: parts.code, costAvg: r.cost, active: true });
       if (r.stock) moves.push({ variantId: vid, qty: r.stock, type: 'initial', unitCost: r.cost, reason: `${reason} : stock de départ` });
       created++;
@@ -151,7 +151,7 @@ export async function saveArticles(cat: Category, rows: ArticleInput[], reason =
   if (variants.length) await save('variants', variants);
   if (moves.length) await addMoves(moves);
   await audit('Articles', `${cat.name} : ${created} article(s) créé(s), ${updated} mis à jour (${reason})`, 'categories', cat.id);
-  return { created, updated };
+  return { created, updated, ids: products.map((p) => p.id as string) };
 }
 
 // ---------- Modèle Excel par page ----------

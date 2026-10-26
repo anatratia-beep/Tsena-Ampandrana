@@ -31,6 +31,10 @@ function guessDeviceName() {
 async function boot() {
   try {
     await openDb();
+    // (avant de préparer les comptes : le téléphone du client ne garde rien)
+    // QR code d'une pièce scanné par un client (…?s=NUMÉRO) : page de garantie, sans connexion.
+    const serial = new URLSearchParams(location.search).get('s');
+    if (serial) { const { WarrantyPage } = await import('./pages/Warranty'); root.render(<WarrantyPage serial={serial} />); return; }
     await setMeta('dashPeriod', null); // le tableau de bord rouvre toujours sur « Aujourd'hui »
     // Nouvelle version avec de nouvelles tables (ex. clients à suivre) : une ancienne version a pu recevoir
     // ces données sans savoir les garder. On reprend donc la synchronisation depuis le début, une fois.
@@ -49,7 +53,7 @@ async function boot() {
     // Outils de test automatisé (uniquement en local sur l'ordinateur du développeur).
     if (location.hostname === 'localhost') {
       const db = await import('./lib/db'); const sync = await import('./lib/sync'); const cat = await import('./lib/catalog'); const ord = await import('./lib/orders');
-      (window as any).__tsena = { save: db.save, get: db.get, getRaw: db.getRaw, all: db.all, syncNow: sync.syncNow, outboxCount: db.outboxCount, nextNumber: cat.nextNumber, customerIdFor: ord.customerIdFor, getMeta: db.getMeta, setMeta: db.setMeta, syncStatus: sync.syncStatus, optimizePhotos: (await import('./lib/maintenance')).optimizePhotos, cloudBackup: (await import('./lib/backup')).cloudBackup, handovers: await import('./lib/handovers') };
+      (window as any).__tsena = { save: db.save, get: db.get, getRaw: db.getRaw, all: db.all, syncNow: sync.syncNow, outboxCount: db.outboxCount, nextNumber: cat.nextNumber, customerIdFor: ord.customerIdFor, getMeta: db.getMeta, setMeta: db.setMeta, syncStatus: sync.syncStatus, optimizePhotos: (await import('./lib/maintenance')).optimizePhotos, cloudBackup: (await import('./lib/backup')).cloudBackup, handovers: await import('./lib/handovers'), addMoves: cat.addMoves, serials: await import('./lib/serials') };
     }
     root.render(<App />);
   } catch (e: any) {

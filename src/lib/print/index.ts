@@ -6,15 +6,17 @@ import { currentUser } from '../auth';
 import { getCloud, peekNewer, syncNow } from '../sync';
 import { DEFAULT_COMPANY, type Company } from '../settings';
 import { colsOf, type Paper, type PrintDoc } from './doc';
-import { DEFAULT_FEED_MM, accentTestBytes, encodeDoc, type Charset } from './escpos';
+import { DEFAULT_FEED_MM, accentTestBytes, encodeDoc, endBytes, type Charset } from './escpos';
 import { catStateFrame, encodeCat, isCatName } from './cat';
-import { connectSilently, disconnectRaw, docCatRows, idleFor, linkState, onLinkChange, setAutoReconnect, shareImage, systemPrint, writeRaw, type BtSpeed, type LinkState } from './devices';
+import { LABEL_SIZES, canvasBitsMsb, encodeLuck, isLuckName, labelForHead, labelsOnRoll, drawLabel, type LabelData } from './labels';
+import { connectSilently, disconnectRaw, docCatRows, idleFor, systemPrintImages, linkState, onLinkChange, setAutoReconnect, shareImage, systemPrint, writeRaw, type BtSpeed, type LinkState } from './devices';
 import { navigate, toast } from '../../ui/kit';
 
 export * from './doc';
 export { CHARSETS, charsetOptions, DEFAULT_FEED_MM, type Charset } from './escpos';
 export { support, pairBluetooth, pairUsb, pairSerial, docHtml, BT_SPEEDS, type BtSpeed, type LinkState } from './devices';
 export { isCatName } from './cat';
+export { LABEL_SIZES, isLuckName, drawLabel, type LabelData } from './labels';
 
 export type PrinterKind = 'system' | 'bluetooth' | 'usb' | 'serial';
 export const KINDS: Record<PrinterKind, string> = {
@@ -40,17 +42,26 @@ export interface Printer {
   feedMm?: number;
   /** Déconnectée de cet appareil (libérée pour un autre appareil), réglages gardés. */
   paused?: boolean;
-  /** Langue de l'imprimante : « escpos » (imprimantes à tickets) ou « cat » (mini imprimantes Tiny Print : X6h…). */
+  /** Langue de l'imprimante : « escpos » (imprimantes à tickets), « cat » (mini imprimantes Tiny Print : X6h…),
+   *  « label » (imprimantes d'étiquettes Luck Jingle : L12…). */
   lang?: PrinterLang;
+  /** Imprimante d'étiquettes : taille des étiquettes (clé de LABEL_SIZES), largeur de la tête en points, noirceur, sens. */
+  labelSize?: string;
+  headDots?: number;
+  density?: 0 | 1 | 2;
+  labelFlip?: boolean;
 }
-export type PrinterLang = 'escpos' | 'cat';
+export type PrinterLang = 'escpos' | 'cat' | 'label';
 export const LANGS: Record<PrinterLang, string> = {
   escpos: 'Imprimante à tickets (ESC/POS : Xprinter, KPrinter, POS-58…)',
   cat: 'Mini imprimante « Tiny Print » (X6h, GB01, MX06…)',
+  label: 'Imprimante d’étiquettes Luck Jingle (L12 « MPL12 »…)',
 };
-/** Langue utilisée : choisie, sinon devinée d'après le nom Bluetooth (« X6h-5306 » → mini imprimante). */
-export const langOf = (p: Printer): PrinterLang => p.lang ?? (p.kind === 'bluetooth' && isCatName(p.deviceName) ? 'cat' : 'escpos');
+/** Langue utilisée : choisie, sinon devinée d'après le nom Bluetooth (« X6h-5306 » → mini imprimante, « MPL12_… » → étiquettes). */
+export const langOf = (p: Printer): PrinterLang => p.lang ?? (p.kind === 'bluetooth' && isCatName(p.deviceName) ? 'cat' : p.kind === 'bluetooth' && isLuckName(p.deviceName) ? 'label' : 'escpos');
 const isCat = (p: Printer) => p.kind === 'bluetooth' && langOf(p) === 'cat';
+/** Imprimante d'étiquettes (elle n'imprime pas les tickets). */
+export const isLabelPrinter = (p: Printer) => p.kind === 'bluetooth' && langOf(p) === 'label';
 export interface PrintStation extends BaseRecord {
   name: string; printerName?: string; paper?: Paper; lastSeen?: string; deviceId?: string;
   /** L'imprimante du poste attend qu'on clique « Reconnecter l'imprimante » sur le poste (message). */
@@ -91,7 +102,7 @@ export function useTargets(): Target[] {
   const stations = useTable<PrintStation>('printStations');
   const jobs = useTable<PrintJob>('printJobs');
   const myStation = useMeta<{ stationId: string } | null>('myStation', null);
-  const t: Target[] = printers.map((p) => ({ id: p.id, label: p.name, detail: `${KINDS[p.kind]} · ${p.paper === 'a4' ? 'A4' : p.paper + ' mm'}${p.paused ? ' · déconnectée de cet appareil' : ''}`, kind: 'printer' }));
+  const t: Target[] = printers.filter((p) => !isLabelPrinter(p)).map((p) => ({ id: p.id, label: p.name, detail: `${KINDS[p.kind]} · ${p.paper === 'a4' ? 'A4' : p.paper + ' mm'}${p.paused ? ' · déconnectée de cet appareil' : ''}`, kind: 'printer' }));
   for (const s of stations) {
     if (s.id === myStation?.stationId) continue;
     const online = stationOnline(s);
@@ -110,9 +121,9 @@ export const findPrinter = (id: string) => (id === SYSTEM_PRINTER.id ? SYSTEM_PR
 export class PrinterPaused extends Error {
   constructor(name: string) { super(`L’imprimante « ${name} » est déconnectée de cet appareil : touchez « Reconnecter » dans Paramètres → Imprimantes.`); this.name = 'PrinterPaused'; }
 }
-const rawOpts = (p: Printer) => ({ baud: p.baud, btSpeed: p.btSpeed ?? 'safe', name: p.deviceName, cat: isCat(p) });
+const rawOpts = (p: Printer) => ({ baud: p.baud, btSpeed: p.btSpeed ?? 'safe', name: p.deviceName, cat: isCat(p), luck: isLabelPrinter(p) });
 /** Petit envoi sans rien imprimer (réveil, reconnexion). */
-const pingBytes = (p: Printer) => (isCat(p) ? catStateFrame() : new Uint8Array([0x1b, 0x40]));
+const pingBytes = (p: Printer) => (isCat(p) ? catStateFrame() : isLabelPrinter(p) ? new Uint8Array([0x10, 0xff, 0x40]) : new Uint8Array([0x1b, 0x40]));
 const feedOf = (p: Printer) => Math.min(50, Math.max(10, p.feedMm ?? DEFAULT_FEED_MM));
 
 /** Imprime sur une imprimante de cet appareil. */
@@ -121,6 +132,7 @@ export async function printOn(p: Printer, doc: PrintDoc, copies = 1) {
   if (p.kind === 'system') return systemPrint(doc, p.paper, logo, copies);
   if (p.paused) throw new PrinterPaused(p.name);
   if (!p.ref) throw new Error(`L’imprimante « ${p.name} » n’est pas encore appairée : ouvrez Paramètres → Imprimantes.`);
+  if (isLabelPrinter(p)) throw new Error(`« ${p.name} » est une imprimante d’étiquettes : choisissez une imprimante à tickets pour ce document.`);
   if (isCat(p)) { // mini imprimante : le ticket est dessiné (58 mm), accents et logo compris
     const rows = await docCatRows(doc, logo);
     await writeRaw(p.kind, p.ref, encodeCat(rows, { feedMm: feedOf(p), copies }), rawOpts(p));
@@ -128,6 +140,51 @@ export async function printOn(p: Printer, doc: PrintDoc, copies = 1) {
   }
   const data = await encodeDoc(doc, { cols: colsOf(p.paper), charset: p.charset, cut: p.cut, logo, copies, feedMm: feedOf(p) });
   await writeRaw(p.kind, p.ref, data, rawOpts(p));
+}
+
+// ---------- Étiquettes ----------
+export const labelSizeOf = (p?: Printer) => LABEL_SIZES[p?.labelSize ?? '30x15'] ?? LABEL_SIZES['30x15'];
+/** Imprimantes qui peuvent imprimer des étiquettes : imprimantes d'étiquettes d'abord, puis tickets et fenêtre d'impression. */
+export function labelTargets(): Printer[] {
+  const ps = getPrinters().filter((p) => !p.paused);
+  return [...ps.filter(isLabelPrinter), ...ps.filter((p) => !isLabelPrinter(p)), SYSTEM_PRINTER];
+}
+/** Imprime des étiquettes (QR + code + nom + prix). `size` : taille choisie si l'imprimante n'en a pas. */
+export async function printLabels(p: Printer, labels: LabelData[], sizeKey?: string) {
+  if (!labels.length) return;
+  const size = LABEL_SIZES[(isLabelPrinter(p) ? p.labelSize : sizeKey) ?? '30x15'] ?? LABEL_SIZES['30x15'];
+  if (p.kind === 'system') {
+    const imgs = labels.map((l) => drawLabel(l, Math.round(size.lengthMm * 8 * 2), Math.round(size.crossMm * 8 * 2)).toDataURL('image/png'));
+    return systemPrintImages(imgs, size.lengthMm, size.crossMm);
+  }
+  if (p.paused) throw new PrinterPaused(p.name);
+  if (!p.ref) throw new Error(`L’imprimante « ${p.name} » n’est pas encore appairée : ouvrez Paramètres → Imprimantes.`);
+  if (isLabelPrinter(p)) {
+    const head = p.headDots ?? 96;
+    // par paquets de 10 étiquettes : l'imprimante n'a pas besoin de tout garder en mémoire
+    for (let i = 0; i < labels.length; i += 10) {
+      const imgs = labels.slice(i, i + 10).map((l) => labelForHead(l, size, head, p.labelFlip));
+      await writeRaw(p.kind, p.ref, encodeLuck(imgs, p.density ?? 2), rawOpts(p));
+    }
+    return;
+  }
+  // Imprimante à tickets : étiquettes les unes sous les autres sur le rouleau
+  const width = isCat(p) ? 384 : colsOf(p.paper) >= 48 ? 576 : 384;
+  const roll = labelsOnRoll(labels, width, size);
+  if (isCat(p)) {
+    const { canvasRows } = await import('./cat');
+    await writeRaw(p.kind, p.ref, encodeCat(canvasRows(roll.getContext('2d')!, roll.width, roll.height), { feedMm: feedOf(p) }), rawOpts(p));
+    return;
+  }
+  // ESC/POS : image en bandes de 24 lignes (GS v 0), puis espace blanc
+  const { bytesPerRow, rows, data } = canvasBitsMsb(roll);
+  const out: number[] = [0x1b, 0x40, 0x1c, 0x2e, 0x1b, 0x61, 1];
+  for (let y = 0; y < rows; y += 24) {
+    const n = Math.min(24, rows - y);
+    out.push(0x1d, 0x76, 0x30, 0x00, bytesPerRow & 0xff, bytesPerRow >> 8, n & 0xff, n >> 8, ...data.slice(y * bytesPerRow, (y + n) * bytesPerRow));
+  }
+  out.push(0x1b, 0x61, 0, ...(p.cut ? [0x1d, 0x56, 0x42, 0x00] : endBytes(feedOf(p))));
+  await writeRaw(p.kind, p.ref, new Uint8Array(out), rawOpts(p));
 }
 
 /** « Test des accents » : une ligne par jeu de caractères (A, C, D) pour choisir la bonne lettre. */
@@ -194,7 +251,7 @@ export function defaultTarget(): string {
   if (d === SYSTEM_PRINTER.id || d === SHARE_TARGET) return d;
   if (d.startsWith('station:') && get('printStations', d.slice(8))) return d;
   if (getPrinters().some((p) => p.id === d)) return d;
-  return getPrinters()[0]?.id ?? SYSTEM_PRINTER.id;
+  return getPrinters().find((p) => !isLabelPrinter(p))?.id ?? SYSTEM_PRINTER.id;
 }
 
 // ---------- Historique des impressions envoyées aux postes ----------
@@ -339,7 +396,7 @@ export function usePrintStationWorker() {
       if (!p || p.kind === 'system' || !p.ref || p.paused || printing) return;
       if (linkState(p.kind, p.ref) === 'connected') {
         if (p.kind !== 'bluetooth' || idleFor(p.ref) < 60_000) return; // USB et port série ne se mettent pas en veille
-        try { await writeRaw(p.kind, p.ref, isCat(p) ? catStateFrame() : new Uint8Array([0x10, 0x04, 0x01]), rawOpts(p)); } catch { /* la reconnexion automatique s'en charge */ }
+        try { await writeRaw(p.kind, p.ref, pingBytes(p), rawOpts(p)); } catch { /* la reconnexion automatique s'en charge */ }
       }
       else void connectSilently(p.kind, p.ref, rawOpts(p)).then((okk) => { if (okk) kick(); });
     }, 20_000);

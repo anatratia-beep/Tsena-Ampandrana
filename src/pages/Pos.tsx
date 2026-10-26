@@ -20,6 +20,8 @@ import { PrintButton, PrintDialog } from '../ui/print';
 import { Thumb } from './Products';
 import { AdjustList, LotTag, lotPhoto } from './Lots';
 import { adjustsTotal, isLot, lotAvailable, lotOpen } from '../lib/lots';
+import { isTracked, readScan } from '../lib/serials';
+import { ScanModal } from '../ui/scan';
 
 export function PosPage() {
   const can = useCan();
@@ -36,6 +38,7 @@ export function PosPage() {
   const [name, setName] = useState('');
   const [picking, setPicking] = useState<Product | null>(null);
   const [browse, setBrowse] = useState(false);
+  const [scan, setScan] = useState(false);
   const [qtyDraft, setQtyDraft] = useState<Record<string, string>>({});
   const [paying, setPaying] = useState(false);
   const [last, setLast] = useState<Order | null>(null);
@@ -71,10 +74,29 @@ export function PosPage() {
     .sort((a, b) => Number(b.avail > 0) - Number(a.avail > 0) || a.p.code.localeCompare(b.p.code, 'fr', { numeric: true }))
     .slice(0, 60), [searched, reserved]);
   const pages = cats.filter((c) => !c.parentId && products.some((p) => p.active !== false && rootOf(p.categoryId) === c.id)).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  /** QR code d'étiquette (numéro de série ou code article) : la pièce précise est ajoutée au panier. */
+  function scanned(raw: string): boolean {
+    const r = readScan(raw);
+    if (r.serial) {
+      const s = r.serial;
+      const p = get<Product>('products', s.productId);
+      if (s.status !== 'stock') { toast(`${s.serial} : pièce déjà ${s.status === 'sold' ? 'vendue' : 'sortie du stock'}`, 'error'); return true; }
+      if (lines.some((l) => l.serials?.includes(s.serial))) { toast(`${s.serial} est déjà dans le panier`); return true; }
+      const merged = [...lines];
+      const ex = merged.find((l) => l.variantId === s.variantId && !l.lotKey);
+      if (ex) { ex.serials = [...(ex.serials ?? []), s.serial]; ex.qty = Math.max(ex.qty, ex.serials.length); }
+      else merged.push({ id: newId(), variantId: s.variantId, qty: 1, unitPrice: linePrice(s.variantId, false), serials: [s.serial] });
+      setLines(merged); toast(`Ajouté : ${p?.name ?? ''} (${s.serial})`);
+      return true;
+    }
+    if (r.variant) { add([{ variantId: r.variant.id, qty: 1 }]); toast(`Ajouté : ${get<Product>('products', r.variant.productId)?.name ?? r.text}`); return true; }
+    return false;
+  }
   /** Lecteur de code-barres ou saisie du code + Entrée : l'article est ajouté directement au panier. */
   function onEnter() {
     const code = q.trim().toUpperCase().replace(/\s+/g, '');
     if (!code) return;
+    if (scanned(q.trim())) { setQ(''); return; }
     const byCode = findProductByCode(code);
     if (byCode && isLot(byCode)) { if (lotOpen(byCode)) setPicking(byCode); setQ(''); return; }
     const v = findVariantBySku(code) ?? (byCode ? productVariants(byCode.id).find((x) => x.active !== false) : undefined);
@@ -102,7 +124,7 @@ export function PosPage() {
     const vs = productVariants(p.id).filter((v) => v.active !== false);
     if (vs.length === 1) add([{ variantId: vs[0].id, qty: 1 }]); else setPicking(p);
   }
-  const setLine = (id: string, patch: Partial<OrderLine>) => setLines(lines.map((l) => (l.id === id ? { ...l, ...patch } : l)).filter((l) => l.qty > 0));
+  const setLine = (id: string, patch: Partial<OrderLine>) => setLines(lines.map((l) => (l.id === id ? { ...l, ...patch, ...(patch.qty != null && l.serials ? { serials: l.serials.slice(0, Math.max(0, patch.qty)) } : {}) } : l)).filter((l) => l.qty > 0));
   const firstOfLot = (l: OrderLine) => !l.lotKey || priced.find((x) => x.lotKey === l.lotKey)?.id === l.id;
   const reset = () => { setLines([]); setDiscount(''); setPhone(''); setName(''); setDiscUnit('ar'); setQ(''); setInternal(false); setEmployeeId(''); };
   const tilePrice = (p: Product) => internal && !isLot(p) ? Math.min(...productVariants(p.id).map((v) => internalPrice(v.id, step) || Infinity)) : p.priceRetail;
@@ -117,7 +139,7 @@ export function PosPage() {
       )}
       <div className="pos-layout">
         <section className="pos-catalog card stack-s">
-          <div className="row-between"><h2>Ajouter un article</h2><Button variant="ghost" className="btn-sm" icon="search" onClick={() => setBrowse(true)}>Parcourir le catalogue</Button></div>
+          <div className="row-between"><h2>Ajouter un article</h2><div className="row" style={{ gap: 6 }}><Button variant="ghost" className="btn-sm" icon="eye" onClick={() => setScan(true)}>Scanner un QR</Button><Button variant="ghost" className="btn-sm" icon="search" onClick={() => setBrowse(true)}>Parcourir le catalogue</Button></div></div>
           <div className="field"><input aria-label="Rechercher un article" placeholder="Rechercher ou scanner un code (Entrée pour ajouter)…" value={q} onChange={(e) => { setQ(e.target.value); setAllMatches(false); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onEnter(); } }} autoFocus /></div>
           {n && pages.length > 1 && <Choice label="Page" hideLabel value={cat} onChange={setCat} max={5} options={[{ value: '', label: pages.length + 1 > 5 ? 'Toutes les pages' : 'Toutes' }, ...pages.map((c) => ({ value: c.id, label: c.name }))]} />}
           {n && (found.length === 0 ? <p className="small muted">Aucun article trouvé.</p> : (
@@ -156,6 +178,7 @@ export function PosPage() {
                       <strong className="cart-name">{p?.name}</strong>
                       <div className="small muted">{p?.attrs ? attrSummary(p, ', ') : `${p?.code} · ${variantLabel(v)}`}</div>
                       <LotTag l={l} />
+                      {(l.serials?.length || isTracked(p)) ? <div className="small muted">{l.serials?.length ? `N° ${l.serials.join(', ')}` : ''}{isTracked(p) && l.qty > (l.serials?.length ?? 0) ? `${l.serials?.length ? ' · ' : ''}${l.qty - (l.serials?.length ?? 0)} numéro(s) pris automatiquement (scannez la pièce pour choisir)` : ''}</div> : null}
                       <StockTag variantId={l.variantId} reserved={reserved} short={short.find((x) => x.variantId === l.variantId)} />
                       {l.lotKey ? <div className="row" style={{ gap: 6, marginTop: 6 }}><span className="small">{l.qty} × {fmtAr(l.unitPrice)}</span>{firstOfLot(l) && <Button variant="quiet" className="btn-sm" icon="x" onClick={() => setLines(removeLine(lines, l))}>Retirer le lot</Button>}</div> : <>
                       {!internal && <div className="line-opts"><label><input type="checkbox" checked={!!l.wholesale} onChange={(e) => setLine(l.id, { wholesale: e.target.checked, priceManual: false })} /> Prix de gros</label></div>}
@@ -222,6 +245,7 @@ export function PosPage() {
         )}
       </div>
 
+      {scan && <ScanModal title="Scanner les articles" onClose={() => setScan(false)} onCode={(t) => { if (!scanned(t)) toast(`Code inconnu : ${t.length > 30 ? '…' + t.slice(-20) : t}`, 'error'); }} />}
       {picking && <ItemPicker noChoice initialProduct={picking} onClose={() => setPicking(null)} onAdd={add} onAddLines={(ls) => setLines([...lines, ...ls])} />}
       {browse && <ItemPicker noChoice onClose={() => setBrowse(false)} onAdd={add} onAddLines={(ls) => setLines([...lines, ...ls])} />}
       {paying && <PayDialog total={total} onClose={() => setPaying(false)} onPaid={async (payments, cashGiven) => {

@@ -25,6 +25,7 @@ import { AuditPage } from './pages/Audit';
 import { SettingsPage } from './pages/Settings';
 import { AccountPage } from './pages/Account';
 import { ProductsPage } from './pages/Products';
+import { LabelsPage } from './pages/Labels';
 import { StockPage } from './pages/Stock';
 import { PurchasesPage } from './pages/Purchases';
 import { ReceptionsPage } from './pages/Receptions';
@@ -63,6 +64,7 @@ const NAV: NavItem[] = [
   { path: '/pages', label: 'Pages et variantes', icon: 'list', perm: 'catalog.view', group: 'Articles et stock', page: () => <CategoriesPage /> },
   { path: '/articles', label: 'Articles', icon: 'tag', perm: 'catalog.view', group: 'Articles et stock', page: () => <ProductsPage /> },
   { path: '/stock', label: 'Stock', icon: 'package', perm: 'catalog.view', group: 'Articles et stock', page: () => <StockPage /> },
+  { path: '/etiquettes', label: 'Étiquettes et QR', icon: 'tag', perm: 'catalog.view', group: 'Articles et stock', page: () => <LabelsPage /> },
   { path: '/achats', label: 'Achats et réceptions', icon: 'inbox', perm: 'purchases.manage|purchases.receive', group: 'Articles et stock', page: () => <PurchasingHub /> },
   { path: '/receptions', label: 'Réceptions', icon: 'download', perm: 'purchases.receive', group: 'hidden', page: () => <ReceptionsPage /> },
   { path: '/boosts', label: 'Boosts pub', icon: 'megaphone', perm: 'boosts.view', group: 'Analyse', page: () => <BoostsPage /> },

@@ -14,6 +14,8 @@ import { resizeImage } from '../lib/settings';
 import { pageRemovalInfo, removePage, restorePage } from '../lib/pages';
 import { Help, Button, Confirm, Empty, IconButton, Modal, PageHead, Req, SelectField, TextField, navigate, toast } from '../ui/kit';
 import { Icon } from '../ui/icons';
+import { SerialOptions } from './Products';
+import { rootOf } from '../lib/scope';
 
 const fileName = (c: Category) => `Tresor-en-ligne-${(c.code || suggestCatCode(c.name)).toLowerCase()}-articles.xlsx`;
 
@@ -297,6 +299,9 @@ export function ArticleBuilder({ cat: initial, onClose }: { cat?: Category; onCl
   const [all4, setAll4] = useState({ cost: '', retail: '', wholesale: '', stock: '' });
   const [photo, setPhoto] = useState<string>();
   const photoRef = useRef<HTMLInputElement>(null);
+  const [tracked, setTracked] = useState(false);
+  const [warranty, setWarranty] = useState('');
+  const [printAfter, setPrintAfter] = useState(false);
   const [busy, setBusy] = useState(false);
   const toggle = (aid: string, vid: string) => { const cur = picked[aid] ?? []; setPicked({ ...picked, [aid]: cur.includes(vid) ? cur.filter((x) => x !== vid) : [...cur, vid] }); };
   const lines: Line[] = useMemo(() => {
@@ -323,8 +328,9 @@ export function ArticleBuilder({ cat: initial, onClose }: { cat?: Category; onCl
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} disabled={!chosen.length || missing.length > 0} onClick={async () => {
         setBusy(true);
         try {
-          const r = await saveArticles(cat!, chosen.map((l) => ({ sel: l.sel, name: l.name.trim() || undefined, cost: parseNum(l.cost), retail: parseNum(l.retail), wholesale: parseNum(l.wholesale) ?? parseNum(l.retail), stock: parseNum(l.stock), photo })), 'Création');
+          const r = await saveArticles(cat!, chosen.map((l) => ({ sel: l.sel, name: l.name.trim() || undefined, cost: parseNum(l.cost), retail: parseNum(l.retail), wholesale: parseNum(l.wholesale) ?? parseNum(l.retail), stock: parseNum(l.stock), photo, serialTracked: tracked, warrantyMonths: parseNum(warranty) })), 'Création');
           toast(`${r.created} article(s) créé(s)`); onClose();
+          if (printAfter) navigate(`/etiquettes?page=${rootOf(cat!.id)}&q=`);
         } catch (e: any) { toast(e.message, 'error'); setBusy(false); }
       }}>Créer {chosen.length || ''} article(s)</Button></>}>
       <div className="stack">
@@ -360,6 +366,7 @@ export function ArticleBuilder({ cat: initial, onClose }: { cat?: Category; onCl
                 <input ref={photoRef} type="file" accept="image/*" hidden onChange={async (e) => { const f = e.target.files?.[0]; if (f) { try { setPhoto(await compressPhoto(f)); } catch (err: any) { toast(err?.message ?? 'Photo illisible', 'error'); } } e.target.value = ''; }} />
               </div>
             </div>
+            <SerialOptions tracked={tracked} onTracked={setTracked} warranty={warranty} onWarranty={setWarranty} printAfter={printAfter} onPrintAfter={setPrintAfter} />
             <div className="table-wrap"><table className="table builder-table">
               <thead><tr><th></th><th>Article</th><th className="t-num">Prix de revient</th><th className="t-num">PV détail</th><th className="t-num">PV gros</th><th className="t-num">Stock</th></tr></thead>
               <tbody>{lines.map((l) => {

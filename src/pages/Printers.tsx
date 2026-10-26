@@ -5,7 +5,7 @@ import { newId, remove, setMeta, useMeta, useTable } from '../lib/db';
 import { getCloud } from '../lib/sync';
 import { useCompany } from '../lib/settings';
 import {
-  BT_SPEEDS, CHARSETS, DEFAULT_FEED_MM, KINDS, LANGS, PAPERS, isCatName, langOf, SYSTEM_PRINTER, accentTest, cancelJobs, charsetOptions, deletePrinter, disconnectPrinter, makeStation, pairBluetooth, pairSerial, pairUsb,
+  BT_SPEEDS, CHARSETS, DEFAULT_FEED_MM, KINDS, LABEL_SIZES, LANGS, PAPERS, isCatName, isLuckName, langOf, printLabels, SYSTEM_PRINTER, accentTest, cancelJobs, charsetOptions, deletePrinter, disconnectPrinter, makeStation, pairBluetooth, pairSerial, pairUsb,
   HISTORY_ACTION, printOn, reconnectPrinter, reprintJob, retryJob, savePrinter, stationOnline, stopStation, support, testDoc, usePrinterLink, usePrinters, useWakeState,
   type BtSpeed, type Charset, type Paper, type PrinterLang, type PrintJob, type PrintStation, type Printer, type PrinterKind,
 } from '../lib/print';
@@ -63,7 +63,7 @@ export function PrintersTab() {
   useEffect(() => { if (wantHist && histRef.current) { histRef.current.open = true; histRef.current.scrollIntoView({ block: 'start' }); } }, [wantHist, recent.length]);
 
   async function test(p: Printer) {
-    try { await printOn(p, testDoc(company, p.name)); toast(p.kind === 'system' ? 'Fenêtre d’impression ouverte' : 'Page de test envoyée', 'ok', { ms: 10_000 }); }
+    try { if (langOf(p) === 'label' && p.kind === 'bluetooth') await printLabels(p, [{ qr: 'TEST-00001', code: 'TEST-00001', title: 'Étiquette de test ' + (company.name || ''), sub: p.name, price: '25 000 Ar' }]); else await printOn(p, testDoc(company, p.name)); toast(p.kind === 'system' ? 'Fenêtre d’impression ouverte' : 'Test envoyé', 'ok', { ms: 10_000 }); }
     catch (e: any) { if (e?.name !== 'NotFoundError') toast(errText(e), 'error', { sticky: true, action: HISTORY_ACTION }); }
   }
   async function reconnect(p: Printer) {
@@ -185,7 +185,7 @@ function PrinterRow({ p, isDefault, onTest, onReconnect, onPause, onEdit, onDele
           ? <span className="link-state is-on">Connectée</span>
           : <span className="link-state is-off">{p.paused ? 'Déconnectée de cet appareil' : 'À reconnecter'}</span>)}
         <span className="list-item-title">{p.name} {isDefault && <Badge tone="brand">Par défaut</Badge>} {direct && !p.paused && p.ref && <Badge tone="ok">Associée à cet appareil</Badge>}</span>
-        <p className="small muted">{KINDS[p.kind]}{langOf(p) === 'cat' ? ' · mini imprimante' : ''} · {PAPERS[p.paper]}{p.deviceName ? ` · ${p.deviceName}` : ''}{direct && !p.ref ? ' · pas encore appairée' : ''}</p>
+        <p className="small muted">{KINDS[p.kind]}{langOf(p) === 'cat' ? ' · mini imprimante' : ''}{langOf(p) === 'label' ? ` · étiquettes ${LABEL_SIZES[p.labelSize ?? '30x15']?.label ?? ''}` : ` · ${PAPERS[p.paper]}`}{p.deviceName ? ` · ${p.deviceName}` : ''}{direct && !p.ref ? ' · pas encore appairée' : ''}</p>
       </div>
       <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
         {direct && p.ref && link !== 'connected' && <Button variant="primary" className="btn-sm" busy={busy} onClick={reconnect}>Se reconnecter maintenant</Button>}
@@ -209,14 +209,19 @@ function PrinterForm({ printer, onClose }: { printer?: Printer; onClose: () => v
   const available = (k: PrinterKind) => k === 'system' || support[k];
   const direct = p.kind !== 'system';
   const cat = p.kind === 'bluetooth' && langOf(p) === 'cat';
+  const label = p.kind === 'bluetooth' && langOf(p) === 'label';
+  const testLabel = () => printLabels({ ...p, paused: false }, [{ qr: 'TEST-00001', code: 'TEST-00001', title: 'Étiquette de test ' + (company.name || ''), sub: p.name || 'Imprimante', price: '25 000 Ar' }]);
 
   async function pair() {
     setBusy(true);
     try {
       const r = p.kind === 'bluetooth' ? await pairBluetooth() : p.kind === 'usb' ? await pairUsb() : await pairSerial();
       const cat = p.kind === 'bluetooth' && isCatName(r.name);
-      setP({ ...p, ref: r.ref, deviceName: r.name, name: p.name || r.name, paused: false, ...(cat ? { lang: 'cat' as const, paper: '58' as Paper, cut: false } : { lang: undefined }) });
+      const luck = p.kind === 'bluetooth' && isLuckName(r.name);
+      setP({ ...p, ref: r.ref, deviceName: r.name, name: p.name || (luck ? 'Étiquettes' : r.name), paused: false,
+        ...(cat ? { lang: 'cat' as const, paper: '58' as Paper, cut: false } : luck ? { lang: 'label' as const, labelSize: p.labelSize ?? '30x15', headDots: p.headDots ?? 96, density: p.density ?? 2 } : { lang: undefined }) });
       if (cat) toast(`Mini imprimante « Tiny Print » reconnue : ${r.name}`, 'ok', { ms: 8000 });
+      if (luck) toast(`Imprimante d’étiquettes reconnue : ${r.name}`, 'ok', { ms: 8000 });
       toast(`Imprimante trouvée : ${r.name}`);
     } catch (e: any) {
       if (e?.name === 'NotFoundError' && p.kind === 'bluetooth') setBtMiss(true);
@@ -244,7 +249,7 @@ function PrinterForm({ printer, onClose }: { printer?: Printer; onClose: () => v
   return (
     <Modal title={printer ? 'Modifier l’imprimante' : 'Ajouter une imprimante'} onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button>
-        {(!direct || p.ref) && <Button variant="ghost" onClick={async () => { try { await printOn({ ...p, paused: false }, testDoc(company, p.name || 'Imprimante')); } catch (e: any) { toast(errText(e), 'error', { sticky: true, action: HISTORY_ACTION }); } }}>Page de test</Button>}
+        {(!direct || p.ref) && <Button variant="ghost" onClick={async () => { try { if (label) await testLabel(); else await printOn({ ...p, paused: false }, testDoc(company, p.name || 'Imprimante')); } catch (e: any) { toast(errText(e), 'error', { sticky: true, action: HISTORY_ACTION }); } }}>{label ? 'Étiquette de test' : 'Page de test'}</Button>}
         <Button onClick={submit}>Enregistrer</Button></>}>
       <div className="stack">
         <TextField label="Nom de l’imprimante" required hint="Le nom que vous choisirez au moment d’imprimer, ex. « Ticket caisse »." value={p.name} onChange={(v) => set({ name: v })} />
@@ -266,19 +271,27 @@ function PrinterForm({ printer, onClose }: { printer?: Printer; onClose: () => v
           </div>
         )}
         {btMiss && p.kind === 'bluetooth' && <div className="notice"><Icon name="alert" /><span>Imprimante introuvable ? Elle utilise sans doute le <strong>Bluetooth classique</strong> (ex. JK-301PL) : appairez-la dans {BT_SETTINGS} (code 0000 ou 1234), puis choisissez <strong>« Port série / Bluetooth appairé »</strong>.{!support.serial && DEVICE === 'android' ? ' Si ce choix n’est pas disponible, mettez à jour Google Chrome.' : ''}</span></div>}
-        {p.kind === 'bluetooth' && <SelectField label="Type d’imprimante" value={langOf(p)} onChange={(v) => set({ lang: v as PrinterLang, ...(v === 'cat' ? { paper: '58' as Paper, cut: false } : {}) })} options={(Object.keys(LANGS) as PrinterLang[]).map((k) => ({ value: k, label: LANGS[k] }))} />}
+        {p.kind === 'bluetooth' && <SelectField label="Type d’imprimante" value={langOf(p)} onChange={(v) => set({ lang: v as PrinterLang, ...(v === 'cat' ? { paper: '58' as Paper, cut: false } : v === 'label' ? { labelSize: p.labelSize ?? '30x15', headDots: p.headDots ?? 96, density: p.density ?? 2 } : {}) })} options={(Object.keys(LANGS) as PrinterLang[]).map((k) => ({ value: k, label: LANGS[k] }))} />}
+        {label && <div className="notice notice-ok"><Icon name="tag" /><span>Imprimante d’étiquettes : elle imprime les étiquettes QR code des articles et des numéros de série (Articles et stock → Étiquettes et QR). Pas besoin de l’application du fabricant. Les tickets restent sur l’imprimante à tickets.</span></div>}
+        {label && <div className="grid-2">
+          <SelectField label="Taille des étiquettes" value={p.labelSize ?? '30x15'} onChange={(v) => set({ labelSize: v })} options={Object.entries(LABEL_SIZES).map(([k, v]) => ({ value: k, label: v.label }))} />
+          <SelectField label="Noirceur" value={String(p.density ?? 2)} onChange={(v) => set({ density: Number(v) as 0 | 1 | 2 })} options={[{ value: '0', label: 'Claire' }, { value: '1', label: 'Normale' }, { value: '2', label: 'Foncée (conseillé)' }]} />
+          <SelectField label="Largeur de la tête d’impression" value={String(p.headDots ?? 96)} onChange={(v) => set({ headDots: Number(v) })} options={[{ value: '96', label: '96 points — 12 mm (L12, étiquettes 12–15 mm)' }, { value: '120', label: '120 points — 15 mm' }, { value: '384', label: '384 points — 48 mm (étiquettes larges)' }]} />
+          <SelectField label="Sens de l’impression" value={p.labelFlip ? '1' : '0'} onChange={(v) => set({ labelFlip: v === '1' })} options={[{ value: '0', label: 'Normal' }, { value: '1', label: 'Retourné (si l’étiquette sort à l’envers)' }]} />
+        </div>}
         {cat && <div className="notice notice-ok"><Icon name="printer" /><span>Mini imprimante (application « Tiny Print ») : le ticket lui est envoyé comme une image en 58 mm, accents et logo compris. Pas besoin de l’application Tiny Print, ni de l’appairer dans les réglages Bluetooth.</span></div>}
-        <div className="grid-2">
+        {!label && <div className="grid-2">
           <SelectField label="Papier" value={p.paper} onChange={(v) => set({ paper: v as Paper })} options={(Object.keys(PAPERS) as Paper[]).filter((k) => cat ? k === '58' : direct ? k !== 'a4' : true).map((k) => ({ value: k, label: PAPERS[k] }))} />
           {direct && !cat && <SelectField label="Jeu de caractères (accents)" value={p.charset} onChange={(v) => set({ charset: v as Charset })} options={charsetOptions(p.charset).map((k) => ({ value: k, label: CHARSETS[k] }))} />}
           {p.kind === 'serial' && <SelectField label="Vitesse du port" value={String(p.baud ?? 9600)} onChange={(v) => set({ baud: Number(v) })} options={[9600, 19200, 38400, 115200].map((b) => ({ value: String(b), label: `${b} bauds` }))} />}
           {p.kind === 'bluetooth' && <SelectField label="Envoi Bluetooth" value={p.btSpeed ?? 'safe'} onChange={(v) => set({ btSpeed: v as BtSpeed })} options={(Object.keys(BT_SPEEDS) as BtSpeed[]).map((k) => ({ value: k, label: BT_SPEEDS[k] }))} />}
           {direct && <SelectField label="Espace blanc en bas du ticket" value={String(p.feedMm ?? DEFAULT_FEED_MM)} onChange={(v) => set({ feedMm: Number(v) })} options={[10, 15, 20, 25, 30, 40, 50].map((n) => ({ value: String(n), label: `${n / 10} cm${n === DEFAULT_FEED_MM ? ' (conseillé)' : ''}` }))} />}
-        </div>
-        {direct && !cat && p.ref && <div className="row" style={{ alignItems: 'center' }}><Button variant="ghost" icon="printer" onClick={accents}>Test des accents</Button><span className="small muted">Imprime une ligne par jeu (A, C, D) : choisissez la lettre dont la ligne est bien imprimée.</span></div>}
-        {p.kind === 'bluetooth' && <p className="small muted" style={{ margin: 0 }}>{cat ? 'Si le texte sort écrasé ou incomplet, gardez « Envoi Bluetooth : Sûr » (plus lent, rien ne se perd).' : 'Si le ticket s’arrête au milieu, gardez « Envoi Bluetooth : Sûr ».'}</p>}
-        <Toggle checked={p.logo} onChange={(v) => set({ logo: v })} label="Imprimer le logo en haut du ticket" />
-        {direct && !cat && <Toggle checked={p.cut} onChange={(v) => set({ cut: v })} label="Couper le papier à la fin (si l’imprimante a un massicot)" />}
+        </div>}
+        {label && <SelectField label="Envoi Bluetooth" value={p.btSpeed ?? 'safe'} onChange={(v) => set({ btSpeed: v as BtSpeed })} options={(Object.keys(BT_SPEEDS) as BtSpeed[]).map((k) => ({ value: k, label: BT_SPEEDS[k] }))} />}
+        {direct && !cat && !label && p.ref && <div className="row" style={{ alignItems: 'center' }}><Button variant="ghost" icon="printer" onClick={accents}>Test des accents</Button><span className="small muted">Imprime une ligne par jeu (A, C, D) : choisissez la lettre dont la ligne est bien imprimée.</span></div>}
+        {p.kind === 'bluetooth' && !label && <p className="small muted" style={{ margin: 0 }}>{cat ? 'Si le texte sort écrasé ou incomplet, gardez « Envoi Bluetooth : Sûr » (plus lent, rien ne se perd).' : 'Si le ticket s’arrête au milieu, gardez « Envoi Bluetooth : Sûr ».'}</p>}
+        {!label && <Toggle checked={p.logo} onChange={(v) => set({ logo: v })} label="Imprimer le logo en haut du ticket" />}
+        {direct && !cat && !label && <Toggle checked={p.cut} onChange={(v) => set({ cut: v })} label="Couper le papier à la fin (si l’imprimante a un massicot)" />}
       </div>
     </Modal>
   );

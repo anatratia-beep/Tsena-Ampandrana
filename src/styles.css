@@ -1295,3 +1295,12 @@ a.bell { text-decoration: none; }
 .link-state.is-on { background: var(--ok-soft); color: var(--ok); }
 .link-state.is-off { background: var(--danger-soft, #fde8ec); color: var(--danger, #c0392b); }
 .link-state::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+
+/* ---- Étiquettes et QR, scan ---- */
+.scan-video { width: 100%; max-height: 60vh; border-radius: 16px; background: #000; object-fit: cover; aspect-ratio: 4 / 3; }
+.labels-table td { vertical-align: middle; }
+.labels-table .segmented button { min-height: 32px; padding: 0 10px; font-size: .82rem; }
+.labels-table .field { min-width: 180px; }
+.warranty-list { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 0; }
+.warranty-list dt { color: var(--muted); font-weight: 600; }
+.warranty-list dd { margin: 0; font-weight: 700; }

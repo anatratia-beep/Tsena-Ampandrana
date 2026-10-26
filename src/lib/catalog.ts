@@ -2,6 +2,7 @@
 import { useMemo } from 'react';
 import { all, get, getMeta, newId, nowIso, save, useTable, type BaseRecord , bizNow, workDate } from './db';
 import { audit, currentUser } from './auth';
+import { serialsForMoves, type MoveLike } from './serials';
 
 /** Valeur d'une variante de catégorie (ex. « B22 (baïonnette) », code court « B22 »). */
 export interface AttrValue { id: string; label: string; code: string; active?: boolean }
@@ -30,6 +31,10 @@ export interface Product extends BaseRecord {
   removedWithPage?: string;
   /** Valeurs choisies pour les variantes de la catégorie : id de la variante → id de la valeur. */
   attrs?: Record<string, string>;
+  /** Chaque pièce a son numéro de série (étiquette, garantie). */
+  serialTracked?: boolean;
+  /** Garantie en mois (0 ou vide : pas de garantie). */
+  warrantyMonths?: number;
   /** Lot ou promotion : article sans stock propre qui regroupe d'autres articles (voir lots.ts). */
   kind?: 'lot';
   lot?: import('./lots').LotDef;
@@ -46,6 +51,8 @@ export interface Variant extends BaseRecord {
   priceRetail?: number;   // si différent du prix de l'article
   priceWholesale?: number;
   active: boolean;
+  /** Code court imprimé en QR sur l'étiquette de l'article (ex. A00042), créé la première fois. */
+  labelCode?: string;
 }
 export type MoveType = 'initial' | 'reception' | 'sale' | 'return' | 'adjust' | 'inventory' | 'dispatch' | 'delivery_return' | 'exchange_in';
 export interface StockMove extends BaseRecord {
@@ -59,6 +66,8 @@ export interface StockMove extends BaseRecord {
   at: string;
   userId?: string;
   userName?: string;
+  /** Numéros de série des pièces concernées (articles suivis par numéro de série). */
+  serials?: string[];
 }
 
 export const MOVE_LABELS: Record<MoveType, string> = {
@@ -238,9 +247,11 @@ export function groupByCategory<T>(items: T[], catOf: (x: T) => string | undefin
 // ---------- Écritures ----------
 export async function addMoves(moves: Omit<StockMove, 'id' | 'createdAt' | 'updatedAt' | 'at'> & { at?: string } | (Omit<StockMove, 'id' | 'createdAt' | 'updatedAt' | 'at'> & { at?: string })[]) {
   const u = currentUser();
-  const list = (Array.isArray(moves) ? moves : [moves]).filter((m) => m.qty !== 0 && !!m.variantId);
+  type M = Omit<StockMove, 'id' | 'createdAt' | 'updatedAt'> & MoveLike;
+  const list: M[] = (Array.isArray(moves) ? moves : [moves]).filter((m) => m.qty !== 0 && !!m.variantId).map((m) => ({ ...m, at: m.at ?? bizNow() }) as M);
   if (!list.length) return [];
-  return save('stockMoves', list.map((m) => ({ ...m, at: m.at ?? bizNow(), userId: u?.id, userName: u?.fullName })));
+  await serialsForMoves(list); // numéros de série des articles suivis (créés, vendus, rendus)
+  return save('stockMoves', list.map((m) => ({ ...m, serials: m.serials?.length ? m.serials : undefined, userId: u?.id, userName: u?.fullName })));
 }
 
 /** Entrée en stock avec mise à jour du coût moyen pondéré. */

@@ -30,6 +30,8 @@ export interface OrderLine {
   wholesale?: boolean;      // prix de gros pour cet article (sinon prix détail)
   qtyKept?: number;         // renseigné au retour du livreur
   qtyReturned?: number;
+  /** Numéros de série scannés pour cette ligne (articles suivis par numéro de série). */
+  serials?: string[];
   /** Article faisant partie d'un lot / d'une promotion (même lotKey = même lot vendu). */
   lotKey?: string;
   lotProductId?: string;
@@ -501,7 +503,7 @@ export async function createWalkInSale(d: { lines: OrderLine[]; adjusts?: Adjust
     status: 'delivered', statusDates: { delivered: at }, dispatchedAt: at, returnedAt: at, outsideHours: d.outsideHours, cashGiven: d.cashGiven || undefined, createdBy: u?.id, createdByName: u?.fullName,
     ...(internal ? { internal: true, employeeId: d.employee!.id, employeeName: d.employee!.name, wholesale: 'no' as const } : {}),
   });
-  await addMoves(d.lines.map((l) => ({ variantId: l.variantId, qty: -l.qty, type: 'sale' as const, refType: 'order', refId: o.id, reason: `${number} — ${internal ? `vente interne (${d.employee!.name})` : 'vente sur place'}`, at })));
+  await addMoves(d.lines.map((l) => ({ variantId: l.variantId, qty: -l.qty, type: 'sale' as const, refType: 'order', refId: o.id, reason: `${number} — ${internal ? `vente interne (${d.employee!.name})` : 'vente sur place'}`, at, serials: l.serials })));
   await audit(internal ? 'Vente interne' : 'Vente sur place', `${number} — ${d.lines.reduce((s, l) => s + l.qty, 0)} article(s)${internal ? ` — employé : ${d.employee!.name}` : ''}`, 'orders', o.id);
   // Contrôle : grosse remise ou prix baissé à la main → action importante, à vérifier par le gérant.
   if (!internal) {

@@ -3,6 +3,7 @@
 import { layout, logoFor, type Paper, type PrintDoc, type Row } from './doc';
 import { qrMatrix, qrSvg } from '../qr';
 import { CAT_NOTIFY, CAT_SERVICE, CAT_WRITE, canvasRows } from './cat';
+import { LUCK_NOTIFY, LUCK_SERVICE, LUCK_WRITE } from './labels';
 
 const nav = navigator as any;
 export const support = {
@@ -43,7 +44,7 @@ function watchDevice(ref: string, dev: any) {
   if (dev.__tsenaWatch) return;
   dev.__tsenaWatch = true;
   dev.addEventListener?.('gattserverdisconnected', () => {
-    btChars.delete(ref); catLinks.delete(ref); linkChanged();
+    btChars.delete(ref); catLinks.delete(ref); luckLinks.delete(ref); linkChanged();
     if (!autoReconnect) return;
     // Pas besoin de geste de l'utilisateur pour se reconnecter à un appareil déjà autorisé.
     let n = 0;
@@ -188,6 +189,41 @@ async function writeCatBluetooth(ref: string, data: Uint8Array, speed: BtSpeed =
   }
 }
 
+// ---------- Imprimante d'étiquettes Luck Jingle (L12 « MPL12 »…) ----------
+const luckLinks = new Map<string, { write: any }>();
+async function luckLink(ref: string, name?: string, fresh = false) {
+  const known = luckLinks.get(ref);
+  if (known && !fresh && btDevices.get(ref)?.gatt?.connected) return known;
+  await btCharacteristic(ref, name, fresh);
+  const dev = btDevices.get(ref);
+  const svc = await dev.gatt.getPrimaryService(LUCK_SERVICE);
+  const write = await svc.getCharacteristic(LUCK_WRITE);
+  try { const n = await svc.getCharacteristic(LUCK_NOTIFY); await n.startNotifications(); } catch { /* réponses facultatives */ }
+  const link = { write };
+  luckLinks.set(ref, link);
+  return link;
+}
+/** Envoi par morceaux de 100 octets (20 si la liaison refuse), avec une pause : l'imprimante imprime pendant l'envoi. */
+async function writeLuckBluetooth(ref: string, data: Uint8Array, speed: BtSpeed = 'safe', name?: string) {
+  let link = await luckLink(ref, name);
+  let size = 100;
+  const pause = speed === 'safe' ? 40 : speed === 'fast' ? 25 : 12;
+  for (let i = 0; i < data.length;) {
+    const part = data.slice(i, i + size);
+    try {
+      const w = link.write;
+      if (w.properties?.write && w.writeValueWithResponse) await w.writeValueWithResponse(part);
+      else await (w.writeValueWithoutResponse ? w.writeValueWithoutResponse(part) : w.writeValue(part));
+      i += part.length;
+      await sleep(pause);
+    } catch (e: any) {
+      if (size > 20 && btDevices.get(ref)?.gatt?.connected) { size = 20; continue; } // liaison limitée à 20 octets
+      if (!btDevices.get(ref)?.gatt?.connected) { link = await luckLink(ref, name, true); continue; }
+      throw new Error(`Envoi à l’imprimante d’étiquettes interrompu (${Math.round((i / data.length) * 100)} % envoyé) : ${e?.message ?? e}`);
+    }
+  }
+}
+
 // ---------- USB ----------
 const usbRef = (d: any) => `${d.vendorId}:${d.productId}:${d.serialNumber || ''}`;
 export async function pairUsb(): Promise<{ ref: string; name: string }> {
@@ -277,7 +313,7 @@ async function writeSerial(ref: string, data: Uint8Array, baud: number) {
   try { await w.write(withTail(data)); } finally { w.releaseLock(); }
 }
 
-export interface RawOpts { baud?: number; btSpeed?: BtSpeed; name?: string; /** mini imprimante « Tiny Print » */ cat?: boolean }
+export interface RawOpts { baud?: number; btSpeed?: BtSpeed; name?: string; /** mini imprimante « Tiny Print » */ cat?: boolean; /** imprimante d'étiquettes Luck Jingle */ luck?: boolean }
 /**
  * Reconnecte sans geste de l'utilisateur quand c'est possible (imprimante déjà autorisée et connue de cette page).
  * Renvoie false s'il faut un clic (le navigateur a oublié l'imprimante).
@@ -319,7 +355,8 @@ export function writeRaw(kind: 'bluetooth' | 'usb' | 'serial', ref: string, data
   const run = async () => {
     lastWrite.set(ref, Date.now());
     try {
-      if (kind === 'bluetooth' && o.cat) await writeCatBluetooth(ref, data, o.btSpeed, o.name);
+      if (kind === 'bluetooth' && o.luck) await writeLuckBluetooth(ref, data, o.btSpeed, o.name);
+      else if (kind === 'bluetooth' && o.cat) await writeCatBluetooth(ref, data, o.btSpeed, o.name);
       else if (kind === 'bluetooth') await writeBluetooth(ref, data, o.btSpeed, o.name);
       else if (kind === 'usb') await writeUsb(ref, data);
       else await writeSerial(ref, data, o.baud || 9600);
@@ -337,7 +374,7 @@ export async function disconnectRaw(kind: 'bluetooth' | 'usb' | 'serial', ref: s
       let dev = btDevices.get(ref);
       if (!dev && nav.bluetooth?.getDevices) dev = (await nav.bluetooth.getDevices()).find((d: any) => d.id === ref);
       if (dev?.gatt?.connected) dev.gatt.disconnect();
-      btChars.delete(ref); btDevices.delete(ref); catLinks.delete(ref);
+      btChars.delete(ref); btDevices.delete(ref); catLinks.delete(ref); luckLinks.delete(ref);
       if (dev?.forget) await dev.forget().catch(() => {});
     } else if (kind === 'usb') {
       const d = (await nav.usb.getDevices()).find((x: any) => usbRef(x) === ref);
@@ -398,6 +435,22 @@ export function systemPrint(doc: PrintDoc, paper: Paper, logo?: string | null, c
         setTimeout(finish, 1500); // certains navigateurs n'envoient pas « afterprint »
       }, 50);
     });
+  });
+}
+
+/** Étiquettes dans la fenêtre d'impression (imprimante d'étiquettes installée sur l'ordinateur, PDF) : une page par étiquette. */
+export function systemPrintImages(images: string[], wMm: number, hMm: number): Promise<void> {
+  return new Promise((resolve) => {
+    const area = document.createElement('div');
+    area.className = 'print-area print-labels';
+    area.innerHTML = images.map((src) => `<div style="width:${wMm}mm;height:${hMm}mm;page-break-after:always;display:flex;align-items:center;justify-content:center;overflow:hidden"><img src="${src}" style="width:${wMm}mm;height:${hMm}mm;object-fit:contain"></div>`).join('');
+    const style = document.createElement('style');
+    style.textContent = `@page { size: ${wMm}mm ${hMm}mm; margin: 0; }`;
+    document.head.appendChild(style); document.body.appendChild(area); document.body.classList.add('printing');
+    let done = false;
+    const finish = () => { if (done) return; done = true; document.body.classList.remove('printing'); area.remove(); style.remove(); resolve(); };
+    window.addEventListener('afterprint', () => setTimeout(finish, 300), { once: true });
+    Promise.all([...area.querySelectorAll('img')].map((i) => i.decode().catch(() => null))).then(() => setTimeout(() => { window.print(); setTimeout(finish, 1500); }, 50));
   });
 }
 
