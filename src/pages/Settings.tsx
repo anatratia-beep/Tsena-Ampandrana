@@ -257,7 +257,7 @@ function CloudTab() {
       </div>
       {cloud && <ConflictsCard />}
       {cloud && <DevicesCard />}
-      {cloud && <SyncHistoryCard />}
+      {cloud && <><BlockedCard /><SyncHistoryCard /></>}
       <VersionAndResync />
       <div className="card stack-s small">
         <h3>Travailler sans Internet</h3>
@@ -543,6 +543,34 @@ function RestoreConfirm({ pick, onClose }: { pick: { label: string; data: Record
           <p className="small">La restauration est envoyée à tous les appareils reliés au cloud.</p>
         </div>
       } />
+  );
+}
+
+const TBL_LABEL: Record<string, string> = { orders: 'Commande / vente', printJobs: 'Ticket envoyé à un poste', printStations: 'Poste d’impression', products: 'Article', variants: 'Article (variante)', stockMoves: 'Mouvement de stock', cashMoves: 'Mouvement de caisse', customers: 'Client', users: 'Utilisateur', categories: 'Page' };
+/** Fiches refusées par le cloud : elles ne bloquent plus le reste ; on les voit ici, avec la raison. */
+function BlockedCard() {
+  const list = useMeta<{ tbl: string; id: string; error: string; at: string }[]>('syncBlocked', []);
+  if (!list.length) return null;
+  const drop = async (b: { tbl: string; id: string }) => {
+    // Seulement pour les tickets d'impression : on les retire de la file d'envoi (ils ne comptent pas dans les ventes).
+    const { outboxEntries, outboxClear, remove } = await import('../lib/db');
+    const e = (await outboxEntries()).filter((x) => x.tbl === b.tbl && x.id === b.id);
+    await outboxClear(e);
+    await remove(b.tbl as any, b.id).catch(() => {});
+    await setMeta('syncBlocked', list.filter((x) => !(x.tbl === b.tbl && x.id === b.id)));
+    toast('Ticket retiré de la file d’envoi');
+  };
+  return (
+    <div className="card stack-s">
+      <div className="notice notice-danger"><Icon name="alert" /><span><strong>{list.length} fiche(s) refusée(s) par le cloud.</strong> Tout le reste est bien synchronisé. Ces fiches seront renvoyées à chaque synchronisation ; si le message ne change pas, envoyez une capture de cet écran.</span></div>
+      <ul className="list">{list.map((b) => (
+        <li key={b.tbl + b.id} className="list-item" style={{ padding: '8px 4px' }}>
+          <span className="list-item-main small"><strong>{TBL_LABEL[b.tbl] ?? b.tbl}</strong> <span className="muted">{b.id}</span><br /><span className="neg">{b.error}</span></span>
+          {(b.tbl === 'printJobs' || b.tbl === 'printStations') && <Button variant="ghost" className="btn-sm" onClick={() => drop(b)}>Retirer</Button>}
+        </li>
+      ))}</ul>
+      <div><Button variant="ghost" icon="refresh" onClick={() => syncNow()}>Réessayer maintenant</Button></div>
+    </div>
   );
 }
 

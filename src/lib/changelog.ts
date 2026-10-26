@@ -2,6 +2,11 @@
 // La plus récente en premier. `date` : AAAA-MM-JJ.
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
+  { date: '2026-10-26', items: [
+    'Synchronisation : une fiche refusée par le cloud ne bloque plus tout l’appareil ; les ventes et le reste partent quand même, la fiche en cause est signalée dans Paramètres → Cloud avec la raison (et renvoyée à chaque synchronisation).',
+    'Synchronisation : envoi par paquets d’environ 1 Mo au plus (photos, tickets) pour éviter les refus « trop gros ».',
+    'Tickets envoyés au poste d’impression plus légers : le logo de la page n’est plus copié dans chaque ticket.',
+  ] },
   { date: '2026-10-24', items: [
     'Poste d’impression qui ne se coupe plus : écran gardé allumé tant que Trésor en ligne est ouvert sur le poste, reconnexion Bluetooth automatique dès que la liaison lâche (sans clic), liaison entretenue toutes les 20 s, reconnexion dès que le téléphone se rallume ; conseils affichés (chargeur, batterie « Sans restriction » pour Chrome…).',
     'Imprimantes : état de la liaison en direct, vert « Connectée » ou rouge « À reconnecter », avec le bouton « Se reconnecter maintenant ».',

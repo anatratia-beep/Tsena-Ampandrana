@@ -116,33 +116,53 @@ export async function syncNow(): Promise<void> {
     // 2. Envoi des modifications locales (fusionnées), par paquets. Renvoyer deux fois la même version ne crée
     //    jamais de doublon : chaque enregistrement a un identifiant unique, le cloud le remplace au lieu de l'ajouter.
     const rejected: { tbl: string; id: string }[] = [];
+    const blocked: { tbl: string; id: string; error: string }[] = [];
+    // Envoi d'un paquet ; s'il est refusé, il est coupé en deux jusqu'à trouver la fiche en cause : une seule fiche
+    // refusée ne bloque plus tout l'appareil (les autres ventes partent quand même), elle est signalée à part.
+    const send = async (rows: { tbl: string; id: string; data: unknown; updated_at?: string; device: string }[]): Promise<void> => {
+      if (!rows.length) return;
+      const res = await fetch(`${cfg.url}/rest/v1/records?on_conflict=tbl,id&select=tbl,id,updated_at`, {
+        method: 'POST',
+        headers: { ...headers(cfg), Prefer: 'resolution=merge-duplicates,return=representation' },
+        body: JSON.stringify(rows),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        if ([401, 403, 502, 503, 504].includes(res.status)) throw new Error(`Envoi refusé (${res.status}) ${text}`);
+        if (rows.length > 1) { const half = Math.ceil(rows.length / 2); await send(rows.slice(0, half)); await send(rows.slice(half)); return; }
+        blocked.push({ tbl: rows[0].tbl, id: rows[0].id, error: `(${res.status}) ${text}`.slice(0, 300) });
+        return;
+      }
+      sent += rows.length;
+      // Vérification : le cloud ignore sans rien dire une version qu'il croit plus ancienne que la sienne (heure du
+      // téléphone en retard…). Ces fiches ne reviennent pas dans la réponse : on va chercher la version du cloud,
+      // on la fusionne avec celle d'ici (les modifications d'ici repartent, plus récentes), et on renvoie.
+      let back: unknown = null;
+      try { back = await res.json(); } catch { back = null; }
+      if (Array.isArray(back)) {
+        const ok = new Set(back.filter((b: any) => b && b.tbl).map((b: any) => b.tbl + ':' + b.id));
+        for (const r of rows) if (!ok.has(r.tbl + ':' + r.id)) rejected.push({ tbl: r.tbl, id: r.id });
+      }
+    };
     const push = async () => {
       const entries = await outboxEntries();
-      for (let i = 0; i < entries.length; i += 200) {
-        const chunk = entries.slice(i, i + 200);
-        const rows = chunk
-          .map((e) => ({ e, r: getRaw(e.tbl, e.id) }))
-          .filter((x) => x.r)
-          .map(({ e, r }) => ({ tbl: e.tbl, id: r!.id, data: r, updated_at: r!.updatedAt, device }));
-        if (rows.length) {
-          const res = await fetch(`${cfg.url}/rest/v1/records?on_conflict=tbl,id&select=tbl,id,updated_at`, {
-            method: 'POST',
-            headers: { ...headers(cfg), Prefer: 'resolution=merge-duplicates,return=representation' },
-            body: JSON.stringify(rows),
-          });
-          if (!res.ok) throw new Error(`Envoi refusé (${res.status}) ${await res.text()}`);
-          sent += rows.length;
-          // Vérification : le cloud ignore sans rien dire une version qu'il croit plus ancienne que la sienne (heure du
-          // téléphone en retard…). Ces fiches ne reviennent pas dans la réponse : on va chercher la version du cloud,
-          // on la fusionne avec celle d'ici (les modifications d'ici repartent, plus récentes), et on renvoie.
-          let back: unknown = null;
-          try { back = await res.json(); } catch { back = null; }
-          if (Array.isArray(back)) {
-            const ok = new Set(back.filter((b: any) => b && b.tbl).map((b: any) => b.tbl + ':' + b.id));
-            for (const r of rows) if (!ok.has(r.tbl + ':' + r.id)) rejected.push({ tbl: r.tbl, id: r.id });
-          }
+      // Paquets de 200 fiches au plus et d'environ 1 Mo au plus (photos, tickets…).
+      let i = 0;
+      while (i < entries.length) {
+        const chunk: typeof entries = []; const rows: { tbl: string; id: string; data: unknown; updated_at?: string; device: string }[] = [];
+        let bytes = 0;
+        while (i < entries.length && chunk.length < 200) {
+          const e = entries[i]; const r = getRaw(e.tbl, e.id);
+          const size = r ? JSON.stringify(r).length : 0;
+          if (chunk.length && bytes + size > 1_000_000) break;
+          chunk.push(e); i++;
+          if (r) { rows.push({ tbl: e.tbl, id: r.id, data: r, updated_at: r.updatedAt, device }); bytes += size; }
         }
-        await outboxClear(chunk); // seulement les entrées qui n'ont pas changé pendant l'envoi
+        const before = blocked.length;
+        await send(rows);
+        // Les fiches refusées restent dans la file (nouvel essai au prochain passage) ; les autres sont parties.
+        const stuck = new Set(blocked.slice(before).map((b) => b.tbl + ':' + b.id));
+        await outboxClear(chunk.filter((e) => !stuck.has(e.tbl + ':' + e.id))); // seulement les entrées qui n'ont pas changé pendant l'envoi
       }
     };
 
@@ -181,7 +201,13 @@ export async function syncNow(): Promise<void> {
     await ensureDeviceCode();
 
     if (sent || received || conflicts.length) await logSync({ sent, received, conflicts: conflicts.length });
-    setStatus({ state: 'ok', pending: await outboxCount(), lastSync: new Date().toISOString(), error: undefined });
+    const uniqBlocked = [...new Map(blocked.map((b) => [b.tbl + ':' + b.id, b])).values()];
+    await setMeta('syncBlocked', uniqBlocked.map((b) => ({ ...b, at: new Date().toISOString() })));
+    if (uniqBlocked.length) {
+      const msg = `${uniqBlocked.length} fiche(s) refusée(s) par le cloud (le reste est bien synchronisé) : ${uniqBlocked[0].tbl} ${uniqBlocked[0].error}`;
+      await logSync({ sent, received, conflicts: 0, error: msg }).catch(() => {});
+      setStatus({ state: 'error', pending: await outboxCount(), lastSync: new Date().toISOString(), error: msg });
+    } else setStatus({ state: 'ok', pending: await outboxCount(), lastSync: new Date().toISOString(), error: undefined });
   } catch (e: any) {
     if (navigator.onLine) await logSync({ sent: 0, received: 0, conflicts: 0, error: e?.message ?? String(e) }).catch(() => {});
     setStatus({ state: navigator.onLine ? 'error' : 'offline', error: e?.message ?? String(e), pending: await outboxCount() });

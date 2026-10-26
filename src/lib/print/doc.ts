@@ -53,7 +53,11 @@ export interface Row { s: string; bold?: boolean; big?: boolean; tall?: boolean;
  * Logo à dessiner pour une ligne « logo ». `allowed` : null = logos désactivés sur cette imprimante ;
  * sinon logo par défaut (société). Le logo propre au document (page) passe en premier.
  */
-export const logoFor = (r: Row, allowed: string | null | undefined) => (allowed === null ? undefined : r.logoSrc || allowed || undefined);
+export const logoFor = (r: Row, allowed: string | null | undefined) => {
+  if (allowed === null) return undefined;
+  const src = r.logoSrc?.startsWith('page:') ? get<Category>('categories', r.logoSrc.slice(5))?.logo : r.logoSrc;
+  return src || allowed || undefined;
+};
 
 /** Marges : 2 colonnes à gauche, 1 à droite (largeur utile = colonnes du papier − 3). */
 export const MARGIN_L = 2, MARGIN_R = 1;
@@ -108,7 +112,8 @@ const ar = (n: number) => fmtAr(n);
 
 function header(c: Brand, withLogo = true): Block[] {
   const b: Block[] = [];
-  if (withLogo && c.logo) b.push({ k: 'logo', src: c.pageId ? c.logo : undefined });
+  // Logo de la page : référence « page:… » (et pas l'image elle-même), pour que les tickets envoyés au poste restent légers.
+  if (withLogo && c.logo) b.push({ k: 'logo', src: c.pageId && get<Category>('categories', c.pageId)?.logo ? `page:${c.pageId}` : undefined });
   b.push(T(c.name, { align: 'center', bold: true, tall: true }));
   if (c.slogan) b.push(T(c.slogan, { align: 'center' }));
   if (c.address) b.push(T(c.address, { align: 'center' }));
