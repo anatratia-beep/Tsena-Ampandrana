@@ -61,6 +61,15 @@ export function feedBytes(mm: number): number[] {
   if (!lines) return [];
   return [ESC, 0x33, 24, ...new Array(lines).fill(0x0a), ESC, 0x32];
 }
+/**
+ * Fin de ticket : l'espace blanc, puis un petit point. Certaines imprimantes (Xprinter XP-80TS…) n'avancent pas
+ * le papier pour des lignes vides tant que rien d'autre n'est imprimé : la fin du ticket restait dans l'imprimante
+ * et ne sortait qu'au ticket suivant. Le point oblige l'imprimante à faire l'avance tout de suite ; il est imprimé
+ * sous la tête, donc à l'intérieur de l'imprimante (il ne se voit pas sur le ticket détaché).
+ */
+export function endBytes(mm: number): number[] {
+  return [...feedBytes(mm), ESC, 0x61, 1, 0x2e, 0x0a, ESC, 0x61, 0];
+}
 export const DEFAULT_FEED_MM = 20;
 
 /**
@@ -151,8 +160,8 @@ export async function encodeDoc(doc: PrintDoc, o: EncodeOpts): Promise<Uint8Arra
   }
   if (bold) one.push(ESC, 0x45, 0);
   setSize(0);
-  one.push(...feed); // espace blanc en bas pour déchirer sans couper le texte
-  if (o.cut) one.push(GS, 0x56, 0x42, 0x00);
+  if (o.cut) { one.push(...feed, GS, 0x56, 0x42, 0x00); } // la coupe fait avancer le papier elle-même
+  else one.push(...endBytes(o.feedMm ?? DEFAULT_FEED_MM)); // espace blanc en bas pour déchirer sans couper le texte
   const all: number[] = [];
   for (let i = 0; i < Math.max(1, o.copies ?? 1); i++) all.push(...one);
   return new Uint8Array(all);
@@ -167,6 +176,6 @@ export function accentTestBytes(printerName: string, feedMm = DEFAULT_FEED_MM): 
     b.push(ESC, 0x74, CHARSET_TABLE[cs], ...encodeText(`${letter} : ${sample}`, cs), 0x0a);
   }
   b.push(ESC, 0x74, 0, 0x0a, ...encodeText('Choisissez la lettre dont la ligne', 'ascii'), 0x0a, ...encodeText('est bien imprimee.', 'ascii'), 0x0a);
-  b.push(...feedBytes(feedMm));
+  b.push(...endBytes(feedMm));
   return new Uint8Array(b);
 }

@@ -46,7 +46,7 @@ const tail = await p.evaluate(() => { const g = window.__usb.got; const done = M
   let last = -1; for (let i = g.length - 1; i >= 0; i--) if (g[i] !== 0) { last = i; break; }
   return { done, last, feed: g.slice(Math.max(0, last - 9), last + 1) }; });
 ok(tail.last >= 0 && tail.last < tail.done, 'fin du ticket (avance du papier) traitée tout de suite, pas au ticket suivant');
-ok(tail.feed.slice(-3).join() === '10,27,50', 'le ticket finit par les sauts de ligne de l’espace blanc (… 0a 1b 32)');
+ok(tail.feed.slice(-10).join() === '10,27,50,27,97,1,46,10,27,97', 'le ticket finit par l’espace blanc puis le petit point qui force l’avance');
 // Deux tickets lancés en même temps : ils ne se mélangent pas
 await p.evaluate(() => { window.__usb.got = []; window.__usb.chunks = []; window.__usb.lost = 0; });
 await row.getByRole('button', { name: 'Test', exact: true }).click(); await p.waitForTimeout(50);

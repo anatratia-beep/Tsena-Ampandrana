@@ -46,12 +46,13 @@ await p.getByRole('listitem').filter({ hasText: 'Ticket USB' }).getByRole('butto
 h = hex(await p.evaluate(() => window.__usbOut));
 ok(h.includes('1b 33 18 0a 0a 0a 0a 0a 0a 0a 1b 32'), 'page de test : 2 cm d’espace blanc (7 sauts de ligne de 3 mm)');
 ok(h.startsWith('1b 40 1c 2e'), 'début du ticket : remise à zéro + sortie du mode chinois (1c 2e)');
+ok(h.includes('1b 32 1b 61 01 2e 0a'), 'fin du ticket : un petit point après l’espace blanc pour forcer l’avance du papier');
 // 2. Bluetooth : paquets ≤ 20 octets, ticket complet malgré un paquet refusé
 await p.getByRole('listitem').filter({ hasText: 'Ticket BT' }).getByRole('button', { name: 'Test' }).click(); await p.waitForTimeout(2500);
 const chunks = await p.evaluate(() => window.__btChunks);
 const flat = chunks.flat();
 ok(chunks.length > 5 && chunks.every((c) => c.length <= 20), `Bluetooth : ${chunks.length} paquets, tous ≤ 20 octets`);
-ok(hex(flat).endsWith('0a 0a 1b 32') && hex(flat).startsWith('1b 40 1c 2e'), 'Bluetooth : ticket complet malgré un paquet refusé');
+ok(hex(flat).endsWith('0a 0a 1b 32 1b 61 01 2e 0a 1b 61 00') && hex(flat).startsWith('1b 40 1c 2e'), 'Bluetooth : ticket complet malgré un paquet refusé');
 // 3. Déconnecter / Reconnecter
 await p.getByRole('listitem').filter({ hasText: 'Ticket USB' }).getByRole('button', { name: 'Déconnecter' }).click();
 await p.getByRole('dialog').getByRole('button', { name: 'Déconnecter' }).click(); await p.waitForTimeout(400);
