@@ -38,7 +38,7 @@ ok(dlg.includes('Mini imprimante (application « Tiny Print »)') && !dlg.includ
 await p.screenshot({ path: '/tmp/claude-0/mini-form.png' });
 await p.getByRole('button', { name: 'Page de test' }).click();
 await p.waitForFunction(() => window.__cat.writes > 50 && performance.now() > 0, null, { timeout: 60000 });
-await p.waitForTimeout(4000);
+await p.waitForTimeout(15000);
 const r = await p.evaluate(() => {
   const b = window.__cat.bytes; const frames = []; let i = 0, bad = 0;
   const T = new Uint8Array(256); for (let k = 0; k < 256; k++) { let c = k; for (let j = 0; j < 8; j++) c = c & 0x80 ? ((c << 1) ^ 7) & 255 : (c << 1) & 255; T[k] = c; }
@@ -62,6 +62,8 @@ ok(r.cmds[0] === 0xa3 && r.cmds.includes(0xa4) && r.cmds.includes(0xaf), 'début
 ok(r.cmds.filter((c) => c === 0xa6).length === 2, 'début et fin de l’impression (A6)');
 ok(r.rowLens.length === 1 && r.rowLens[0] === 48 && r.cmds.filter((c) => c === 0xa2).length > 100, 'ticket envoyé en lignes de 384 points (48 octets)');
 ok(r.cmds.lastIndexOf(0xa1) > r.cmds.lastIndexOf(0xa6), 'avance du papier à la fin (espace blanc)');
+const a6 = r.cmds.indexOf(0xa6), a6b = r.cmds.lastIndexOf(0xa6);
+ok(!r.cmds.slice(a6, a6b).includes(0xa1), 'pendant le dessin : toutes les lignes envoyées, même blanches (pas d’avance A1 qui écrase le texte)');
 ok(r.whole, 'chaque envoi Bluetooth contient des trames entières (une ligne n’est jamais coupée en deux)');
 ok(r.dp === 0, 'pause demandée par l’imprimante respectée (rien envoyé pendant la pause)');
 await b.close();

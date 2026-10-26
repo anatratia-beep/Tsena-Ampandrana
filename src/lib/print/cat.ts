@@ -50,7 +50,7 @@ export function canvasRows(ctx: CanvasRenderingContext2D, width: number, height:
 }
 
 export interface CatOpts { feedMm?: number; copies?: number; energy?: number; speed?: number }
-/** Commandes complètes pour imprimer ces lignes (les lignes blanches deviennent une simple avance du papier). */
+/** Commandes complètes pour imprimer ces lignes ; l'espace blanc de la fin est une avance du papier, après le dessin. */
 export function encodeCat(rows: Uint8Array[], o: CatOpts = {}): Uint8Array {
   const energy = o.energy ?? 0x3000;
   const out: number[] = [];
@@ -62,14 +62,9 @@ export function encodeCat(rows: Uint8Array[], o: CatOpts = {}): Uint8Array {
   out.push(...frame(0xa9, [0x00]));
   for (let c = 0; c < Math.max(1, o.copies ?? 1); c++) {
     out.push(...frame(0xa6, LATTICE_START));
-    let blank = 0;
-    const flush = () => { while (blank > 0) { const n = Math.min(255, blank); out.push(...frame(0xa1, [n, 0x00])); blank -= n; } };
-    for (const r of rows) {
-      if (r.every((b) => b === 0)) { blank++; continue; }
-      flush();
-      out.push(...frame(0xa2, r));
-    }
-    flush();
+    // Chaque ligne est envoyée, même blanche : le X6h ignore l'avance du papier (A1) pendant un dessin,
+    // et les lignes de texte se superposaient (photo du 26/10 : logo net, texte écrasé).
+    for (const r of rows) out.push(...frame(0xa2, r));
     out.push(...frame(0xa6, LATTICE_END));
     let feed = Math.round(Math.max(0, o.feedMm ?? 20) * 8); // 8 lignes par mm
     out.push(...frame(0xbd, [8]));
