@@ -140,24 +140,45 @@ async function catLink(ref: string, name?: string, fresh = false) {
   catLinks.set(ref, link);
   return link;
 }
-async function writeCatBluetooth(ref: string, data: Uint8Array, speed: BtSpeed = 'safe', name?: string) {
+/** Découpe le flux en trames entières (51 78 … FF) : une trame coupée en deux et perdue à moitié brouille la suite. */
+function catFrames(data: Uint8Array): Uint8Array[] {
+  const out: Uint8Array[] = [];
+  let i = 0;
+  while (i < data.length) {
+    const len = data[i] === 0x51 && data[i + 1] === 0x78 ? 8 + (data[i + 4] | (data[i + 5] << 8)) : data.length - i;
+    out.push(data.slice(i, i + len)); i += len;
+  }
+  return out;
+}
+async function writeCatBluetooth(ref: string, data: Uint8Array, _speed: BtSpeed = 'safe', name?: string) {
   let link = await catLink(ref, name);
-  const size = BT_CHUNK[speed] ?? 20;
-  for (let i = 0; i < data.length; i += size) {
-    const part = data.slice(i, i + size);
+  let split = 0; // 0 : une trame entière par envoi ; sinon taille des morceaux si la liaison refuse les longs envois
+  const frames = catFrames(data);
+  for (let f = 0; f < frames.length; f++) {
     for (let t = 0; link.paused && t < 250; t++) await sleep(20); // l'imprimante a demandé une pause (5 s au plus)
-    for (let attempt = 0; ; attempt++) {
-      try {
-        const w = link.write;
-        await (w.writeValueWithoutResponse ? w.writeValueWithoutResponse(part) : w.writeValue(part));
-        break;
-      } catch (e: any) {
-        if (attempt >= 6) throw new Error(`Envoi à la mini imprimante interrompu (${Math.round((i / data.length) * 100)} % envoyé) : ${e?.message ?? e}`);
-        await sleep(40 * (attempt + 1));
-        if (!btDevices.get(ref)?.gatt?.connected) link = await catLink(ref, name, true);
+    const fr = frames[f];
+    const parts: Uint8Array[] = [];
+    if (!split) parts.push(fr); else for (let k = 0; k < fr.length; k += split) parts.push(fr.slice(k, k + split));
+    for (let pi = 0; pi < parts.length; pi++) {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const w = link.write;
+          // Avec accusé de réception quand l'imprimante le permet : rien ne se perd en route.
+          if (w.properties?.write && w.writeValueWithResponse) await w.writeValueWithResponse(parts[pi]);
+          else await (w.writeValueWithoutResponse ? w.writeValueWithoutResponse(parts[pi]) : w.writeValue(parts[pi]));
+          break;
+        } catch (e: any) {
+          if (!split && parts[pi].length > 20 && attempt === 0 && btDevices.get(ref)?.gatt?.connected) { // envoi trop long pour la liaison
+            split = 20; f--; parts.length = 0; break;
+          }
+          if (attempt >= 6) throw new Error(`Envoi à la mini imprimante interrompu (${Math.round((f / frames.length) * 100)} % envoyé) : ${e?.message ?? e}`);
+          await sleep(40 * (attempt + 1));
+          if (!btDevices.get(ref)?.gatt?.connected) link = await catLink(ref, name, true);
+        }
       }
+      if (!parts.length) break;
+      await sleep(split ? 8 : 10); // laisse le temps à l'imprimante de chauffer la ligne
     }
-    await sleep(size <= 20 ? 6 : 12);
   }
 }
 

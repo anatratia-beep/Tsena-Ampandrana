@@ -4,13 +4,14 @@ const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' })
 const ctx = await b.newContext({ viewport: { width: 1280, height: 1000 }, timezoneId: 'Indian/Antananarivo' });
 await ctx.addInitScript(() => {
   const S = (n) => `0000${n}-0000-1000-8000-00805f9b34fb`;
-  const st = window.__cat = { bytes: [], writes: 0, duringPause: 0, paused: false, listeners: [] };
+  const st = window.__cat = { bytes: [], heads: [], writes: 0, duringPause: 0, paused: false, listeners: [] };
   const notify = { properties: { notify: true }, uuid: S('ae02'), async startNotifications() { return this; },
     addEventListener(t, f) { st.listeners.push(f); } };
   const send = (flag) => { const v = new Uint8Array([0x51, 0x78, 0xae, 0x01, 0x01, 0x00, flag, 0x00, 0xff]); st.listeners.forEach((f) => f({ target: { value: { buffer: v.buffer } } })); };
   const write = { properties: { writeWithoutResponse: true }, uuid: S('ae01'),
     async writeValueWithoutResponse(d) {
       if (st.paused) st.duringPause++;
+      { const u = new Uint8Array(d.buffer ? d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength) : d); st.heads.push(u[0] === 0x51 && u[1] === 0x78 && u[u.length - 1] === 0xff); }
       st.bytes.push(...new Uint8Array(d.buffer ? d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength) : d)); st.writes++;
       if (st.writes === 40) { st.paused = true; send(0x10); setTimeout(() => { st.paused = false; send(0x00); }, 300); }
     } };
@@ -52,7 +53,7 @@ const r = await p.evaluate(() => {
   const rows = []; for (const f of frames) { if (f.cmd === 0xa2) rows.push(f.data); else if (f.cmd === 0xa1 && rows.length) for (let k = 0; k < f.data[0]; k++) rows.push(new Array(48).fill(0)); }
   const cv = document.createElement('canvas'); cv.width = 384; cv.height = rows.length; const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 384, rows.length); g.fillStyle = '#000';
   rows.forEach((row, y) => { for (let x = 0; x < 384; x++) if (row[x >> 3] & (1 << (x & 7))) g.fillRect(x, y, 1, 1); });
-  return { n: frames.length, bad, cmds: frames.map((f) => f.cmd), rowLens: [...new Set(frames.filter((f) => f.cmd === 0xa2).map((f) => f.data.length))], png: cv.toDataURL(), dp: window.__cat.duringPause };
+  return { n: frames.length, bad, cmds: frames.map((f) => f.cmd), rowLens: [...new Set(frames.filter((f) => f.cmd === 0xa2).map((f) => f.data.length))], png: cv.toDataURL(), dp: window.__cat.duringPause, whole: window.__cat.heads.every(Boolean) };
 });
 const fs = await import('node:fs'); fs.writeFileSync('/tmp/claude-0/mini-ticket.png', Buffer.from(r.png.split(',')[1], 'base64'));
 console.log(`     ${r.n} trames, ${r.cmds.filter((c) => c === 0xa2).length} lignes dessinées`);
@@ -61,6 +62,7 @@ ok(r.cmds[0] === 0xa3 && r.cmds.includes(0xa4) && r.cmds.includes(0xaf), 'début
 ok(r.cmds.filter((c) => c === 0xa6).length === 2, 'début et fin de l’impression (A6)');
 ok(r.rowLens.length === 1 && r.rowLens[0] === 48 && r.cmds.filter((c) => c === 0xa2).length > 100, 'ticket envoyé en lignes de 384 points (48 octets)');
 ok(r.cmds.lastIndexOf(0xa1) > r.cmds.lastIndexOf(0xa6), 'avance du papier à la fin (espace blanc)');
+ok(r.whole, 'chaque envoi Bluetooth contient des trames entières (une ligne n’est jamais coupée en deux)');
 ok(r.dp === 0, 'pause demandée par l’imprimante respectée (rien envoyé pendant la pause)');
 await b.close();
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); process.exit(fail ? 1 : 0);
