@@ -42,14 +42,24 @@ export function encodeText(s: string, cs: Charset): number[] {
   return out;
 }
 
-const ESC = 0x1b, GS = 0x1d;
+const ESC = 0x1b, GS = 0x1d, FS = 0x1c;
 
-/** Avance du papier de `mm` millimètres (ESC J, par tranches de 255 points ; 8 points par mm). */
+/**
+ * Début de chaque envoi : remise à zéro (ESC @) puis sortie du mode chinois (FS .).
+ * Les Xprinter et beaucoup d'imprimantes vendues ici démarrent en mode chinois : les lettres accentuées
+ * (é, è…) y deviennent des caractères chinois (« T俵 », « r闋ssie »).
+ */
+const INIT = [ESC, 0x40, FS, 0x2e];
+
+/**
+ * Avance du papier de `mm` millimètres, par des sauts de ligne (LF) avec un interligne fixe de 3 mm (ESC 3 24).
+ * Certaines imprimantes (Xprinter…) ignorent l'avance ESC J en fin de ticket : la fin restait alors
+ * dans l'imprimante et ne sortait qu'avec le ticket suivant. Un saut de ligne marche sur toutes.
+ */
 export function feedBytes(mm: number): number[] {
-  const out: number[] = [];
-  let dots = Math.round(Math.max(0, mm) * 8);
-  while (dots > 0) { const n = Math.min(255, dots); out.push(ESC, 0x4a, n); dots -= n; }
-  return out;
+  const lines = Math.ceil((Math.max(0, mm) * 8) / 24);
+  if (!lines) return [];
+  return [ESC, 0x33, 24, ...new Array(lines).fill(0x0a), ESC, 0x32];
 }
 export const DEFAULT_FEED_MM = 20;
 
@@ -115,7 +125,7 @@ export async function encodeDoc(doc: PrintDoc, o: EncodeOpts): Promise<Uint8Arra
   // Un logo par ligne « logo » : celui de la page si le document en a un, sinon celui de la société.
   const rasters = new Map<string, number[]>();
   for (const r of rows) { const src = r.logo ? logoFor(r, o.logo) : undefined; if (src && !rasters.has(src)) { try { rasters.set(src, await logoRaster(src, dots)); } catch { rasters.set(src, []); } } }
-  const one: number[] = [ESC, 0x40]; // initialisation
+  const one: number[] = [...INIT]; // initialisation, sans mode chinois
   one.push(ESC, 0x74, CHARSET_TABLE[o.charset] ?? 2);
   let bold = false, size = 0;
   const setSize = (n: number) => { if (n !== size) { size = n; one.push(GS, 0x21, n); } };
@@ -151,7 +161,7 @@ export async function encodeDoc(doc: PrintDoc, o: EncodeOpts): Promise<Uint8Arra
 /** « Test des accents » : une ligne par jeu (A, C, D), chacune avec sa table, pour choisir la bonne lettre. */
 export function accentTestBytes(printerName: string, feedMm = DEFAULT_FEED_MM): Uint8Array {
   const sample = 'é è à ç ê ô û ï É';
-  const b: number[] = [ESC, 0x40, ESC, 0x74, 2, ESC, 0x61, 1, ESC, 0x45, 1, ...encodeText('TEST DES ACCENTS', 'ascii'), 0x0a, ESC, 0x45, 0, ...encodeText(printerName, 'ascii'), 0x0a, ESC, 0x61, 0, 0x0a];
+  const b: number[] = [...INIT, ESC, 0x74, 2, ESC, 0x61, 1, ESC, 0x45, 1, ...encodeText('TEST DES ACCENTS', 'ascii'), 0x0a, ESC, 0x45, 0, ...encodeText(printerName, 'ascii'), 0x0a, ESC, 0x61, 0, 0x0a];
   const sets: [string, Charset][] = [['A', 'cp850'], ['C', 'wpc1252'], ['D', 'wpc1252cn']];
   for (const [letter, cs] of sets) {
     b.push(ESC, 0x74, CHARSET_TABLE[cs], ...encodeText(`${letter} : ${sample}`, cs), 0x0a);
