@@ -41,6 +41,12 @@ console.log(`     envoyé ${u.sent} octets en ${u.n} morceaux (max ${u.max}), pe
 ok(u.sent > 1000, 'la page de test part bien vers l’imprimante USB');
 ok(u.max <= 256, 'envoi en petits morceaux (256 octets au plus)');
 ok(u.lost === 0, 'rien de perdu : le ticket n’est plus coupé');
+// XP-80TS : l'imprimante ne traite les octets que par blocs de 256 ; le reste attend l'envoi suivant.
+const tail = await p.evaluate(() => { const g = window.__usb.got; const done = Math.floor(g.length / 256) * 256;
+  let last = -1; for (let i = g.length - 1; i >= 0; i--) if (g[i] !== 0) { last = i; break; }
+  return { done, last, feed: g.slice(Math.max(0, last - 9), last + 1) }; });
+ok(tail.last >= 0 && tail.last < tail.done, 'fin du ticket (avance du papier) traitée tout de suite, pas au ticket suivant');
+ok(tail.feed.slice(-3).join() === '10,27,50', 'le ticket finit par les sauts de ligne de l’espace blanc (… 0a 1b 32)');
 // Deux tickets lancés en même temps : ils ne se mélangent pas
 await p.evaluate(() => { window.__usb.got = []; window.__usb.chunks = []; window.__usb.lost = 0; });
 await row.getByRole('button', { name: 'Test', exact: true }).click(); await p.waitForTimeout(50);

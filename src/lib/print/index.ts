@@ -99,7 +99,7 @@ export class PrinterPaused extends Error {
   constructor(name: string) { super(`L’imprimante « ${name} » est déconnectée de cet appareil : touchez « Reconnecter » dans Paramètres → Imprimantes.`); this.name = 'PrinterPaused'; }
 }
 const rawOpts = (p: Printer) => ({ baud: p.baud, btSpeed: p.btSpeed ?? 'safe', name: p.deviceName });
-const feedOf = (p: Printer) => Math.min(30, Math.max(10, p.feedMm ?? DEFAULT_FEED_MM));
+const feedOf = (p: Printer) => Math.min(50, Math.max(10, p.feedMm ?? DEFAULT_FEED_MM));
 
 /** Imprime sur une imprimante de cet appareil. */
 export async function printOn(p: Printer, doc: PrintDoc, copies = 1) {

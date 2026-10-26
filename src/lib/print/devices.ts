@@ -130,6 +130,13 @@ export async function pairUsb(): Promise<{ ref: string; name: string }> {
  * Xprinter, POS-80…) ont une petite mémoire et jettent ce qui arrive trop vite, ce qui coupait le ticket au milieu.
  */
 const USB_CHUNK = 256;
+/**
+ * Octets vides (NUL, ignorés par l'imprimante) ajoutés après le ticket. Certaines imprimantes USB (Xprinter XP-80TS…)
+ * gardent les derniers octets reçus en attente jusqu'à l'envoi suivant : l'avance du papier en fin de ticket
+ * ne se faisait qu'au ticket d'après, et la fin du ticket restait dans l'imprimante. Les NUL poussent la fin.
+ */
+const TAIL = 512;
+const withTail = (data: Uint8Array) => { const out = new Uint8Array(data.length + TAIL); out.set(data, 0); return out; };
 async function usbSend(d: any, ep: number, data: Uint8Array) {
   for (let i = 0; i < data.length; i += USB_CHUNK) {
     const part = data.slice(i, i + USB_CHUNK);
@@ -164,7 +171,7 @@ async function writeUsb(ref: string, data: Uint8Array) {
       const ep = alt.endpoints.find((e: any) => e.direction === 'out' && e.type === 'bulk');
       if (!ep) continue;
       if (!itf.claimed) await d.claimInterface(itf.interfaceNumber);
-      await usbSend(d, ep.endpointNumber, data);
+      await usbSend(d, ep.endpointNumber, withTail(data));
       return;
     }
   }
@@ -197,7 +204,7 @@ async function writeSerial(ref: string, data: Uint8Array, baud: number) {
     catch (e: any) { throw new Error(`Impossible d’ouvrir l’imprimante (port série) : vérifiez qu’elle est allumée, appairée et qu’aucune autre application ne l’utilise. (${e?.message ?? e})`); }
   }
   const w = port.writable.getWriter();
-  try { await w.write(data); } finally { w.releaseLock(); }
+  try { await w.write(withTail(data)); } finally { w.releaseLock(); }
 }
 
 export interface RawOpts { baud?: number; btSpeed?: BtSpeed; name?: string }
