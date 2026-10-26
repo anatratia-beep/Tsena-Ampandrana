@@ -12,7 +12,7 @@ export interface CloudConfig {
   expiresAt?: number;
 }
 export type SyncState = 'off' | 'offline' | 'syncing' | 'ok' | 'error';
-export interface SyncStatus { state: SyncState; pending: number; lastSync?: string; error?: string }
+export interface SyncStatus { state: SyncState; pending: number; lastSync?: string; error?: string; /** Connexion au cloud expirée : le mot de passe du compte cloud est demandé. */ auth?: boolean }
 
 const INTERVAL = 15_000;
 let status: SyncStatus = { state: 'off', pending: 0 };
@@ -60,14 +60,30 @@ function headers(cfg: CloudConfig) {
   return { apikey: cfg.anonKey, Authorization: `Bearer ${cfg.accessToken}`, 'Content-Type': 'application/json' };
 }
 
-async function freshConfig(): Promise<CloudConfig | null> {
+/** Connexion au cloud de cet appareil expirée (ex. mot de passe du compte cloud changé) : il faut le mot de passe. */
+export class CloudAuthError extends Error {
+  constructor(detail: string) { super(`La connexion de cet appareil au cloud a expiré (le mot de passe du compte cloud a peut-être été changé). Entrez le mot de passe du compte cloud dans Paramètres → Cloud et synchronisation : rien n’est perdu, les ventes en attente partiront ensuite. (${detail})`); this.name = 'CloudAuthError'; }
+}
+async function freshConfig(force = false): Promise<CloudConfig | null> {
   const cfg = getCloud();
   if (!cfg) return null;
-  if (cfg.expiresAt && cfg.expiresAt > Date.now()) return cfg;
-  const tokens = await authRequest(cfg, 'refresh_token', { refresh_token: cfg.refreshToken });
+  if (!force && cfg.expiresAt && cfg.expiresAt > Date.now()) return cfg;
+  let tokens;
+  try { tokens = await authRequest(cfg, 'refresh_token', { refresh_token: cfg.refreshToken }); }
+  catch (e: any) { if (!navigator.onLine || /fetch|network/i.test(String(e?.message))) throw e; throw new CloudAuthError(e?.message ?? String(e)); }
   const next = { ...cfg, ...tokens };
   await setMeta('cloud', next);
   return next;
+}
+
+/** Reprend la connexion au cloud avec le mot de passe du compte, sans rien effacer (ventes en attente gardées). */
+export async function reloginCloud(password: string) {
+  const cfg = getCloud();
+  if (!cfg) throw new Error('Cet appareil n’est pas relié au cloud.');
+  const tokens = await authRequest(cfg, 'password', { email: cfg.email, password });
+  await setMeta('cloud', { ...cfg, ...tokens });
+  setStatus({ auth: false, error: undefined });
+  await syncNow();
 }
 
 let running = false;
@@ -82,8 +98,10 @@ export async function syncNow(): Promise<void> {
     if (!getCloud()) { setStatus({ state: 'off' }); return; }
     if (!navigator.onLine) { setStatus({ state: 'offline' }); return; }
     setStatus({ state: 'syncing' });
-    const cfg = await freshConfig();
+    let cfg = await freshConfig();
     if (!cfg) return;
+    // Jeton refusé (401) : on le renouvelle une fois avant de conclure.
+    { const t = await fetch(`${cfg.url}/rest/v1/records?select=rev&limit=1`, { headers: headers(cfg) }).catch(() => null); if (t && t.status === 401) cfg = (await freshConfig(true))!; }
     const device = getMeta('deviceId', '');
     const conflicts: SyncConflictLog[] = [];
     let sent = 0, received = 0, fixedSkew = 0;
@@ -184,9 +202,12 @@ export async function syncNow(): Promise<void> {
       fixedSkew += list.length;
     };
 
-    await pull();
+    // Réception d'abord ; si elle échoue, on envoie quand même les ventes de cet appareil, puis on signale l'erreur.
+    let pullError: unknown = null;
+    try { await pull(); } catch (e) { pullError = e; }
     await push();
     if (rejected.length) { await reconcile(); await push(); }
+    if (pullError) throw pullError;
     await pull();                                   // confirme : ce qui revient du cloud est fusionné à nouveau
     if (await outboxCount()) { await push(); if (rejected.length) { await reconcile(); await push(); } await pull(); }
 
@@ -210,7 +231,7 @@ export async function syncNow(): Promise<void> {
     } else setStatus({ state: 'ok', pending: await outboxCount(), lastSync: new Date().toISOString(), error: undefined });
   } catch (e: any) {
     if (navigator.onLine) await logSync({ sent: 0, received: 0, conflicts: 0, error: e?.message ?? String(e) }).catch(() => {});
-    setStatus({ state: navigator.onLine ? 'error' : 'offline', error: e?.message ?? String(e), pending: await outboxCount() });
+    setStatus({ state: navigator.onLine ? 'error' : 'offline', error: e?.message ?? String(e), auth: e?.name === 'CloudAuthError', pending: await outboxCount() });
   } finally {
     running = false;
     if (again) { again = false; setTimeout(syncNow, 500); }

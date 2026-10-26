@@ -6,6 +6,9 @@ export const CHANGELOG: Release[] = [
     'Synchronisation : une fiche refusée par le cloud ne bloque plus tout l’appareil ; les ventes et le reste partent quand même, la fiche en cause est signalée dans Paramètres → Cloud avec la raison (et renvoyée à chaque synchronisation).',
     'Synchronisation : envoi par paquets d’environ 1 Mo au plus (photos, tickets) pour éviter les refus « trop gros ».',
     'Tickets envoyés au poste d’impression plus légers : le logo de la page n’est plus copié dans chaque ticket.',
+    'Synchronisation : si la connexion d’un appareil au cloud a expiré (ex. mot de passe du compte cloud changé), un message clair l’indique et Paramètres → Cloud propose « Reprendre la connexion » avec le seul mot de passe, sans rien effacer : les ventes en attente partent aussitôt.',
+    'La pastille « Erreur synchro » ouvre directement Paramètres → Cloud avec la raison de l’erreur.',
+    'Synchronisation : si la réception échoue, les ventes de l’appareil sont quand même envoyées.',
   ] },
   { date: '2026-10-24', items: [
     'Poste d’impression qui ne se coupe plus : écran gardé allumé tant que Trésor en ligne est ouvert sur le poste, reconnexion Bluetooth automatique dès que la liaison lâche (sans clic), liaison entretenue toutes les 20 s, reconnexion dès que le téléphone se rallume ; conseils affichés (chargeur, batterie « Sans restriction » pour Chrome…).',

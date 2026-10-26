@@ -4,7 +4,7 @@ import { audit, useCan } from '../lib/auth';
 import { getMeta, requeueAll, save, setMeta, useMeta, useTable, type BaseRecord } from '../lib/db';
 import { boostDeadlineTime } from '../lib/boosts';
 import { BRAND_SWATCHES, DEFAULT_COMPANY, resizeImage, useCompany, type ThemeMode } from '../lib/settings';
-import { disconnectCloud, connectCloud, getCloud, syncNow, useSyncStatus, type SyncLogLine } from '../lib/sync';
+import { disconnectCloud, connectCloud, getCloud, reloginCloud, syncNow, useSyncStatus, type SyncLogLine } from '../lib/sync';
 import { backupFolderName, backupKey, canPickFolder, canShareFile, pickBackupFolder, saveBackupFile, setBackupPassword, unlockBackupPassword, type SavedBackup, cloudBackup, cloudCopyBlocker, copyLooksIncomplete, dataStats, labelCount, statsText, downloadBackup, factoryReset, fetchCloudBackup, listCloudBackups, readBackup, restoreBackup } from '../lib/backup';
 import { Help, Badge, Button, Confirm, Empty, Modal, PageHead, PasswordField, Req, SelectField, TextField, fmtDateTime, timeAgo, toast, useRoute, navigate , IconButton } from '../ui/kit';
 import { Icon } from '../ui/icons';
@@ -201,6 +201,25 @@ function AppearanceTab() {
   );
 }
 
+/** Connexion au cloud expirée : on la reprend avec le mot de passe du compte cloud, sans rien effacer. */
+function Relogin({ email }: { email: string }) {
+  const [pwd, setPwd] = useState('');
+  const [busy, setBusy] = useState(false);
+  return (
+    <form className="card stack-s" style={{ border: '2px solid var(--danger, #c0392b)' }} onSubmit={async (e) => {
+      e.preventDefault(); setBusy(true);
+      try { await reloginCloud(pwd); toast('Connexion au cloud reprise : les modifications en attente partent', 'ok', { ms: 10_000 }); setPwd(''); }
+      catch (err: any) { toast(err.message, 'error', { sticky: true }); }
+      finally { setBusy(false); }
+    }}>
+      <strong>Reprendre la connexion au cloud</strong>
+      <p className="small muted" style={{ margin: 0 }}>Compte : {email}. Rien n’est effacé : les ventes en attente sur cet appareil partiront dès que la connexion est reprise.</p>
+      <PasswordField label="Mot de passe du compte cloud" value={pwd} onChange={setPwd} />
+      <div><Button type="submit" icon="cloud" busy={busy} disabled={!pwd}>Reprendre la connexion</Button></div>
+    </form>
+  );
+}
+
 function CloudTab() {
   const status = useSyncStatus();
   const cloud = useMeta<any>('cloud', null);
@@ -225,7 +244,8 @@ function CloudTab() {
           <>
             <p className="small muted">Relié à <strong>{cloud.url.replace('https://', '')}</strong> avec le compte {cloud.email}. Dernière synchronisation : {timeAgo(status.lastSync)}.</p>
             <p className="small">{status.pending ? `${status.pending} modification(s) en attente d'envoi.` : 'Toutes les modifications de cet appareil sont envoyées.'}</p>
-            {status.error && status.state === 'error' && <div className="notice notice-danger"><Icon name="alert" /><span>{status.error}</span></div>}
+            {status.error && status.state === 'error' && <div className="notice notice-danger"><Icon name="alert" /><span><strong>Erreur de synchronisation :</strong> {status.error}</span></div>}
+            {status.auth && <Relogin email={cloud.email} />}
             <div className="row">
               <Button icon="refresh" onClick={() => syncNow()}>Synchroniser maintenant</Button>
               <Button variant="ghost" onClick={() => setConfirmOff(true)}>Délier cet appareil</Button>

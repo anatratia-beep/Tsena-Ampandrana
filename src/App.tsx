@@ -155,7 +155,7 @@ function SyncPill() {
   const s = useSyncStatus();
   const text = { ok: 'Synchronisé', syncing: 'Synchro…', offline: 'Hors ligne', error: 'Erreur synchro', off: 'Local' }[s.state];
   return (
-    <button className={`sync sync-${s.state}`} onClick={() => (s.state === 'off' ? navigate('/parametres/cloud') : syncNow())}
+    <button className={`sync sync-${s.state}`} onClick={() => (s.state === 'off' || s.state === 'error' ? navigate('/parametres/cloud') : syncNow())}
       title={s.error || (s.pending ? `${s.pending} modification(s) en attente` : text)}>
       <span className="sync-dot" />
       {text}{s.pending > 0 && s.state !== 'ok' && s.state !== 'off' ? ` · ${s.pending}` : ''}
