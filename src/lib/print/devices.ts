@@ -125,6 +125,34 @@ export async function pairUsb(): Promise<{ ref: string; name: string }> {
   const d = await nav.usb.requestDevice({ filters: [] });
   return { ref: usbRef(d), name: d.productName || 'Imprimante USB' };
 }
+/**
+ * Envoi USB par petits morceaux avec une courte pause : beaucoup d'imprimantes à tickets (« USB Printer Port »,
+ * Xprinter, POS-80…) ont une petite mémoire et jettent ce qui arrive trop vite, ce qui coupait le ticket au milieu.
+ */
+const USB_CHUNK = 256;
+async function usbSend(d: any, ep: number, data: Uint8Array) {
+  for (let i = 0; i < data.length; i += USB_CHUNK) {
+    const part = data.slice(i, i + USB_CHUNK);
+    for (let attempt = 0; ; attempt++) {
+      let r: any;
+      try { r = await d.transferOut(ep, part); }
+      catch (e: any) {
+        if (attempt >= 3) throw new Error(`Envoi USB interrompu (${Math.round((i / data.length) * 100)} % envoyé) : ${e?.message ?? e}`);
+        await sleep(60 * (attempt + 1)); continue;
+      }
+      if (r?.status === 'stall') { // imprimante saturée : on débloque et on renvoie le même morceau
+        if (attempt >= 3) throw new Error(`L’imprimante USB ne répond plus (${Math.round((i / data.length) * 100)} % envoyé).`);
+        try { await d.clearHalt('out', ep); } catch { /* rien */ }
+        await sleep(80 * (attempt + 1)); continue;
+      }
+      if (r && typeof r.bytesWritten === 'number' && r.bytesWritten < part.length) { // envoi partiel : on termine le morceau
+        await usbSend(d, ep, part.slice(r.bytesWritten));
+      }
+      break;
+    }
+    await sleep((i / USB_CHUNK) % 16 === 15 ? 60 : 10); // petite pause, un peu plus longue tous les 4 Ko
+  }
+}
 async function writeUsb(ref: string, data: Uint8Array) {
   let d = (await nav.usb.getDevices()).find((x: any) => usbRef(x) === ref);
   if (!d) d = await nav.usb.requestDevice({ filters: [] });
@@ -136,7 +164,7 @@ async function writeUsb(ref: string, data: Uint8Array) {
       const ep = alt.endpoints.find((e: any) => e.direction === 'out' && e.type === 'bulk');
       if (!ep) continue;
       if (!itf.claimed) await d.claimInterface(itf.interfaceNumber);
-      for (let i = 0; i < data.length; i += 4096) await d.transferOut(ep.endpointNumber, data.slice(i, i + 4096));
+      await usbSend(d, ep.endpointNumber, data);
       return;
     }
   }
@@ -201,10 +229,27 @@ export async function connectSilently(kind: 'bluetooth' | 'usb' | 'serial', ref:
     return true;
   } catch { return false; }
 }
-export async function writeRaw(kind: 'bluetooth' | 'usb' | 'serial', ref: string, data: Uint8Array, o: RawOpts = {}) {
-  if (kind === 'bluetooth') return writeBluetooth(ref, data, o.btSpeed, o.name);
-  if (kind === 'usb') return writeUsb(ref, data);
-  return writeSerial(ref, data, o.baud || 9600);
+/**
+ * Un seul envoi à la fois par imprimante : sinon deux envois (deux tickets, ou l'entretien de la liaison)
+ * se mélangent au milieu d'un ticket et l'imprimante s'arrête ou imprime n'importe quoi.
+ */
+const writeQueues = new Map<string, Promise<unknown>>();
+const lastWrite = new Map<string, number>();
+/** Millisecondes depuis le dernier envoi à cette imprimante (Infinity si jamais). */
+export const idleFor = (ref: string) => Date.now() - (lastWrite.get(ref) ?? -Infinity);
+export function writeRaw(kind: 'bluetooth' | 'usb' | 'serial', ref: string, data: Uint8Array, o: RawOpts = {}): Promise<void> {
+  const key = `${kind}|${ref}`;
+  const run = async () => {
+    lastWrite.set(ref, Date.now());
+    try {
+      if (kind === 'bluetooth') await writeBluetooth(ref, data, o.btSpeed, o.name);
+      else if (kind === 'usb') await writeUsb(ref, data);
+      else await writeSerial(ref, data, o.baud || 9600);
+    } finally { lastWrite.set(ref, Date.now()); }
+  };
+  const next = (writeQueues.get(key) ?? Promise.resolve()).catch(() => {}).then(run);
+  writeQueues.set(key, next);
+  return next;
 }
 
 /** Libère l'imprimante (une imprimante Bluetooth ne se connecte qu'à un appareil à la fois). */

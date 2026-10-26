@@ -94,7 +94,14 @@ export async function logoRaster(dataUrl: string, dots: number): Promise<number[
   while (bot > top && blank(bot)) bot--;
   const rows = bot - top + 1;
   const body = data.slice(top * bytesPerRow, (bot + 1) * bytesPerRow);
-  const out = [GS, 0x76, 0x30, 0x00, bytesPerRow & 0xff, bytesPerRow >> 8, rows & 0xff, rows >> 8, ...body];
+  // Le logo est envoyé en bandes de 24 lignes : une seule grande image dépasse la mémoire de certaines imprimantes,
+  // qui s'arrêtent alors au milieu du ticket.
+  const out: number[] = [];
+  for (let y = 0; y < rows; y += 24) {
+    const n = Math.min(24, rows - y);
+    out.push(GS, 0x76, 0x30, 0x00, bytesPerRow & 0xff, bytesPerRow >> 8, n & 0xff, n >> 8,
+      ...body.slice(y * bytesPerRow, (y + n) * bytesPerRow));
+  }
   rasterCache.set(key, out);
   return out;
 }

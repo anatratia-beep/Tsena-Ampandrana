@@ -7,7 +7,7 @@ import { getCloud, peekNewer, syncNow } from '../sync';
 import { DEFAULT_COMPANY, type Company } from '../settings';
 import { colsOf, type Paper, type PrintDoc } from './doc';
 import { DEFAULT_FEED_MM, accentTestBytes, encodeDoc, type Charset } from './escpos';
-import { connectSilently, disconnectRaw, linkState, onLinkChange, setAutoReconnect, shareImage, systemPrint, writeRaw, type BtSpeed, type LinkState } from './devices';
+import { connectSilently, disconnectRaw, idleFor, linkState, onLinkChange, setAutoReconnect, shareImage, systemPrint, writeRaw, type BtSpeed, type LinkState } from './devices';
 import { navigate, toast } from '../../ui/kit';
 
 export * from './doc';
@@ -311,11 +311,16 @@ export function usePrintStationWorker() {
     const s = setInterval(() => syncNow(), 15_000);
     // Réception rapide : petite vérification toutes les 2 s (quelques octets), synchronisation seulement s'il y a du nouveau.
     const q = setInterval(() => { if (!document.hidden) void peekNewer('printJobs'); }, 2_000);
-    // Entretien de la liaison toutes les 20 s quand rien n'est en cours (sinon certaines imprimantes se mettent en veille).
+    // Entretien de la liaison toutes les 20 s quand rien n'est en cours (sinon certaines imprimantes Bluetooth se mettent en veille).
+    // On envoie une simple demande d'état (DLE EOT) et jamais une remise à zéro (ESC @), qui effaçait un ticket encore
+    // en cours d'impression ; et rien pendant la minute qui suit un ticket (l'imprimante peut encore être en train d'imprimer).
     const k = setInterval(async () => {
       const p = printer();
       if (!p || p.kind === 'system' || !p.ref || p.paused || printing) return;
-      if (linkState(p.kind, p.ref) === 'connected') { try { await writeRaw(p.kind, p.ref, new Uint8Array([0x1b, 0x40]), rawOpts(p)); } catch { /* la reconnexion automatique s'en charge */ } }
+      if (linkState(p.kind, p.ref) === 'connected') {
+        if (p.kind !== 'bluetooth' || idleFor(p.ref) < 60_000) return; // USB et port série ne se mettent pas en veille
+        try { await writeRaw(p.kind, p.ref, new Uint8Array([0x10, 0x04, 0x01]), rawOpts(p)); } catch { /* la reconnexion automatique s'en charge */ }
+      }
       else void connectSilently(p.kind, p.ref, rawOpts(p)).then((okk) => { if (okk) kick(); });
     }, 20_000);
     return () => { clearInterval(b); clearInterval(s); clearInterval(q); clearInterval(k); document.removeEventListener('visibilitychange', wake); };
