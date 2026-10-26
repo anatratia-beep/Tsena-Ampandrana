@@ -2,6 +2,7 @@
 // du système (tous les appareils) et image à partager (WhatsApp, enregistrer…).
 import { layout, logoFor, type Paper, type PrintDoc, type Row } from './doc';
 import { qrMatrix, qrSvg } from '../qr';
+import { CAT_NOTIFY, CAT_SERVICE, CAT_WRITE, canvasRows } from './cat';
 
 const nav = navigator as any;
 export const support = {
@@ -42,7 +43,7 @@ function watchDevice(ref: string, dev: any) {
   if (dev.__tsenaWatch) return;
   dev.__tsenaWatch = true;
   dev.addEventListener?.('gattserverdisconnected', () => {
-    btChars.delete(ref); linkChanged();
+    btChars.delete(ref); catLinks.delete(ref); linkChanged();
     if (!autoReconnect) return;
     // Pas besoin de geste de l'utilisateur pour se reconnecter à un appareil déjà autorisé.
     let n = 0;
@@ -115,6 +116,48 @@ async function writeBluetooth(ref: string, data: Uint8Array, speed: BtSpeed = 's
         if (!btDevices.get(ref)?.gatt?.connected) ch = await btCharacteristic(ref, name, true);
       }
     }
+  }
+}
+
+// ---------- Mini imprimantes « Tiny Print » (X6h, GB01…) ----------
+const catLinks = new Map<string, { write: any; paused: boolean }>();
+async function catLink(ref: string, name?: string, fresh = false) {
+  const known = catLinks.get(ref);
+  if (known && !fresh && btDevices.get(ref)?.gatt?.connected) return known;
+  await btCharacteristic(ref, name, fresh); // connexion (et reconnexion) comme pour les autres imprimantes Bluetooth
+  const dev = btDevices.get(ref);
+  const svc = await dev.gatt.getPrimaryService(CAT_SERVICE);
+  const write = await svc.getCharacteristic(CAT_WRITE);
+  const link = { write, paused: false };
+  try {
+    const note = await svc.getCharacteristic(CAT_NOTIFY);
+    await note.startNotifications();
+    note.addEventListener('characteristicvaluechanged', (e: any) => {
+      const v = new Uint8Array(e.target.value.buffer);
+      if (v[0] === 0x51 && v[1] === 0x78 && v[2] === 0xae) link.paused = v[6] === 0x10; // mémoire pleine : pause
+    });
+  } catch { /* pas de contrôle de flux : on envoie plus lentement */ }
+  catLinks.set(ref, link);
+  return link;
+}
+async function writeCatBluetooth(ref: string, data: Uint8Array, speed: BtSpeed = 'safe', name?: string) {
+  let link = await catLink(ref, name);
+  const size = BT_CHUNK[speed] ?? 20;
+  for (let i = 0; i < data.length; i += size) {
+    const part = data.slice(i, i + size);
+    for (let t = 0; link.paused && t < 250; t++) await sleep(20); // l'imprimante a demandé une pause (5 s au plus)
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const w = link.write;
+        await (w.writeValueWithoutResponse ? w.writeValueWithoutResponse(part) : w.writeValue(part));
+        break;
+      } catch (e: any) {
+        if (attempt >= 6) throw new Error(`Envoi à la mini imprimante interrompu (${Math.round((i / data.length) * 100)} % envoyé) : ${e?.message ?? e}`);
+        await sleep(40 * (attempt + 1));
+        if (!btDevices.get(ref)?.gatt?.connected) link = await catLink(ref, name, true);
+      }
+    }
+    await sleep(size <= 20 ? 6 : 12);
   }
 }
 
@@ -207,7 +250,7 @@ async function writeSerial(ref: string, data: Uint8Array, baud: number) {
   try { await w.write(withTail(data)); } finally { w.releaseLock(); }
 }
 
-export interface RawOpts { baud?: number; btSpeed?: BtSpeed; name?: string }
+export interface RawOpts { baud?: number; btSpeed?: BtSpeed; name?: string; /** mini imprimante « Tiny Print » */ cat?: boolean }
 /**
  * Reconnecte sans geste de l'utilisateur quand c'est possible (imprimante déjà autorisée et connue de cette page).
  * Renvoie false s'il faut un clic (le navigateur a oublié l'imprimante).
@@ -249,7 +292,8 @@ export function writeRaw(kind: 'bluetooth' | 'usb' | 'serial', ref: string, data
   const run = async () => {
     lastWrite.set(ref, Date.now());
     try {
-      if (kind === 'bluetooth') await writeBluetooth(ref, data, o.btSpeed, o.name);
+      if (kind === 'bluetooth' && o.cat) await writeCatBluetooth(ref, data, o.btSpeed, o.name);
+      else if (kind === 'bluetooth') await writeBluetooth(ref, data, o.btSpeed, o.name);
       else if (kind === 'usb') await writeUsb(ref, data);
       else await writeSerial(ref, data, o.baud || 9600);
     } finally { lastWrite.set(ref, Date.now()); }
@@ -266,7 +310,7 @@ export async function disconnectRaw(kind: 'bluetooth' | 'usb' | 'serial', ref: s
       let dev = btDevices.get(ref);
       if (!dev && nav.bluetooth?.getDevices) dev = (await nav.bluetooth.getDevices()).find((d: any) => d.id === ref);
       if (dev?.gatt?.connected) dev.gatt.disconnect();
-      btChars.delete(ref); btDevices.delete(ref);
+      btChars.delete(ref); btDevices.delete(ref); catLinks.delete(ref);
       if (dev?.forget) await dev.forget().catch(() => {});
     } else if (kind === 'usb') {
       const d = (await nav.usb.getDevices()).find((x: any) => usbRef(x) === ref);
@@ -331,10 +375,12 @@ export function systemPrint(doc: PrintDoc, paper: Paper, logo?: string | null, c
 }
 
 // ---------- Image du ticket (à partager) ----------
-export async function docImage(doc: PrintDoc, paper: Paper, logo?: string | null): Promise<Blob> {
+export interface CanvasOpts { scale?: number; charW?: number; lineH?: number; pad?: number; bottom?: number; font?: number; bold?: boolean }
+/** Ticket dessiné sur une image (partage en image, mini imprimantes qui n'impriment que des images). */
+export async function docCanvas(doc: PrintDoc, paper: Paper, logo?: string | null, o: CanvasOpts = {}): Promise<{ canvas: HTMLCanvasElement; width: number; height: number }> {
   const cols = paper === '58' ? 32 : 48;
   const rows = layout(doc, cols);
-  const scale = 2, charW = 12, lineH = 26, pad = 24;
+  const scale = o.scale ?? 2, charW = o.charW ?? 12, lineH = o.lineH ?? 26, pad = o.pad ?? 24, font = o.font ?? 20;
   const width = cols * charW + pad * 2;
   // Un logo par ligne « logo » (plusieurs étiquettes de pages différentes dans un même document).
   const imgs = new Map<string, HTMLImageElement | null>();
@@ -343,7 +389,7 @@ export async function docImage(doc: PrintDoc, paper: Paper, logo?: string | null
   const hOf = (im: HTMLImageElement | null) => (im ? Math.min(140, (im.height * Math.min(width * 0.5, im.width)) / im.width) : 0);
   const qrPx = 3;
   const qrH = (r: Row) => (qrMatrix(r.qr!).length + 8) * qrPx;
-  const bottom = 80; // 2 cm d'espace blanc en bas, comme sur le papier
+  const bottom = o.bottom ?? 80; // 2 cm d'espace blanc en bas, comme sur le papier
   const height = pad * 2 + bottom + rows.reduce((h, r) => h + (r.qr ? qrH(r) : r.logo ? (imgOf(r) ? hOf(imgOf(r)) + 10 : 0) : r.cut ? 30 : r.big || r.tall ? lineH * 2 : lineH), 0);
   const canvas = document.createElement('canvas');
   canvas.width = width * scale; canvas.height = height * scale;
@@ -364,15 +410,25 @@ export async function docImage(doc: PrintDoc, paper: Paper, logo?: string | null
       y += s; continue;
     }
     if (r.cut) { ctx.setLineDash([6, 6]); ctx.strokeStyle = '#999'; ctx.beginPath(); ctx.moveTo(pad, y + 15); ctx.lineTo(width - pad, y + 15); ctx.stroke(); ctx.setLineDash([]); y += 30; continue; }
-    const size = r.big ? 40 : 20;
-    ctx.font = `${r.bold ? 'bold ' : ''}${size}px "Courier New", ui-monospace, monospace`;
+    const size = r.big ? font * 2 : font;
+    ctx.font = `${r.bold || o.bold ? 'bold ' : ''}${size}px "Courier New", ui-monospace, monospace`;
     // Chaque caractère dans sa case : alignement exact des colonnes. « tall » : double hauteur, largeur normale.
     const cw = r.big ? charW * 2 : charW;
     if (r.tall && !r.big) { ctx.save(); ctx.scale(1, 2); [...r.s].forEach((ch, i) => ctx.fillText(ch, pad + i * cw, (y + 2) / 2)); ctx.restore(); }
     else [...r.s].forEach((ch, i) => ctx.fillText(ch, pad + i * cw, y + (r.big ? 4 : 2)));
     y += r.big || r.tall ? lineH * 2 : lineH;
   }
+  return { canvas, width, height };
+}
+export async function docImage(doc: PrintDoc, paper: Paper, logo?: string | null): Promise<Blob> {
+  const { canvas } = await docCanvas(doc, paper, logo);
   return new Promise((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('Image impossible'))), 'image/png'));
+}
+/** Ticket en lignes de points pour une mini imprimante « Tiny Print » (384 points, 58 mm). */
+export async function docCatRows(doc: PrintDoc, logo?: string | null): Promise<Uint8Array[]> {
+  // 32 colonnes de 11 points + 2 marges de 16 points = 384 points ; écriture en gras (papier thermique pâle).
+  const { canvas, width, height } = await docCanvas(doc, '58', logo, { scale: 1, charW: 11, lineH: 24, pad: 16, bottom: 0, font: 19, bold: true });
+  return canvasRows(canvas.getContext('2d')!, width, height);
 }
 
 export async function shareImage(doc: PrintDoc, paper: Paper, logo?: string | null) {

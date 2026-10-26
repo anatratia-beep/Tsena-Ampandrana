@@ -5,9 +5,9 @@ import { newId, remove, setMeta, useMeta, useTable } from '../lib/db';
 import { getCloud } from '../lib/sync';
 import { useCompany } from '../lib/settings';
 import {
-  BT_SPEEDS, CHARSETS, DEFAULT_FEED_MM, KINDS, PAPERS, SYSTEM_PRINTER, accentTest, cancelJobs, charsetOptions, deletePrinter, disconnectPrinter, makeStation, pairBluetooth, pairSerial, pairUsb,
+  BT_SPEEDS, CHARSETS, DEFAULT_FEED_MM, KINDS, LANGS, PAPERS, isCatName, langOf, SYSTEM_PRINTER, accentTest, cancelJobs, charsetOptions, deletePrinter, disconnectPrinter, makeStation, pairBluetooth, pairSerial, pairUsb,
   HISTORY_ACTION, printOn, reconnectPrinter, reprintJob, retryJob, savePrinter, stationOnline, stopStation, support, testDoc, usePrinterLink, usePrinters, useWakeState,
-  type BtSpeed, type Charset, type Paper, type PrintJob, type PrintStation, type Printer, type PrinterKind,
+  type BtSpeed, type Charset, type Paper, type PrinterLang, type PrintJob, type PrintStation, type Printer, type PrinterKind,
 } from '../lib/print';
 import { Help, Badge, Button, Confirm, Empty, IconButton, Modal, SelectField, TextField, Toggle, fmtDateTime, timeAgo, toast, useRoute } from '../ui/kit';
 import { Icon } from '../ui/icons';
@@ -175,6 +175,7 @@ function PrinterRow({ p, isDefault, onTest, onReconnect, onPause, onEdit, onDele
   const link = usePrinterLink(p);
   const [busy, setBusy] = useState(false);
   const direct = p.kind !== 'system';
+  const cat = p.kind === 'bluetooth' && langOf(p) === 'cat';
   const reconnect = async () => { setBusy(true); try { await onReconnect(); } finally { setBusy(false); } };
   return (
     <li className="list-item">
@@ -184,7 +185,7 @@ function PrinterRow({ p, isDefault, onTest, onReconnect, onPause, onEdit, onDele
           ? <span className="link-state is-on">Connectée</span>
           : <span className="link-state is-off">{p.paused ? 'Déconnectée de cet appareil' : 'À reconnecter'}</span>)}
         <span className="list-item-title">{p.name} {isDefault && <Badge tone="brand">Par défaut</Badge>} {direct && !p.paused && p.ref && <Badge tone="ok">Associée à cet appareil</Badge>}</span>
-        <p className="small muted">{KINDS[p.kind]} · {PAPERS[p.paper]}{p.deviceName ? ` · ${p.deviceName}` : ''}{direct && !p.ref ? ' · pas encore appairée' : ''}</p>
+        <p className="small muted">{KINDS[p.kind]}{langOf(p) === 'cat' ? ' · mini imprimante' : ''} · {PAPERS[p.paper]}{p.deviceName ? ` · ${p.deviceName}` : ''}{direct && !p.ref ? ' · pas encore appairée' : ''}</p>
       </div>
       <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
         {direct && p.ref && link !== 'connected' && <Button variant="primary" className="btn-sm" busy={busy} onClick={reconnect}>Se reconnecter maintenant</Button>}
@@ -207,12 +208,15 @@ function PrinterForm({ printer, onClose }: { printer?: Printer; onClose: () => v
   const set = (patch: Partial<Printer>) => setP({ ...p, ...patch });
   const available = (k: PrinterKind) => k === 'system' || support[k];
   const direct = p.kind !== 'system';
+  const cat = p.kind === 'bluetooth' && langOf(p) === 'cat';
 
   async function pair() {
     setBusy(true);
     try {
       const r = p.kind === 'bluetooth' ? await pairBluetooth() : p.kind === 'usb' ? await pairUsb() : await pairSerial();
-      setP({ ...p, ref: r.ref, deviceName: r.name, name: p.name || r.name, paused: false });
+      const cat = p.kind === 'bluetooth' && isCatName(r.name);
+      setP({ ...p, ref: r.ref, deviceName: r.name, name: p.name || r.name, paused: false, ...(cat ? { lang: 'cat' as const, paper: '58' as Paper, cut: false } : { lang: undefined }) });
+      if (cat) toast(`Mini imprimante « Tiny Print » reconnue : ${r.name}`, 'ok', { ms: 8000 });
       toast(`Imprimante trouvée : ${r.name}`);
     } catch (e: any) {
       if (e?.name === 'NotFoundError' && p.kind === 'bluetooth') setBtMiss(true);
@@ -262,17 +266,19 @@ function PrinterForm({ printer, onClose }: { printer?: Printer; onClose: () => v
           </div>
         )}
         {btMiss && p.kind === 'bluetooth' && <div className="notice"><Icon name="alert" /><span>Imprimante introuvable ? Elle utilise sans doute le <strong>Bluetooth classique</strong> (ex. JK-301PL) : appairez-la dans {BT_SETTINGS} (code 0000 ou 1234), puis choisissez <strong>« Port série / Bluetooth appairé »</strong>.{!support.serial && DEVICE === 'android' ? ' Si ce choix n’est pas disponible, mettez à jour Google Chrome.' : ''}</span></div>}
+        {p.kind === 'bluetooth' && <SelectField label="Type d’imprimante" value={langOf(p)} onChange={(v) => set({ lang: v as PrinterLang, ...(v === 'cat' ? { paper: '58' as Paper, cut: false } : {}) })} options={(Object.keys(LANGS) as PrinterLang[]).map((k) => ({ value: k, label: LANGS[k] }))} />}
+        {cat && <div className="notice notice-ok"><Icon name="printer" /><span>Mini imprimante (application « Tiny Print ») : le ticket lui est envoyé comme une image en 58 mm, accents et logo compris. Pas besoin de l’application Tiny Print, ni de l’appairer dans les réglages Bluetooth.</span></div>}
         <div className="grid-2">
-          <SelectField label="Papier" value={p.paper} onChange={(v) => set({ paper: v as Paper })} options={(Object.keys(PAPERS) as Paper[]).filter((k) => direct ? k !== 'a4' : true).map((k) => ({ value: k, label: PAPERS[k] }))} />
-          {direct && <SelectField label="Jeu de caractères (accents)" value={p.charset} onChange={(v) => set({ charset: v as Charset })} options={charsetOptions(p.charset).map((k) => ({ value: k, label: CHARSETS[k] }))} />}
+          <SelectField label="Papier" value={p.paper} onChange={(v) => set({ paper: v as Paper })} options={(Object.keys(PAPERS) as Paper[]).filter((k) => cat ? k === '58' : direct ? k !== 'a4' : true).map((k) => ({ value: k, label: PAPERS[k] }))} />
+          {direct && !cat && <SelectField label="Jeu de caractères (accents)" value={p.charset} onChange={(v) => set({ charset: v as Charset })} options={charsetOptions(p.charset).map((k) => ({ value: k, label: CHARSETS[k] }))} />}
           {p.kind === 'serial' && <SelectField label="Vitesse du port" value={String(p.baud ?? 9600)} onChange={(v) => set({ baud: Number(v) })} options={[9600, 19200, 38400, 115200].map((b) => ({ value: String(b), label: `${b} bauds` }))} />}
           {p.kind === 'bluetooth' && <SelectField label="Envoi Bluetooth" value={p.btSpeed ?? 'safe'} onChange={(v) => set({ btSpeed: v as BtSpeed })} options={(Object.keys(BT_SPEEDS) as BtSpeed[]).map((k) => ({ value: k, label: BT_SPEEDS[k] }))} />}
           {direct && <SelectField label="Espace blanc en bas du ticket" value={String(p.feedMm ?? DEFAULT_FEED_MM)} onChange={(v) => set({ feedMm: Number(v) })} options={[10, 15, 20, 25, 30, 40, 50].map((n) => ({ value: String(n), label: `${n / 10} cm${n === DEFAULT_FEED_MM ? ' (conseillé)' : ''}` }))} />}
         </div>
-        {direct && p.ref && <div className="row" style={{ alignItems: 'center' }}><Button variant="ghost" icon="printer" onClick={accents}>Test des accents</Button><span className="small muted">Imprime une ligne par jeu (A, C, D) : choisissez la lettre dont la ligne est bien imprimée.</span></div>}
+        {direct && !cat && p.ref && <div className="row" style={{ alignItems: 'center' }}><Button variant="ghost" icon="printer" onClick={accents}>Test des accents</Button><span className="small muted">Imprime une ligne par jeu (A, C, D) : choisissez la lettre dont la ligne est bien imprimée.</span></div>}
         {p.kind === 'bluetooth' && <p className="small muted" style={{ margin: 0 }}>Si le ticket s’arrête au milieu, gardez « Envoi Bluetooth : Sûr ».</p>}
         <Toggle checked={p.logo} onChange={(v) => set({ logo: v })} label="Imprimer le logo en haut du ticket" />
-        {direct && <Toggle checked={p.cut} onChange={(v) => set({ cut: v })} label="Couper le papier à la fin (si l’imprimante a un massicot)" />}
+        {direct && !cat && <Toggle checked={p.cut} onChange={(v) => set({ cut: v })} label="Couper le papier à la fin (si l’imprimante a un massicot)" />}
       </div>
     </Modal>
   );

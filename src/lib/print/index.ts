@@ -7,12 +7,14 @@ import { getCloud, peekNewer, syncNow } from '../sync';
 import { DEFAULT_COMPANY, type Company } from '../settings';
 import { colsOf, type Paper, type PrintDoc } from './doc';
 import { DEFAULT_FEED_MM, accentTestBytes, encodeDoc, type Charset } from './escpos';
-import { connectSilently, disconnectRaw, idleFor, linkState, onLinkChange, setAutoReconnect, shareImage, systemPrint, writeRaw, type BtSpeed, type LinkState } from './devices';
+import { catStateFrame, encodeCat, isCatName } from './cat';
+import { connectSilently, disconnectRaw, docCatRows, idleFor, linkState, onLinkChange, setAutoReconnect, shareImage, systemPrint, writeRaw, type BtSpeed, type LinkState } from './devices';
 import { navigate, toast } from '../../ui/kit';
 
 export * from './doc';
 export { CHARSETS, charsetOptions, DEFAULT_FEED_MM, type Charset } from './escpos';
 export { support, pairBluetooth, pairUsb, pairSerial, docHtml, BT_SPEEDS, type BtSpeed, type LinkState } from './devices';
+export { isCatName } from './cat';
 
 export type PrinterKind = 'system' | 'bluetooth' | 'usb' | 'serial';
 export const KINDS: Record<PrinterKind, string> = {
@@ -38,7 +40,17 @@ export interface Printer {
   feedMm?: number;
   /** Déconnectée de cet appareil (libérée pour un autre appareil), réglages gardés. */
   paused?: boolean;
+  /** Langue de l'imprimante : « escpos » (imprimantes à tickets) ou « cat » (mini imprimantes Tiny Print : X6h…). */
+  lang?: PrinterLang;
 }
+export type PrinterLang = 'escpos' | 'cat';
+export const LANGS: Record<PrinterLang, string> = {
+  escpos: 'Imprimante à tickets (ESC/POS : Xprinter, KPrinter, POS-58…)',
+  cat: 'Mini imprimante « Tiny Print » (X6h, GB01, MX06…)',
+};
+/** Langue utilisée : choisie, sinon devinée d'après le nom Bluetooth (« X6h-5306 » → mini imprimante). */
+export const langOf = (p: Printer): PrinterLang => p.lang ?? (p.kind === 'bluetooth' && isCatName(p.deviceName) ? 'cat' : 'escpos');
+const isCat = (p: Printer) => p.kind === 'bluetooth' && langOf(p) === 'cat';
 export interface PrintStation extends BaseRecord {
   name: string; printerName?: string; paper?: Paper; lastSeen?: string; deviceId?: string;
   /** L'imprimante du poste attend qu'on clique « Reconnecter l'imprimante » sur le poste (message). */
@@ -98,7 +110,9 @@ export const findPrinter = (id: string) => (id === SYSTEM_PRINTER.id ? SYSTEM_PR
 export class PrinterPaused extends Error {
   constructor(name: string) { super(`L’imprimante « ${name} » est déconnectée de cet appareil : touchez « Reconnecter » dans Paramètres → Imprimantes.`); this.name = 'PrinterPaused'; }
 }
-const rawOpts = (p: Printer) => ({ baud: p.baud, btSpeed: p.btSpeed ?? 'safe', name: p.deviceName });
+const rawOpts = (p: Printer) => ({ baud: p.baud, btSpeed: p.btSpeed ?? 'safe', name: p.deviceName, cat: isCat(p) });
+/** Petit envoi sans rien imprimer (réveil, reconnexion). */
+const pingBytes = (p: Printer) => (isCat(p) ? catStateFrame() : new Uint8Array([0x1b, 0x40]));
 const feedOf = (p: Printer) => Math.min(50, Math.max(10, p.feedMm ?? DEFAULT_FEED_MM));
 
 /** Imprime sur une imprimante de cet appareil. */
@@ -107,6 +121,11 @@ export async function printOn(p: Printer, doc: PrintDoc, copies = 1) {
   if (p.kind === 'system') return systemPrint(doc, p.paper, logo, copies);
   if (p.paused) throw new PrinterPaused(p.name);
   if (!p.ref) throw new Error(`L’imprimante « ${p.name} » n’est pas encore appairée : ouvrez Paramètres → Imprimantes.`);
+  if (isCat(p)) { // mini imprimante : le ticket est dessiné (58 mm), accents et logo compris
+    const rows = await docCatRows(doc, logo);
+    await writeRaw(p.kind, p.ref, encodeCat(rows, { feedMm: feedOf(p), copies }), rawOpts(p));
+    return;
+  }
   const data = await encodeDoc(doc, { cols: colsOf(p.paper), charset: p.charset, cut: p.cut, logo, copies, feedMm: feedOf(p) });
   await writeRaw(p.kind, p.ref, data, rawOpts(p));
 }
@@ -115,6 +134,7 @@ export async function printOn(p: Printer, doc: PrintDoc, copies = 1) {
 export async function accentTest(p: Printer) {
   if (p.kind === 'system') throw new Error('Le test des accents est pour les imprimantes Bluetooth, USB ou port série.');
   if (!p.ref) throw new Error('Cherchez d’abord l’imprimante.');
+  if (isCat(p)) throw new Error('Pas besoin du test des accents : la mini imprimante imprime le ticket comme une image, accents compris.');
   await writeRaw(p.kind, p.ref, accentTestBytes(p.name, feedOf(p)), rawOpts(p));
 }
 
@@ -129,7 +149,7 @@ export async function disconnectPrinter(p: Printer) {
 export async function reconnectPrinter(p: Printer) {
   if (p.kind !== 'system') {
     if (!p.ref) throw new Error('Cherchez d’abord l’imprimante.');
-    if (!(await connectSilently(p.kind, p.ref, rawOpts(p)))) await writeRaw(p.kind, p.ref, new Uint8Array([0x1b, 0x40]), rawOpts(p));
+    if (!(await connectSilently(p.kind, p.ref, rawOpts(p)))) await writeRaw(p.kind, p.ref, pingBytes(p), rawOpts(p));
   }
   if (p.paused) await savePrinter({ ...p, paused: false });
 }
@@ -319,7 +339,7 @@ export function usePrintStationWorker() {
       if (!p || p.kind === 'system' || !p.ref || p.paused || printing) return;
       if (linkState(p.kind, p.ref) === 'connected') {
         if (p.kind !== 'bluetooth' || idleFor(p.ref) < 60_000) return; // USB et port série ne se mettent pas en veille
-        try { await writeRaw(p.kind, p.ref, new Uint8Array([0x10, 0x04, 0x01]), rawOpts(p)); } catch { /* la reconnexion automatique s'en charge */ }
+        try { await writeRaw(p.kind, p.ref, isCat(p) ? catStateFrame() : new Uint8Array([0x10, 0x04, 0x01]), rawOpts(p)); } catch { /* la reconnexion automatique s'en charge */ }
       }
       else void connectSilently(p.kind, p.ref, rawOpts(p)).then((okk) => { if (okk) kick(); });
     }, 20_000);
