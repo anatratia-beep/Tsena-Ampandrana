@@ -402,7 +402,8 @@ export function systemPrint(doc: PrintDoc, paper: Paper, logo?: string | null, c
 }
 
 // ---------- Image du ticket (à partager) ----------
-export interface CanvasOpts { scale?: number; charW?: number; lineH?: number; pad?: number; bottom?: number; font?: number; bold?: boolean }
+export interface CanvasOpts { scale?: number; charW?: number; lineH?: number; pad?: number; bottom?: number; font?: number; bold?: boolean;
+  /** police (par défaut Courier New) */ family?: string; /** étirement vertical des lettres (1 = normal) */ stretch?: number }
 /** Ticket dessiné sur une image (partage en image, mini imprimantes qui n'impriment que des images). */
 export async function docCanvas(doc: PrintDoc, paper: Paper, logo?: string | null, o: CanvasOpts = {}): Promise<{ canvas: HTMLCanvasElement; width: number; height: number }> {
   const cols = paper === '58' ? 32 : 48;
@@ -438,10 +439,12 @@ export async function docCanvas(doc: PrintDoc, paper: Paper, logo?: string | nul
     }
     if (r.cut) { ctx.setLineDash([6, 6]); ctx.strokeStyle = '#999'; ctx.beginPath(); ctx.moveTo(pad, y + 15); ctx.lineTo(width - pad, y + 15); ctx.stroke(); ctx.setLineDash([]); y += 30; continue; }
     const size = r.big ? font * 2 : font;
-    ctx.font = `${r.bold || o.bold ? 'bold ' : ''}${size}px "Courier New", ui-monospace, monospace`;
+    ctx.font = `${r.bold || o.bold ? 'bold ' : ''}${size}px ${o.family ?? '"Courier New", ui-monospace, monospace'}`;
     // Chaque caractère dans sa case : alignement exact des colonnes. « tall » : double hauteur, largeur normale.
     const cw = r.big ? charW * 2 : charW;
-    if (r.tall && !r.big) { ctx.save(); ctx.scale(1, 2); [...r.s].forEach((ch, i) => ctx.fillText(ch, pad + i * cw, (y + 2) / 2)); ctx.restore(); }
+    const st = o.stretch ?? 1;
+    if (r.tall && !r.big) { ctx.save(); ctx.scale(1, 2 * st); [...r.s].forEach((ch, i) => ctx.fillText(ch, pad + i * cw, (y + 2) / (2 * st))); ctx.restore(); }
+    else if (st !== 1) { ctx.save(); ctx.scale(1, st); [...r.s].forEach((ch, i) => ctx.fillText(ch, pad + i * cw, (y + (r.big ? 4 : 2)) / st)); ctx.restore(); }
     else [...r.s].forEach((ch, i) => ctx.fillText(ch, pad + i * cw, y + (r.big ? 4 : 2)));
     y += r.big || r.tall ? lineH * 2 : lineH;
   }
@@ -453,8 +456,12 @@ export async function docImage(doc: PrintDoc, paper: Paper, logo?: string | null
 }
 /** Ticket en lignes de points pour une mini imprimante « Tiny Print » (384 points, 58 mm). */
 export async function docCatRows(doc: PrintDoc, logo?: string | null): Promise<Uint8Array[]> {
-  // 32 colonnes de 11 points + 2 marges de 16 points = 384 points ; écriture en gras (papier thermique pâle).
-  const { canvas, width, height } = await docCanvas(doc, '58', logo, { scale: 1, charW: 11, lineH: 24, pad: 16, bottom: 0, font: 19, bold: true });
+  // 32 colonnes de 12 points = toute la largeur (384 points) : le ticket a déjà ses marges (colonnes vides).
+  // Lettres plus hautes (×1,4) et police épaisse et nette : lisible sur le papier pâle de ces imprimantes.
+  const { canvas, width, height } = await docCanvas(doc, '58', logo, {
+    scale: 1, charW: 12, lineH: 32, pad: 0, bottom: 0, font: 20, bold: true, stretch: 1.4,
+    family: '"Menlo", "DejaVu Sans Mono", "Roboto Mono", "Droid Sans Mono", "Courier New", monospace',
+  });
   return canvasRows(canvas.getContext('2d')!, width, height);
 }
 
