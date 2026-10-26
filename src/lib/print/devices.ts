@@ -150,7 +150,13 @@ function catFrames(data: Uint8Array): Uint8Array[] {
   }
   return out;
 }
-async function writeCatBluetooth(ref: string, data: Uint8Array, _speed: BtSpeed = 'safe', name?: string) {
+/**
+ * Rythme d'envoi des lignes à la mini imprimante (ms entre deux lignes). Elle imprime moins vite que le Bluetooth
+ * n'envoie : envoyées trop vite, les lignes débordent de sa mémoire et se perdent (texte écrasé après le logo).
+ * « Sûr » ≈ 40 lignes par seconde (5 mm/s), comme l'application Tiny Print.
+ */
+const CAT_PACE: Record<BtSpeed, number> = { safe: 25, fast: 14, max: 8 };
+async function writeCatBluetooth(ref: string, data: Uint8Array, speed: BtSpeed = 'safe', name?: string) {
   let link = await catLink(ref, name);
   let split = 0; // 0 : une trame entière par envoi ; sinon taille des morceaux si la liaison refuse les longs envois
   const frames = catFrames(data);
@@ -177,7 +183,7 @@ async function writeCatBluetooth(ref: string, data: Uint8Array, _speed: BtSpeed 
         }
       }
       if (!parts.length) break;
-      await sleep(split ? 8 : 10); // laisse le temps à l'imprimante de chauffer la ligne
+      if (!split || pi === parts.length - 1) await sleep(CAT_PACE[speed] ?? 25); // le temps d'imprimer la ligne
     }
   }
 }

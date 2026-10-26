@@ -276,7 +276,7 @@ function PrinterForm({ printer, onClose }: { printer?: Printer; onClose: () => v
           {direct && <SelectField label="Espace blanc en bas du ticket" value={String(p.feedMm ?? DEFAULT_FEED_MM)} onChange={(v) => set({ feedMm: Number(v) })} options={[10, 15, 20, 25, 30, 40, 50].map((n) => ({ value: String(n), label: `${n / 10} cm${n === DEFAULT_FEED_MM ? ' (conseillé)' : ''}` }))} />}
         </div>
         {direct && !cat && p.ref && <div className="row" style={{ alignItems: 'center' }}><Button variant="ghost" icon="printer" onClick={accents}>Test des accents</Button><span className="small muted">Imprime une ligne par jeu (A, C, D) : choisissez la lettre dont la ligne est bien imprimée.</span></div>}
-        {p.kind === 'bluetooth' && <p className="small muted" style={{ margin: 0 }}>Si le ticket s’arrête au milieu, gardez « Envoi Bluetooth : Sûr ».</p>}
+        {p.kind === 'bluetooth' && <p className="small muted" style={{ margin: 0 }}>{cat ? 'Si le texte sort écrasé ou incomplet, gardez « Envoi Bluetooth : Sûr » (plus lent, rien ne se perd).' : 'Si le ticket s’arrête au milieu, gardez « Envoi Bluetooth : Sûr ».'}</p>}
         <Toggle checked={p.logo} onChange={(v) => set({ logo: v })} label="Imprimer le logo en haut du ticket" />
         {direct && !cat && <Toggle checked={p.cut} onChange={(v) => set({ cut: v })} label="Couper le papier à la fin (si l’imprimante a un massicot)" />}
       </div>

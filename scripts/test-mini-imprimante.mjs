@@ -38,7 +38,7 @@ ok(dlg.includes('Mini imprimante (application « Tiny Print »)') && !dlg.includ
 await p.screenshot({ path: '/tmp/claude-0/mini-form.png' });
 await p.getByRole('button', { name: 'Page de test' }).click();
 await p.waitForFunction(() => window.__cat.writes > 50 && performance.now() > 0, null, { timeout: 60000 });
-await p.waitForTimeout(15000);
+await p.waitForTimeout(25000);
 const r = await p.evaluate(() => {
   const b = window.__cat.bytes; const frames = []; let i = 0, bad = 0;
   const T = new Uint8Array(256); for (let k = 0; k < 256; k++) { let c = k; for (let j = 0; j < 8; j++) c = c & 0x80 ? ((c << 1) ^ 7) & 255 : (c << 1) & 255; T[k] = c; }
