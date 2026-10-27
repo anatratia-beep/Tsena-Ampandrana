@@ -289,7 +289,7 @@ function PrinterForm({ printer, onClose }: { printer?: Printer; onClose: () => v
         </div>}
         {label && <SelectField label="Envoi Bluetooth" value={p.btSpeed ?? 'safe'} onChange={(v) => set({ btSpeed: v as BtSpeed })} options={(Object.keys(BT_SPEEDS) as BtSpeed[]).map((k) => ({ value: k, label: BT_SPEEDS[k] }))} />}
         {direct && !cat && !label && p.ref && <div className="row" style={{ alignItems: 'center' }}><Button variant="ghost" icon="printer" onClick={accents}>Test des accents</Button><span className="small muted">Imprime une ligne par jeu (A, C, D) : choisissez la lettre dont la ligne est bien imprimée.</span></div>}
-        {p.kind === 'bluetooth' && !label && <p className="small muted" style={{ margin: 0 }}>{cat ? 'Si le texte sort écrasé ou incomplet, gardez « Envoi Bluetooth : Sûr » (plus lent, rien ne se perd).' : 'Si le ticket s’arrête au milieu, gardez « Envoi Bluetooth : Sûr ».'}</p>}
+        {p.kind === 'bluetooth' && !label && <p className="small muted" style={{ margin: 0 }}>{cat ? 'Si les lignes sortent écrasées ou superposées : chargez bien la mini imprimante (batterie faible = papier qui avance mal) et gardez « Envoi Bluetooth : Sûr » (plus lent, rien ne se perd).' : 'Si le ticket s’arrête au milieu, gardez « Envoi Bluetooth : Sûr ».'}</p>}
         {!label && <Toggle checked={p.logo} onChange={(v) => set({ logo: v })} label="Imprimer le logo en haut du ticket" />}
         {direct && !cat && !label && <Toggle checked={p.cut} onChange={(v) => set({ cut: v })} label="Couper le papier à la fin (si l’imprimante a un massicot)" />}
       </div>

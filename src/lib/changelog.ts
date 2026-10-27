@@ -3,6 +3,8 @@
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
   { date: '2026-10-27', items: [
+    'Mini imprimante 58 mm (Tiny Print / X6h) : les lignes de texte chargées sont envoyées plus lentement, le temps que l’imprimante les chauffe ; elles ne se perdent plus et ne se superposent plus. Un peu plus d’espace entre les lignes.',
+    'Mini imprimante : avertissement si elle signale batterie faible, surchauffe, capot ouvert ou plus de papier.',
     'Étiquette du colis : plus aucun prix ni montant (seulement client, téléphone, lieu, articles, « DEJA PAYE » si payé et QR). Les montants à encaisser restent sur la feuille de livraisons du livreur et le bon de livraison.',
   ] },
   { date: '2026-10-26', items: [

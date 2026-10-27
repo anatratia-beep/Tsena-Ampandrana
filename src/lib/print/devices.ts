@@ -121,7 +121,7 @@ async function writeBluetooth(ref: string, data: Uint8Array, speed: BtSpeed = 's
 }
 
 // ---------- Mini imprimantes « Tiny Print » (X6h, GB01…) ----------
-const catLinks = new Map<string, { write: any; paused: boolean }>();
+const catLinks = new Map<string, { write: any; paused: boolean; state?: number }>();
 async function catLink(ref: string, name?: string, fresh = false) {
   const known = catLinks.get(ref);
   if (known && !fresh && btDevices.get(ref)?.gatt?.connected) return known;
@@ -129,13 +129,14 @@ async function catLink(ref: string, name?: string, fresh = false) {
   const dev = btDevices.get(ref);
   const svc = await dev.gatt.getPrimaryService(CAT_SERVICE);
   const write = await svc.getCharacteristic(CAT_WRITE);
-  const link = { write, paused: false };
+  const link: { write: any; paused: boolean; state?: number } = { write, paused: false };
   try {
     const note = await svc.getCharacteristic(CAT_NOTIFY);
     await note.startNotifications();
     note.addEventListener('characteristicvaluechanged', (e: any) => {
       const v = new Uint8Array(e.target.value.buffer);
       if (v[0] === 0x51 && v[1] === 0x78 && v[2] === 0xae) link.paused = v[6] === 0x10; // mémoire pleine : pause
+      if (v[0] === 0x51 && v[1] === 0x78 && v[2] === 0xa3 && v.length > 6) link.state = v[6]; // état : papier, capot, surchauffe, batterie
     });
   } catch { /* pas de contrôle de flux : on envoie plus lentement */ }
   catLinks.set(ref, link);
@@ -157,6 +158,23 @@ function catFrames(data: Uint8Array): Uint8Array[] {
  * « Sûr » ≈ 40 lignes par seconde (5 mm/s), comme l'application Tiny Print.
  */
 const CAT_PACE: Record<BtSpeed, number> = { safe: 25, fast: 14, max: 8 };
+/**
+ * Temps de chauffe en plus pour une ligne chargée (ms par point noir) : une ligne de texte gras noircit beaucoup
+ * de points et s'imprime plus lentement qu'une ligne claire. Envoyées au même rythme, ces lignes débordaient de la
+ * mémoire de l'imprimante et se perdaient : lignes de texte superposées, illisibles (photo du 27/10).
+ */
+const CAT_DOT_MS: Record<BtSpeed, number> = { safe: 0.25, fast: 0.15, max: 0.08 };
+const blackDots = (fr: Uint8Array) => { if (fr[2] !== 0xa2) return 0; let n = 0; for (let i = 6; i < fr.length - 2; i++) { let b = fr[i]; while (b) { n += b & 1; b >>= 1; } } return n; };
+/** Avertissements de la mini imprimante (octet d'état de la réponse à la demande d'état). */
+export function catStateWarning(state?: number): string | null {
+  if (state == null) return null;
+  if (state & 0x01) return 'plus de papier';
+  if (state & 0x02) return 'capot ouvert';
+  if (state & 0x04) return 'tête trop chaude : laissez-la refroidir quelques minutes';
+  if (state & 0x08) return 'batterie faible : chargez-la, sinon le papier avance mal et les lignes se superposent';
+  return null;
+}
+let catWarned = 0;
 async function writeCatBluetooth(ref: string, data: Uint8Array, speed: BtSpeed = 'safe', name?: string) {
   let link = await catLink(ref, name);
   let split = 0; // 0 : une trame entière par envoi ; sinon taille des morceaux si la liaison refuse les longs envois
@@ -184,7 +202,12 @@ async function writeCatBluetooth(ref: string, data: Uint8Array, speed: BtSpeed =
         }
       }
       if (!parts.length) break;
-      if (!split || pi === parts.length - 1) await sleep(CAT_PACE[speed] ?? 25); // le temps d'imprimer la ligne
+      if (!split || pi === parts.length - 1) await sleep((CAT_PACE[speed] ?? 25) + blackDots(fr) * (CAT_DOT_MS[speed] ?? 0.25)); // le temps d'imprimer la ligne
+    }
+    if (f === 0) { // réponse à la demande d'état envoyée en premier
+      await sleep(150);
+      const warn = catStateWarning(link.state);
+      if (warn && Date.now() - catWarned > 60_000) { catWarned = Date.now(); import('../../ui/kit').then((k) => k.toast(`Mini imprimante : ${warn}.`, 'error', { ms: 15_000 })).catch(() => {}); }
     }
   }
 }
@@ -512,7 +535,7 @@ export async function docCatRows(doc: PrintDoc, logo?: string | null): Promise<U
   // 32 colonnes de 12 points = toute la largeur (384 points) : le ticket a déjà ses marges (colonnes vides).
   // Lettres plus hautes (×1,4) et police épaisse et nette : lisible sur le papier pâle de ces imprimantes.
   const { canvas, width, height } = await docCanvas(doc, '58', logo, {
-    scale: 1, charW: 12, lineH: 32, pad: 0, bottom: 0, font: 20, bold: true, stretch: 1.4,
+    scale: 1, charW: 12, lineH: 34, pad: 0, bottom: 0, font: 20, bold: true, stretch: 1.4,
     family: '"Menlo", "DejaVu Sans Mono", "Roboto Mono", "Droid Sans Mono", "Courier New", monospace',
   });
   return canvasRows(canvas.getContext('2d')!, width, height);

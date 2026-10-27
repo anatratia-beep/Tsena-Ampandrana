@@ -4,7 +4,7 @@ const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' })
 const ctx = await b.newContext({ viewport: { width: 1280, height: 1000 }, timezoneId: 'Indian/Antananarivo' });
 await ctx.addInitScript(() => {
   const S = (n) => `0000${n}-0000-1000-8000-00805f9b34fb`;
-  const st = window.__cat = { bytes: [], heads: [], writes: 0, duringPause: 0, paused: false, listeners: [] };
+  const st = window.__cat = { bytes: [], heads: [], writes: 0, duringPause: 0, paused: false, listeners: [], times: [] };
   const notify = { properties: { notify: true }, uuid: S('ae02'), async startNotifications() { return this; },
     addEventListener(t, f) { st.listeners.push(f); } };
   const send = (flag) => { const v = new Uint8Array([0x51, 0x78, 0xae, 0x01, 0x01, 0x00, flag, 0x00, 0xff]); st.listeners.forEach((f) => f({ target: { value: { buffer: v.buffer } } })); };
@@ -12,6 +12,8 @@ await ctx.addInitScript(() => {
     async writeValueWithoutResponse(d) {
       if (st.paused) st.duringPause++;
       { const u = new Uint8Array(d.buffer ? d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength) : d); st.heads.push(u[0] === 0x51 && u[1] === 0x78 && u[u.length - 1] === 0xff); }
+      { const u = new Uint8Array(d.buffer ? d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength) : d); let dots = 0; if (u[2] === 0xa2) for (let i = 6; i < u.length - 2; i++) { let x = u[i]; while (x) { dots += x & 1; x >>= 1; } } st.times.push({ t: performance.now(), dots, cmd: u[2] });
+        if (u[2] === 0xa3 && !st.stateSent) { st.stateSent = true; const v = new Uint8Array([0x51, 0x78, 0xa3, 0x01, 0x03, 0x00, 0x08, 0x40, 0x00, 0x00, 0xff]); setTimeout(() => st.listeners.forEach((f) => f({ target: { value: { buffer: v.buffer } } })), 20); } }
       st.bytes.push(...new Uint8Array(d.buffer ? d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength) : d)); st.writes++;
       if (st.writes === 40) { st.paused = true; send(0x10); setTimeout(() => { st.paused = false; send(0x00); }, 300); }
     } };
@@ -38,6 +40,7 @@ ok(dlg.includes('Mini imprimante (application « Tiny Print »)') && !dlg.includ
 await p.screenshot({ path: '/tmp/claude-0/mini-form.png' });
 await p.getByRole('button', { name: 'Page de test' }).click();
 await p.waitForFunction(() => window.__cat.writes > 50 && performance.now() > 0, null, { timeout: 60000 });
+const earlyText = await p.locator('body').innerText();
 await p.waitForTimeout(25000);
 const r = await p.evaluate(() => {
   const b = window.__cat.bytes; const frames = []; let i = 0, bad = 0;
@@ -53,10 +56,16 @@ const r = await p.evaluate(() => {
   const rows = []; for (const f of frames) { if (f.cmd === 0xa2) rows.push(f.data); else if (f.cmd === 0xa1 && rows.length) for (let k = 0; k < f.data[0]; k++) rows.push(new Array(48).fill(0)); }
   const cv = document.createElement('canvas'); cv.width = 384; cv.height = rows.length; const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 384, rows.length); g.fillStyle = '#000';
   rows.forEach((row, y) => { for (let x = 0; x < 384; x++) if (row[x >> 3] & (1 << (x & 7))) g.fillRect(x, y, 1, 1); });
-  return { n: frames.length, bad, cmds: frames.map((f) => f.cmd), rowLens: [...new Set(frames.filter((f) => f.cmd === 0xa2).map((f) => f.data.length))], png: cv.toDataURL(), dp: window.__cat.duringPause, whole: window.__cat.heads.every(Boolean) };
+  const tm = window.__cat.times; const gaps = []; for (let k = 0; k < tm.length - 1; k++) if (tm[k].cmd === 0xa2) gaps.push({ dots: tm[k].dots, ms: tm[k + 1].t - tm[k].t });
+  const avg = (a) => a.reduce((x, y) => x + y.ms, 0) / Math.max(1, a.length);
+  const pace = { light: avg(gaps.filter((g) => g.dots === 0)), dense: avg(gaps.filter((g) => g.dots > 80)), nDense: gaps.filter((g) => g.dots > 80).length };
+  return { pace, toast: document.body.innerText, n: frames.length, bad, cmds: frames.map((f) => f.cmd), rowLens: [...new Set(frames.filter((f) => f.cmd === 0xa2).map((f) => f.data.length))], png: cv.toDataURL(), dp: window.__cat.duringPause, whole: window.__cat.heads.every(Boolean) };
 });
 const fs = await import('node:fs'); fs.writeFileSync('/tmp/claude-0/mini-ticket.png', Buffer.from(r.png.split(',')[1], 'base64'));
 console.log(`     ${r.n} trames, ${r.cmds.filter((c) => c === 0xa2).length} lignes dessinées`);
+console.log(`     rythme : ligne blanche ${r.pace.light.toFixed(0)} ms, ligne chargée ${r.pace.dense.toFixed(0)} ms (${r.pace.nDense})`);
+ok(r.pace.dense > r.pace.light + 15, 'lignes de texte chargées envoyées plus lentement (le temps de chauffer) : plus de lignes perdues');
+ok(earlyText.includes('batterie faible'), 'batterie faible signalée par l’imprimante : avertissement affiché');
 ok(r.bad === 0, 'toutes les trames sont valides (51 78 … CRC FF)');
 ok(r.cmds[0] === 0xa3 && r.cmds.includes(0xa4) && r.cmds.includes(0xaf), 'début : état, qualité 200 dpi, chauffe');
 ok(r.cmds.filter((c) => c === 0xa6).length === 2, 'début et fin de l’impression (A6)');
