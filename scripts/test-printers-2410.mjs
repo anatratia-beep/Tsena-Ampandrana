@@ -93,8 +93,8 @@ ok(segs[0] === 'Ticket client' && (await p.getByRole('dialog').getByRole('button
 await p.getByRole('dialog').getByRole('button', { name: /Étiquette/ }).click(); await p.waitForTimeout(300);
 const prev = p.getByRole('dialog').locator('.ticket');
 const ptx = N(await prev.innerText());
-ok(!ptx.includes('dont') && ptx.includes('A ENCAISSER') && ptx.replace(/\s+/g, ' ').includes('Merci pour votre commande') && !ptx.includes('Scanner pour ouvrir') && !ptx.includes('Frais de livraison'), 'étiquette : pas de « dont », A ENCAISSER, remerciement, sans légende ni frais à 0');
-ok(await prev.locator('.tk-row.big', { hasText: 'A ENCAISSER' }).count() === 0 && await prev.locator('.tk-row.b', { hasText: 'A ENCAISSER' }).count() === 1, 'A ENCAISSER en gras taille normale');
+ok(!ptx.includes('dont') && !ptx.includes('A ENCAISSER') && !/\bAr\b/.test(ptx) && ptx.replace(/\s+/g, ' ').includes('Merci pour votre commande') && !ptx.includes('Scanner pour ouvrir') && !ptx.includes('Frais de livraison'), 'étiquette : aucun prix ni montant (27/10), remerciement, sans légende');
+ok(await prev.locator('.tk-row', { hasText: /Ar/ }).count() === 0, 'aucune ligne de montant sur l’étiquette');
 ok(await prev.locator('.tk-qr svg').count() === 1 && await prev.locator('.tk-bottom').count() === 1, 'petit QR + 2 cm en bas dans l’aperçu');
 // 6. Fenêtre « Imprimer » vers un poste : tickets déjà en attente, annulables
 await p.evaluate(async () => { const t = window.__tsena; await t.save('printStations', [{ id: 'st2', name: 'Caisse 2', printerName: 'X', lastSeen: new Date().toISOString(), alert: 'geste' }]); await t.save('printJobs', [{ id: 'j9', stationId: 'st2', status: 'pending', copies: 1, byName: 'Aina', doc: { title: 'Ticket C-1', blocks: [] } }]); });

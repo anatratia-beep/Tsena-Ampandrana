@@ -270,7 +270,6 @@ export function parcelLabelDoc(o: Order, company: Company): PrintDoc {
   const c = brandOf(o, company);
   const zone = get<Zone>('zones', o.zoneId || '');
   const courier = get<Courier>('couriers', o.courierId || '');
-  const x = courierSplit(o);
   const rest = Math.max(0, remaining(o));
   const b: Block[] = [T(c.name, { align: 'center', bold: true, tall: true }), L('=')];
   b.push(T(o.number, { align: 'center', bold: true, big: true }));
@@ -283,19 +282,8 @@ export function parcelLabelDoc(o: Order, company: Company): PrintDoc {
   b.push(L());
   for (const l of o.lines) b.push(T(`${fmtNum(l.qty)} x ${itemName(l.variantId)}${l.isChoice ? ' (CHOIX)' : ''}`));
   if (o.lines.some((l) => l.isChoice)) b.push(T('CHOIX : le client paie seulement ce qu\u2019il garde.'));
-  b.push(L());
-  const items = itemsTotal(o);
-  const pays = o.payments || [];
-  const several = o.lines.length > 1 || o.lines.some((l) => l.qty > 1) || !!o.discount || !!o.credit || !!o.deliveryFee || pays.length > 0;
-  if (several) b.push(P('Articles', ar(items)));
-  if (o.discount) b.push(P('Remise', '- ' + ar(o.discount)));
-  if (o.credit) b.push(P('Articles repris', '- ' + ar(o.credit)));
-  if (o.deliveryFee) b.push(P('Frais de livraison', ar(o.deliveryFee)));
-  for (const p of pays) b.push(P(`Déjà payé ${PAY_METHODS[p.method]}`, '- ' + ar(p.amount)));
-  if (rest > 0) {
-    b.push(P('A ENCAISSER', ar(rest), { bold: true }));
-    if (pays.length) { b.push(P('  dont articles', ar(x.toCollect))); if (x.feeKept) b.push(P('  dont frais livraison', ar(x.feeKept))); }
-  } else b.push(T('RIEN A ENCAISSER - DEJA PAYE', { align: 'center', bold: true }));
+  // Aucun prix ni montant sur l'étiquette collée au colis : le livreur a les montants sur sa feuille de livraisons.
+  if (rest <= 0) { b.push(L()); b.push(T('DEJA PAYE', { align: 'center', bold: true })); }
   if (o.notes) { b.push(L()); b.push(T(`Obs. : ${o.notes}`)); }
   b.push(T(thanks(c, false), { align: 'center' }));
   b.push({ k: 'qr', data: orderUrl(o.id) });

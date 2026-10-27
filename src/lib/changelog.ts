@@ -2,6 +2,9 @@
 // La plus récente en premier. `date` : AAAA-MM-JJ.
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
+  { date: '2026-10-27', items: [
+    'Étiquette du colis : plus aucun prix ni montant (seulement client, téléphone, lieu, articles, « DEJA PAYE » si payé et QR). Les montants à encaisser restent sur la feuille de livraisons du livreur et le bon de livraison.',
+  ] },
   { date: '2026-10-26', items: [
     'Synchronisation : une fiche refusée par le cloud ne bloque plus tout l’appareil ; les ventes et le reste partent quand même, la fiche en cause est signalée dans Paramètres → Cloud avec la raison (et renvoyée à chaque synchronisation).',
     'Synchronisation : envoi par paquets d’environ 1 Mo au plus (photos, tickets) pour éviter les refus « trop gros ».',
