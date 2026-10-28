@@ -61,7 +61,7 @@ const itemsValue = (o: Order) => o.lines.reduce((s, l) => s + (l.isChoice ? 0 : 
  *   un échange non pris est simplement retiré). Elles se répartissent exactement en espèces + MVola + Orange Money +
  *   Airtel Money (payés le jour de la vente) + 1er paiement du reste + 2ème paiement du reste + reste à payer. 1er paiement :
  *   le jour de travail suivant la vente (samedi → lundi, le dimanche n'est pas travaillé) ; 2ème paiement : les jours d'après.
- * - Annulé : commandes de la période annulées (retirées du total).
+ * - Annulé : commandes de la période annulées, et articles revenus d'une livraison (retour partiel, refus).
  * - Reporté : livraisons reportées ce jour-là (retirées du total ; la commande passe à la date du report).
  * - Total des commandes = ventes + annulé + reporté.
  */
@@ -133,9 +133,11 @@ export function situation(from: string, to: string, pages?: string[]) {
       for (const [p, f] of sh) { if (!keep(p)) continue; mine = true; const r = row(p); r.cancelled += val * f; r.cancelledN++; }
       if (mine) uniq.cancelled.add(o.id);
     }
-    // 2 bis. Annulation rectifiée : les articles vraiment annulés restent dans « annulé », le jour de la vente
-    //    (ils sont déjà déduits des ventes de ce jour) ; les articles livrés sont dans les ventes.
-    if (o.status !== 'cancelled' && (o.rectifications || []).length && inRange(isWalkIn(o) || !o.dispatchedAt ? o.createdAt : o.dispatchedAt, from, to)) {
+    // 2 bis. Annulation rectifiée, ou articles revenus d'une livraison (retour partiel, refus) : les articles qui reviennent
+    //    vont dans « annulé », le jour de la vente (ils sont déjà déduits des ventes de ce jour) ; les articles livrés sont
+    //    dans les ventes.
+    const backFromDelivery = !isWalkIn(o) && o.kind !== 'exchange' && !!o.dispatchedAt && !!o.returnedAt;
+    if (o.status !== 'cancelled' && ((o.rectifications || []).length || backFromDelivery) && inRange(isWalkIn(o) || !o.dispatchedAt ? o.createdAt : o.dispatchedAt, from, to)) {
       const back = new Map<string, number>();
       for (const l of o.lines) if (!l.isChoice && l.qtyReturned) { const p = variantPage(l.variantId) || '_'; back.set(p, (back.get(p) ?? 0) + l.qtyReturned * l.unitPrice); }
       let mine = false;
