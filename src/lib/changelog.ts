@@ -2,6 +2,9 @@
 // La plus récente en premier. `date` : AAAA-MM-JJ.
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
+  { date: '2026-10-28', items: [
+    'Accueil : carte « Stock final » — pièces en stock maintenant, au total de toutes les pages et page par page, avec la valeur au prix de vente (et au coût pour qui voit les coûts). Un vendeur limité à ses pages voit le stock de ses pages.',
+  ] },
   { date: '2026-10-27', items: [
     'Mini imprimante 58 mm (Tiny Print / X6h) : les lignes de texte chargées sont envoyées plus lentement, le temps que l’imprimante les chauffe ; elles ne se perdent plus et ne se superposent plus. Un peu plus d’espace entre les lignes.',
     'Mini imprimante : avertissement si elle signale batterie faible, surchauffe, capot ouvert ou plus de papier.',

@@ -1,6 +1,7 @@
 // Analyses : un « journal des ventes » ligne par ligne (même règle que les récapitulatifs), et les agrégats
 // pour le tableau de bord et les rapports (période, heure, jour, mois, article, client, vendeur, livreur…).
 import { all, get } from './db';
+import { productPage } from './scope';
 import { stockOf, variantCost, incomingOf, type Category, type Product, type Purchase, type Variant } from './catalog';
 import { isPickupZone, isWalkIn, sellingLines, type Courier, type Order } from './orders';
 import { dayOf, type CashMove, type FinanceCategory } from './money';
@@ -194,6 +195,22 @@ export function stockValue() {
     incoming += incomingOf(v.id);
   }
   return { pieces, value, retail, incoming };
+}
+
+/** Stock final par page (catégorie racine), pour l'accueil. `keep` : pages à montrer (vendeur limité à ses pages). */
+export function stockByPage(keep: (pageId: string) => boolean = () => true) {
+  const m = new Map<string, { pageId: string; label: string; pieces: number; value: number; retail: number; refs: number }>();
+  for (const v of all<Variant>('variants')) {
+    const q = stockOf(v.id);
+    if (q <= 0) continue;
+    const p = get<Product>('products', v.productId);
+    const pageId = productPage(v.productId) || '';
+    if (!keep(pageId)) continue;
+    const g = m.get(pageId) ?? { pageId, label: pageId ? get<Category>('categories', pageId)?.name ?? '?' : 'Sans page', pieces: 0, value: 0, retail: 0, refs: 0 };
+    g.pieces += q; g.value += q * variantCost(v); g.retail += q * (v.priceRetail ?? p?.priceRetail ?? 0); g.refs++;
+    m.set(pageId, g);
+  }
+  return [...m.values()].sort((a, b) => b.pieces - a.pieces);
 }
 
 /** Articles en stock qui ne se sont pas vendus depuis N jours. */

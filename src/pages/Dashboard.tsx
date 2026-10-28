@@ -11,7 +11,7 @@ import { anomalies, boostRoi, coverage, sameDayLastWeek, targets } from '../lib/
 import { messagesByPage } from '../lib/boosts';
 import { addDays } from '../lib/money';
 import { ACCOUNTS, balances, courierBalance, today as todayYmd, type AccountId } from '../lib/money';
-import { bucketFor, groupBy, kpis, pendingPurchases, previousPeriod, productLabel, salesLedger, series, stockValue, dormant } from '../lib/analytics';
+import { bucketFor, groupBy, kpis, pendingPurchases, previousPeriod, productLabel, salesLedger, series, stockValue, stockByPage, dormant } from '../lib/analytics';
 import { PeriodPicker, defaultPeriod, type Period } from '../ui/period';
 import { BarChart } from '../ui/chart';
 import { Delta } from './Reports';
@@ -77,7 +77,8 @@ function Board() {
         </div>
       )}
 
-      {(can('reports.view') || can('treasury.view')) ? <><ManagerSummary /><SituationCard /><ManagerSales /><SalesExtras /><ManagerMoney /></> : can('orders.create') || can('pos.sell') ? <SellerBoard name={me.fullName} /> : null}
+      {(can('reports.view') || can('treasury.view')) ? <><ManagerSummary />{can('catalog.view') && <StockTotal />}<SituationCard /><ManagerSales /><SalesExtras /><ManagerMoney /></> : can('orders.create') || can('pos.sell') ? <SellerBoard name={me.fullName} /> : null}
+      {!(can('reports.view') || can('treasury.view')) && can('catalog.view') && <StockTotal />}
       {can('orders.create') && <OrdersState />}
       {can('cashday.use') && (
         <div className="card row-between daycash-shortcut">
@@ -434,6 +435,28 @@ function RecentActivity() {
     <div className="card card-flush">
       <div className="card-pad row-between"><h2>Dernières ventes et commandes</h2><a className="btn btn-ghost" href="#/commandes">Tout voir</a></div>
       <ul className="list">{last.map((o) => <OrderRow key={o.id} o={o} />)}</ul>
+    </div>
+  );
+}
+
+/** Stock final : pièces en stock maintenant, par page et au total (toutes les pages). */
+function StockTotal() {
+  const can = useCan(); const cost = can('costs.view');
+  useTable('variants'); useTable('stockMoves'); useTable('products'); useTable('categories'); useTable('orders');
+  const scope = useMyScope();
+  const rows = stockByPage((id) => scope.page(id));
+  const tot = rows.reduce((t, r) => ({ pieces: t.pieces + r.pieces, value: t.value + r.value, retail: t.retail + r.retail, refs: t.refs + r.refs }), { pieces: 0, value: 0, retail: 0, refs: 0 });
+  return (
+    <div className="card card-flush">
+      <div className="card-pad row-between">
+        <div><h2>Stock final</h2><p className="small muted" style={{ margin: 0 }}>{scope.on ? `Vos pages (${scope.names})` : 'Toutes les pages'} · maintenant</p></div>
+        <div style={{ textAlign: 'right' }}><strong className="stat-value num">{fmtNum(tot.pieces)} pcs</strong><div className="small muted">{fmtAr(tot.retail)} au prix de vente</div></div>
+      </div>
+      {rows.length === 0 ? <p className="card-pad small muted">Aucun article en stock.</p> : (
+        <div className="table-wrap"><table className="table"><thead><tr><th>Page</th><th className="t-num">Pièces</th><th className="t-num">Variantes</th>{cost && <th className="t-num">Valeur (coût)</th>}<th className="t-num">Valeur (prix de vente)</th></tr></thead>
+          <tbody>{rows.map((r) => <tr key={r.pageId || '_'}><td><strong>{r.label}</strong></td><td className="t-num">{fmtNum(r.pieces)}</td><td className="t-num">{fmtNum(r.refs)}</td>{cost && <td className="t-num">{fmtAr(r.value)}</td>}<td className="t-num">{fmtAr(r.retail)}</td></tr>)}</tbody>
+          <tfoot><tr className="t-total"><td>Total</td><td className="t-num">{fmtNum(tot.pieces)}</td><td className="t-num">{fmtNum(tot.refs)}</td>{cost && <td className="t-num">{fmtAr(tot.value)}</td>}<td className="t-num">{fmtAr(tot.retail)}</td></tr></tfoot></table></div>
+      )}
     </div>
   );
 }
