@@ -8,7 +8,7 @@ import { get, useTable } from '../lib/db';
 import type { Courier } from '../lib/orders';
 import { fmtAr, parseNum, parseAr } from '../lib/catalog';
 import { addDays, today } from '../lib/money';
-import { cancelHandover, changedSince, handoverHistory, receiveHandover, sellerDay, sellersOfDay, type Handover, type PendingSale, type SellerDay } from '../lib/handovers';
+import { cancelHandover, changedSince, handoverHistory, pagesOfDay, receiveHandover, sellerDay, sellersOfDay, type Handover, type PageDay, type PendingSale, type SellerDay } from '../lib/handovers';
 import { printA4, a4Table, arA4, h } from '../lib/a4';
 import { restLedger, type RestRow } from '../lib/situation';
 import { userPages } from '../lib/scope';
@@ -36,7 +36,7 @@ export function HandoversPage() {
         <IconButton icon="chevronRight" label="Jour suivant" disabled={isToday} onClick={() => setDate(addDays(date, 1))} />
         {!isToday && <Button variant="quiet" onClick={() => setDate(today())}>Aujourd’hui</Button>}
       </div>
-      {boss ? <Board date={date} /> : <Sheet d={sellerDay(me, date)} self />}
+      {boss ? <Boards date={date} /> : <Sheet d={sellerDay(me, date)} self />}
       <Restes date={date} pages={boss ? undefined : userPages(me)} />
       <History userId={boss ? undefined : me.id} />
     </>
@@ -94,6 +94,89 @@ function Restes({ date, pages }: { date: string; pages?: string[] }) {
   );
 }
 
+/** Responsable : versement du jour par page (par défaut) ou par vendeur. */
+function Boards({ date }: { date: string }) {
+  const [view, setView] = useState<'page' | 'seller'>('page');
+  return (
+    <>
+      <div className="row" style={{ gap: 6 }}>
+        <Button variant={view === 'page' ? 'primary' : 'ghost'} className="btn-sm" onClick={() => setView('page')}>Par page</Button>
+        <Button variant={view === 'seller' ? 'primary' : 'ghost'} className="btn-sm" onClick={() => setView('seller')}>Par vendeur</Button>
+      </div>
+      {view === 'page' ? <PageBoard date={date} /> : <Board date={date} />}
+    </>
+  );
+}
+
+/** Responsable : toutes les pages du jour. Espèces reçues saisies directement dans le tableau. */
+function PageBoard({ date }: { date: string }) {
+  const rows = pagesOfDay(date);
+  const t = rows.reduce((a, d) => ({ sales: a.sales + d.sales, cash: a.cash + d.pay.cash, mvola: a.mvola + d.pay.mvola, orange: a.orange + d.pay.orange, airtel: a.airtel + d.pay.airtel, fees: a.fees + d.fees, toPay: a.toPay + d.toPay, got: a.got + (d.handover?.amount ?? 0) }),
+    { sales: 0, cash: 0, mvola: 0, orange: 0, airtel: 0, fees: 0, toPay: 0, got: 0 });
+  const rest = rows.filter((d) => !d.handover).reduce((s, d) => s + d.toPay, 0);
+  const waiting = rows.filter((d) => !d.handover && (d.toPay || d.sales));
+  const cols: Col<PageDay>[] = [
+    { key: 'p', label: 'Page', value: (d) => d.user.fullName, width: 24 },
+    { key: 'v', label: 'Vendeurs', value: (d) => d.sellers.join(', '), width: 28 },
+    { key: 's', label: 'Total ventes', value: (d) => Math.round(d.sales), money: true, width: 14 },
+    { key: 'c', label: 'Espèces', value: (d) => Math.round(d.pay.cash), money: true, width: 13 },
+    { key: 'mv', label: 'MVola', value: (d) => Math.round(d.pay.mvola), money: true, width: 13 },
+    { key: 'or', label: 'Orange Money', value: (d) => Math.round(d.pay.orange), money: true, width: 13 },
+    { key: 'ai', label: 'Airtel Money', value: (d) => Math.round(d.pay.airtel), money: true, width: 13 },
+    { key: 'f', label: 'Frais livreurs', value: (d) => Math.round(d.fees), money: true, width: 13 },
+    { key: 't', label: 'Total à payer', value: (d) => Math.round(d.toPay), money: true, width: 14 },
+    { key: 'r', label: 'Espèces reçues', value: (d) => (d.handover ? Math.round(d.handover.amount) : ''), money: true, width: 13 },
+    { key: 'g', label: 'Écart', value: (d) => (d.handover ? Math.round(d.handover.gap) : ''), money: true, width: 12 },
+  ];
+  const exportXls = () => exportTables(`versements-pages_${date}.xlsx`, [{ name: 'Versements par page', cols, rows, notes: [`Versements par page — ${longDate(date)}`] }]);
+  const exportPdf = () => printA4('Versements par page', longDate(date), `
+    <div class="kpis"><div class="kpi"><span>Total ventes</span><b>${arA4(t.sales)}</b></div><div class="kpi"><span>Espèces</span><b>${arA4(t.cash)}</b></div><div class="kpi"><span>Mobile money</span><b>${arA4(t.mvola + t.orange + t.airtel)}</b></div><div class="kpi strong"><span>Total à payer</span><b>${arA4(t.toPay)}</b></div></div>
+    ${a4Table({ head: ['Page', 'Ventes', 'Espèces', 'MVola', 'Orange', 'Airtel', 'Frais livr.', 'À payer', 'Reçu'], num: [1, 2, 3, 4, 5, 6, 7, 8],
+      rows: rows.map((d) => [h(d.user.fullName), arA4(d.sales), arA4(d.pay.cash), arA4(d.pay.mvola), arA4(d.pay.orange), arA4(d.pay.airtel), arA4(d.fees), `<b>${arA4(d.toPay)}</b>`, d.handover ? arA4(d.handover.amount) : '—']),
+      foot: ['Total', arA4(t.sales), arA4(t.cash), arA4(t.mvola), arA4(t.orange), arA4(t.airtel), arA4(t.fees), arA4(t.toPay), arA4(t.got)] })}`);
+  return (
+    <>
+      <div className="stat-grid">
+        <div className="card stat"><span className="small muted">Total des ventes</span><strong className="stat-value num">{fmtAr(t.sales)}</strong><span className="small muted">{rows.filter((d) => d.sales).length} page(s)</span></div>
+        <div className="card stat"><span className="small muted">Mobile money (numéros de la boutique)</span><strong className="stat-value num">{fmtAr(t.mvola + t.orange + t.airtel)}</strong><span className="small muted">MVola {fmtAr(t.mvola)} · Orange {fmtAr(t.orange)} · Airtel {fmtAr(t.airtel)}</span></div>
+        <div className="card stat stat-strong"><span className="small muted">Total à payer (espèces)</span><strong className="stat-value num">{fmtAr(t.toPay)}</strong><span className="small muted">déjà reçu : {fmtAr(t.got)}</span></div>
+        <div className="card stat"><span className="small muted">Reste à recevoir</span><strong className={`stat-value num ${rest > 0 ? 'neg' : ''}`}>{fmtAr(rest)}</strong><span className="small muted">{waiting.length ? `${waiting.length} page(s) pas encore reçue(s)` : 'tout est reçu'}</span></div>
+      </div>
+      <div className="card card-flush">
+        <div className="card-pad row-between">
+          <div><h2>Page par page</h2>
+            <Help>Mêmes calculs que par vendeur, regroupés par page : total à payer = espèces encaissées − frais gardés par les livreurs. Total ventes, MVola et Orange Money se remplissent tout seuls. Saisissez dans la dernière colonne les espèces vraiment reçues pour la page (Entrée ou ✓ pour valider) ; le crayon permet de corriger.</Help></div>
+          <div className="row" style={{ gap: 6 }}>
+            <Button variant="ghost" className="btn-sm" icon="download" onClick={exportXls}>Excel</Button>
+            <Button variant="ghost" className="btn-sm" icon="printer" onClick={exportPdf}>PDF A4</Button>
+          </div>
+        </div>
+        {rows.length === 0 ? <p className="card-pad small muted">Aucune vente ce jour.</p> : (
+          <div className="table-wrap"><table className="table table-grid handover-table">
+            <thead><tr><th>Page</th><th className="t-num">Total ventes</th><th className="t-num">Espèces</th><th className="t-num">MVola</th><th className="t-num">Orange Money</th><th className="t-num">Airtel Money</th><th className="t-num">Frais livreurs</th><th className="t-num">Total à payer</th><th>Espèces reçues</th></tr></thead>
+            <tbody>
+              {rows.map((d) => (
+                <tr key={d.pageId}>
+                  <td><strong>{d.user.fullName}</strong><div className="small muted">{d.sellers.join(', ') || '—'}</div></td>
+                  <td className="t-num">{money(d.sales)}</td>
+                  <td className="t-num">{money(d.pay.cash)}</td>
+                  <td className="t-num">{money(d.pay.mvola)}</td>
+                  <td className="t-num">{money(d.pay.orange)}</td>
+                  <td className="t-num">{money(d.pay.airtel)}</td>
+                  <td className="t-num">{d.fees ? <span className="neg">− {fmtAr(d.fees)}</span> : money(0)}</td>
+                  <td className="t-num"><strong>{fmtAr(d.toPay)}</strong></td>
+                  <td><ReceivedCell d={d} /></td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot><tr className="t-total"><td>Total</td><td className="t-num">{fmtAr(t.sales)}</td><td className="t-num">{fmtAr(t.cash)}</td><td className="t-num">{fmtAr(t.mvola)}</td><td className="t-num">{fmtAr(t.orange)}</td><td className="t-num">{fmtAr(t.airtel)}</td><td className="t-num">{fmtAr(t.fees)}</td><td className="t-num">{fmtAr(t.toPay)}</td><td className="t-num">{fmtAr(t.got)}</td></tr></tfoot>
+          </table></div>
+        )}
+      </div>
+    </>
+  );
+}
+
 /** Responsable : tous les vendeurs du jour. */
 function Board({ date }: { date: string }) {
   const rows = sellersOfDay(date);
@@ -145,7 +228,7 @@ function Board({ date }: { date: string }) {
         </div>
         {rows.length === 0 ? <p className="card-pad small muted">Aucun vendeur ni aucune vente ce jour.</p> : (
           <div className="table-wrap"><table className="table table-grid handover-table">
-            <thead><tr><th>Vendeur</th><th className="t-num">Total ventes</th><th className="t-num">Espèces</th><th className="t-num">MVola</th><th className="t-num">Orange Money</th><th className="t-num">Airtel Money</th><th className="t-num">Frais livreurs</th><th className="t-num">Dépenses</th><th className="t-num">Total à payer</th><th>Reçu</th></tr></thead>
+            <thead><tr><th>Vendeur</th><th className="t-num">Total ventes</th><th className="t-num">Espèces</th><th className="t-num">MVola</th><th className="t-num">Orange Money</th><th className="t-num">Airtel Money</th><th className="t-num">Frais livreurs</th><th className="t-num">Dépenses</th><th className="t-num">Total à payer</th><th>Espèces reçues</th></tr></thead>
             <tbody>
               {rows.map((d) => (
                 <tr key={d.user.id} className="row-link" onClick={() => setOpen(d.user.id)}>
@@ -158,8 +241,7 @@ function Board({ date }: { date: string }) {
                   <td className="t-num">{d.fees ? <span className="neg">− {fmtAr(d.fees)}</span> : money(0)}</td>
                   <td className="t-num muted">{money(d.expenses)}</td>
                   <td className="t-num"><strong>{fmtAr(d.toPay)}</strong></td>
-                  <td>{d.handover ? <><Badge tone={d.handover.gap ? 'warn' : 'ok'}>{fmtAr(d.handover.amount)}</Badge>{changedSince(d) && <div className="small neg">chiffres changés</div>}</>
-                    : d.toPay || d.sales ? <Badge tone="danger">À recevoir</Badge> : <span className="small muted">—</span>}</td>
+                  <td onClick={(e) => e.stopPropagation()}><ReceivedCell d={d} /></td>
                 </tr>
               ))}
             </tbody>
@@ -169,6 +251,42 @@ function Board({ date }: { date: string }) {
       </div>
       {sel && <Modal title={`Versement de ${sel.user.fullName}`} wide onClose={() => setOpen(null)}><Sheet d={sel} onDone={() => setOpen(null)} /></Modal>}
     </>
+  );
+}
+
+/** Espèces vraiment remises par le vendeur, saisies directement dans le tableau (Entrée ou ✓ pour valider). Total ventes,
+ *  MVola et Orange Money restent calculés tout seuls. Un montant déjà validé peut être corrigé (l'ancien reste tracé). */
+function ReceivedCell({ d }: { d: SellerDay }) {
+  const ho = d.handover;
+  const [edit, setEdit] = useState(false);
+  const [val, setVal] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (!ho && !d.toPay && !d.sales) return <span className="small muted">—</span>;
+  if (ho && !edit) return (
+    <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+      <Badge tone={ho.gap ? 'warn' : 'ok'}>{fmtAr(ho.amount)}</Badge>
+      <IconButton icon="edit" label="Corriger le montant reçu" onClick={() => { setVal(String(ho.amount)); setEdit(true); }} />
+      {ho.gap ? <div className="small neg">écart {ho.gap > 0 ? '+' : '−'} {fmtAr(Math.abs(ho.gap))}</div> : null}
+      {changedSince(d) && <div className="small neg">chiffres changés</div>}
+    </div>
+  );
+  const save = async () => {
+    const n = parseAr(val);
+    if (n == null || n < 0) { toast('Indiquez le montant en espèces reçu.', 'error'); return; }
+    setBusy(true);
+    try {
+      if (ho) await cancelHandover(ho, `Montant corrigé dans le tableau : ${fmtAr(ho.amount)} → ${fmtAr(n)}`);
+      await receiveHandover(d, n);
+      toast(`${fmtAr(n)} reçu de ${d.user.fullName}`); setEdit(false); setVal('');
+    } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
+  };
+  return (
+    <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+      <input className="cell-input num-input" style={{ width: 110 }} inputMode="numeric" aria-label={`Espèces reçues de ${d.user.fullName}`} placeholder={fmtAr(d.toPay)}
+        value={val} disabled={busy} onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEdit(false); }} />
+      <IconButton icon="check" label="Valider le montant reçu" disabled={busy || !val.trim()} onClick={save} />
+      {!ho && !val && <Badge tone="danger">À recevoir</Badge>}
+    </div>
   );
 }
 

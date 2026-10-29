@@ -13,7 +13,7 @@
 import { all, get, getMeta, save, type BaseRecord } from './db';
 import { audit, currentUser, roleOf, type User } from './auth';
 import { salesLedger } from './analytics';
-import { rootOf } from './scope';
+import { rootOf, variantPage } from './scope';
 import { dayOf, type CashMove } from './money';
 import { courierSplit, isPickupZone, isWalkIn, unpaidOf, type Order, type PayMethod } from './orders';
 import type { Category } from './catalog';
@@ -149,3 +149,67 @@ export const handoverHistory = (userId?: string) => all<Handover>('handovers').f
 export const changedSince = (d: SellerDay) => !!d.handover && Math.round(d.handover.expected) !== Math.round(d.toPay);
 
 const ar = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} Ar`;
+
+/**
+ * Versement du jour par PAGE (au lieu de par vendeur) : mêmes règles que la feuille d'un vendeur (ventes du jour,
+ * espèces / mobile money encaissés ce jour, frais gardés par les livreurs, total à payer = espèces − frais), mais
+ * regroupées par page. Une commande qui mélange plusieurs pages est répartie au prorata de ses articles.
+ * Le montant reçu par page est tracé à part (id « ho_page:… ») : les versements par vendeur ne changent pas.
+ */
+export interface PageDay extends SellerDay { pageId: string; sellers: string[] }
+export const pageKey = (pageId: string) => `page:${pageId}`;
+
+export function pagesOfDay(date: string): PageDay[] {
+  const users = all<User>('users').filter((u) => u.roleId !== SUPERADMIN_ROLE && u.roleId !== COURIER_ROLE);
+  const ownerOf = (o: Order) => users.find((u) => isMine(o, u));
+  const rows = new Map<string, PageDay & { ids: Set<string>; names: Set<string> }>();
+  const row = (pageId: string) => {
+    let r = rows.get(pageId);
+    if (!r) {
+      const name = pageLabel(pageId);
+      r = { pageId, sellers: [], ids: new Set(), names: new Set(), user: { id: pageKey(pageId), fullName: name } as User, date, pages: [{ pageId, name, sales: 0 }], sales: 0, orders: 0,
+        pay: { cash: 0, mvola: 0, orange: 0, airtel: 0, card: 0 }, shopCash: 0, courierCash: 0, fees: 0, expenses: 0, expenseMoves: [], toPay: 0, mobile: 0, outParcels: 0, cashOld: 0, pending: [] };
+      rows.set(pageId, r);
+    }
+    return r;
+  };
+  for (const l of salesLedger(date, date)) {
+    const u = ownerOf(l.order); if (!u) continue;
+    const r = row(rootOf(l.categoryId) || '_');
+    r.sales += l.amount; r.pages[0].sales += l.amount; r.names.add(u.fullName);
+    if (l.kind === 'sale') r.ids.add(l.order.id);
+  }
+  for (const o of all<Order>('orders')) {
+    const u = ownerOf(o); if (!u) continue;
+    const old = saleDay(o) < date;
+    const share = pageShare(o);
+    const add = (f: (r: PageDay, k: number) => void) => { for (const [p, k] of share) { const r = row(p); f(r, k); rows.get(p)!.names.add(u.fullName); } };
+    for (const p of o.payments || []) {
+      if (p.method === 'cash' && p.receivedBy === 'courier') continue;
+      if (dayOf(p.at) !== date) continue;
+      add((r, k) => { r.pay[p.method] += p.amount * k; if (p.method === 'cash') { r.shopCash += p.amount * k; if (old) r.cashOld += p.amount * k; } });
+    }
+    if (o.courierSettledAt && dayOf(o.courierSettledAt) === date) {
+      const got = (o.payments || []).filter((p) => p.method === 'cash' && p.receivedBy === 'courier').reduce((t, p) => t + p.amount, 0);
+      const f = !isPickupZone(o.zoneId) && o.feeStatus !== 'paid' ? courierSplit(o).feeKept : 0;
+      add((r, k) => { r.pay.cash += got * k; r.courierCash += got * k; r.fees += f * k; if (old) r.cashOld += (got - f) * k; });
+    }
+  }
+  const list = [...rows.values()].map(({ ids, names, ...r }) => {
+    r.orders = ids.size; r.sellers = [...names].sort((a, b) => a.localeCompare(b, 'fr'));
+    r.toPay = r.pay.cash - r.fees; r.mobile = r.pay.mvola + r.pay.orange + r.pay.airtel;
+    const h = handoverOf(r.user.id, date); r.handover = h?.status === 'received' ? h : undefined;
+    return r;
+  }).filter((r) => r.sales || r.pay.cash || r.mobile || r.fees || r.handover);
+  return list.sort((a, b) => Number(!!a.handover) - Number(!!b.handover) || b.sales - a.sales || a.user.fullName.localeCompare(b.user.fullName, 'fr'));
+}
+
+/** Part de chaque page dans une commande (au prorata des articles ; une seule page dans la plupart des cas). */
+function pageShare(o: Order): Map<string, number> {
+  const w = new Map<string, number>(); let tot = 0;
+  for (const l of o.lines || []) { const p = variantPage(l.variantId) || '_'; const v = Math.max(0, (l.unitPrice || 0) * (l.qty || 0)); w.set(p, (w.get(p) ?? 0) + v); tot += v; }
+  if (!w.size) w.set('_', 1);
+  if (tot <= 0) { const k = 1 / w.size; for (const p of w.keys()) w.set(p, k); return w; }
+  for (const [p, v] of w) w.set(p, v / tot);
+  return w;
+}
