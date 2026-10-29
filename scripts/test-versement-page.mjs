@@ -1,5 +1,5 @@
-// Versements : vue PAR PAGE (par défaut), espèces reçues saisies et corrigées directement dans le tableau ;
-// la vue par vendeur reste disponible et ses chiffres ne changent pas.
+// Versements : vue PAR PAGE (par défaut), espèces du jour / 1er / 2ème paiement espèces, espèces reçues saisies et
+// corrigées directement dans le tableau (la case « Espèces du jour » suit le montant reçu) ; vue par vendeur disponible.
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
 const W = Number(process.argv[2] || 1280);
@@ -14,7 +14,7 @@ const roles = await p.evaluate(() => ({ seller: window.__tsena.get('roles', 'rol
 ok(roles.manager?.name === 'Responsable' && roles.manager.permissions.includes('orders.dispatch') && roles.manager.permissions.includes('handover.receive'), 'rôle Responsable : assigne les livreurs et reçoit les versements');
 ok(!roles.seller.permissions.includes('orders.dispatch') && roles.seller.permissions.includes('handover.self'), 'rôle Vendeur : ne remet pas les colis au livreur (le responsable le fait), voit sa feuille');
 await p.evaluate(async () => {
-  const t = window.__tsena; const now = new Date().toISOString(); const hash = t.get('users', 'user-superadmin').passwordHash;
+  const t = window.__tsena; const now = new Date().toISOString(); const ago = (n) => new Date(Date.now() - n * 864e5).toISOString(); const hash = t.get('users', 'user-superadmin').passwordHash;
   await t.save('categories', [{ id: 'pp', name: 'Poignet précieux' }, { id: 'is', name: 'Intimity style' }]);
   await t.save('products', [{ id: 'a', code: 'A', name: 'Montre', categoryId: 'pp', priceRetail: 15000, active: true }, { id: 'bx', code: 'B', name: 'Boxer', categoryId: 'is', priceRetail: 10000, active: true }]);
   await t.save('variants', [{ id: 'va', productId: 'a', sku: 'A', costAvg: 5000, active: true }, { id: 'vb', productId: 'bx', sku: 'B', costAvg: 4000, active: true }]);
@@ -33,6 +33,9 @@ await p.evaluate(async () => {
     { id: 'D1', number: 'D1', kind: 'order', channel: 'facebook', phone: '0340000000', zoneId: 'z1', courierId: 'c1', status: 'delivered', lines: [{ id: 'ld', variantId: 'va', qty: 1, unitPrice: 15000, qtyKept: 1, qtyReturned: 0 }], deliveryFee: 3000, feeCharged: 3000, discount: 0,
       payments: [{ id: 'pd', at: now, amount: 18000, method: 'cash', receivedBy: 'courier', courierId: 'c1' }], dispatchedAt: now, returnedAt: now, courierSettledAt: now, createdBy: 'u1', createdByName: 'Aina', createdAt: now },
     shop('S3', 'u2', 'Bako', 'vb', 2, 10000, 'cash'),
+    // Restes des jours précédents payés en espèces aujourd'hui : hier → 1er paiement, il y a 7 jours → 2ème paiement
+    { ...shop('Y1', 'u1', 'Aina', 'va', 1, 15000, 'cash'), createdAt: ago(1), payments: [{ id: 'py1', at: ago(1), amount: 5000, method: 'cash', receivedBy: 'shop' }, { id: 'py2', at: now, amount: 10000, method: 'cash', receivedBy: 'shop' }] },
+    { ...shop('W1', 'u1', 'Aina', 'va', 1, 15000, 'cash'), createdAt: ago(7), payments: [{ id: 'pw1', at: now, amount: 15000, method: 'cash', receivedBy: 'shop' }] },
   ]);
   await t.save('cashMoves', { at: now, account: 'cash', amount: -2000, type: 'expense', label: 'Taxi', userName: 'Aina' });
 });
@@ -41,30 +44,33 @@ let tx = N(await p.locator('main').innerText());
 ok(/Par page/.test(tx) && /Page par page/i.test(tx), 'vue « Par page » affichée par défaut');
 const row = (name) => p.locator('.handover-table tbody tr', { hasText: name });
 let rA = N(await row('Poignet précieux').innerText()).replace(/\s+/g, ' ');
-ok(/Poignet précieux Aina 45 000 Ar 48 000 Ar — — — − 3 000 Ar 45 000 Ar/.test(rA), `Poignet précieux : ventes 45 000, espèces 48 000, frais − 3 000, à payer 45 000 (${rA})`);
+ok(/Poignet précieux Aina 45 000 Ar 48 000 Ar 10 000 Ar 15 000 Ar — — — − 3 000 Ar 70 000 Ar/.test(rA), `Poignet précieux : ventes 45 000, espèces du jour 48 000, 1er paiement 10 000, 2ème paiement 15 000, frais − 3 000, à payer 70 000 (${rA})`);
 let rB = N(await row('Intimity style').innerText()).replace(/\s+/g, ' ');
-ok(/Intimity style Aina, Bako 30 000 Ar 20 000 Ar 10 000 Ar — — — 20 000 Ar/.test(rB), `Intimity style : ventes 30 000, espèces 20 000, MVola 10 000, à payer 20 000 (${rB})`);
-ok(/Total\s+75 000 Ar\s+68 000 Ar\s+10 000 Ar\s+0 Ar\s+0 Ar\s+3 000 Ar\s+65 000 Ar\s+0 Ar/.test(tx), 'ligne Total : 75 000 ventes, 65 000 à payer (comme par vendeur)');
+ok(/Intimity style Aina, Bako 30 000 Ar 20 000 Ar — — 10 000 Ar — — — 20 000 Ar/.test(rB), `Intimity style : ventes 30 000, espèces 20 000, MVola 10 000, à payer 20 000 (${rB})`);
+ok(/Total\s+75 000 Ar\s+68 000 Ar\s+10 000 Ar\s+15 000 Ar\s+10 000 Ar\s+0 Ar\s+0 Ar\s+3 000 Ar\s+90 000 Ar\s+0 Ar/.test(tx), 'ligne Total : 75 000 ventes, espèces 68 000 + 10 000 + 15 000, 90 000 à payer (comme par vendeur)');
 // Saisie directe des espèces reçues
 await row('Poignet précieux').getByLabel(/Espèces reçues de/).fill('40000');
 await row('Poignet précieux').getByLabel(/Espèces reçues de/).press('Enter'); await p.waitForTimeout(500);
 let hs = await p.evaluate(() => window.__tsena.all('handovers'));
-ok(hs.length === 1 && hs[0].amount === 40000 && hs[0].expected === 45000 && hs[0].gap === -5000 && hs[0].userName === 'Poignet précieux', 'page Poignet précieux : 40 000 reçu, écart −5 000');
+ok(hs.length === 1 && hs[0].amount === 40000 && hs[0].expected === 70000 && hs[0].gap === -30000 && hs[0].userName === 'Poignet précieux', 'page Poignet précieux : 40 000 reçu, écart −30 000');
 rA = N(await row('Poignet précieux').innerText()).replace(/\s+/g, ' ');
-ok(rA.includes('40 000 Ar') && rA.includes('écart − 5 000 Ar'), `montant reçu affiché avec l’écart (${rA})`);
+ok(rA.includes('40 000 Ar') && rA.includes('écart − 30 000 Ar'), `montant reçu affiché avec l’écart (${rA})`);
+ok(/Poignet précieux Aina 45 000 Ar 18 000 Ar calculé 48 000 Ar 10 000 Ar 15 000 Ar/.test(rA), `espèces du jour suivent le montant reçu : 40 000 − 10 000 − 15 000 + 3 000 = 18 000, calculé 48 000 (${rA})`);
 // Correction
 await row('Poignet précieux').getByRole('button', { name: 'Corriger le montant reçu' }).click();
-await row('Poignet précieux').getByLabel(/Espèces reçues de/).fill('45000');
+await row('Poignet précieux').getByLabel(/Espèces reçues de/).fill('70000');
 await row('Poignet précieux').getByRole('button', { name: 'Valider le montant reçu' }).click(); await p.waitForTimeout(500);
 hs = await p.evaluate(() => window.__tsena.all('handovers'));
-ok(hs.length === 1 && hs[0].status === 'received' && hs[0].amount === 45000 && hs[0].gap === 0, 'correction : 45 000, plus d’écart');
+ok(hs.length === 1 && hs[0].status === 'received' && hs[0].amount === 70000 && hs[0].gap === 0, 'correction : 70 000, plus d’écart');
+rA = N(await row('Poignet précieux').innerText()).replace(/\s+/g, ' ');
+ok(/Poignet précieux Aina 45 000 Ar 48 000 Ar 10 000 Ar/.test(rA) && !rA.includes('calculé'), `espèces du jour revenues au calcul (${rA})`);
 const au = await p.evaluate(() => window.__tsena.all('audit').filter((a) => /Versement vendeur/.test(a.action)).map((a) => a.action));
 ok(au.includes('Versement vendeur annulé') && au.filter((a) => a === 'Versement vendeur reçu').length === 2, 'ancien montant tracé dans le journal');
 // Les vendeurs ne sont pas touchés
 await p.getByRole('button', { name: 'Par vendeur' }).click(); await p.waitForTimeout(300);
 tx = N(await p.locator('main').innerText());
 const rowS = N(await p.locator('tr.row-link', { hasText: 'Aina' }).innerText()).replace(/\s+/g, ' ');
-ok(rowS.includes('55 000 Ar') && rowS.includes('45 000 Ar') && rowS.includes('À recevoir'), `vue par vendeur inchangée : Aina 55 000 ventes, 45 000 à payer, à recevoir (${rowS})`);
+ok(/Aina Poignet précieux, Intimity style 55 000 Ar 48 000 Ar 10 000 Ar 15 000 Ar 10 000 Ar — — − 3 000 Ar 2 000 Ar 70 000 Ar À recevoir/.test(rowS), `vue par vendeur : Aina 55 000 ventes, espèces 48 000 + 1er 10 000 + 2ème 15 000, 70 000 à payer, à recevoir (${rowS})`);
 await p.locator('tr.row-link', { hasText: 'Bako' }).getByLabel(/Espèces reçues de/).fill('20000');
 await p.locator('tr.row-link', { hasText: 'Bako' }).getByLabel(/Espèces reçues de/).press('Enter'); await p.waitForTimeout(500);
 ok(!(await p.getByRole('dialog').count()), 'saisir dans le tableau n’ouvre pas la fiche');

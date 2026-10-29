@@ -18,6 +18,7 @@ import { dayOf, type CashMove } from './money';
 import { courierSplit, isPickupZone, isWalkIn, unpaidOf, type Order, type PayMethod } from './orders';
 import type { Category } from './catalog';
 import { COURIER_ROLE, SUPERADMIN_ROLE } from './permissions';
+import { firstPayDay } from './situation';
 
 export interface Handover extends BaseRecord {
   userId: string; userName: string; date: string;
@@ -52,6 +53,9 @@ export interface SellerDay {
   outParcels: number;                      // colis encore chez les livreurs
   /** Espèces encaissées ce jour-là pour des ventes des jours précédents (« reste d'hier »). */
   cashOld: number;
+  /** Détail des espèces du jour venant de ventes des jours précédents (avant frais livreurs) : 1er paiement du reste
+   *  (jour de travail suivant la vente) et 2ème paiement (après). Espèces des ventes du jour = pay.cash − cash1 − cash2. */
+  cash1: number; cash2: number;
   /** Ventes pas encore encaissées (à ce jour) : colis en livraison, argent chez le livreur, client qui doit encore. */
   pending: PendingSale[];
   handover?: Handover;
@@ -73,21 +77,22 @@ export function sellerDay(u: User, date: string): SellerDay {
     if (l.kind === 'sale') seen.add(l.order.id);
   }
   const pay: Record<PayMethod, number> = { cash: 0, mvola: 0, orange: 0, airtel: 0, card: 0 };
-  let shopCash = 0, courierCash = 0, fees = 0, outParcels = 0, cashOld = 0;
+  let shopCash = 0, courierCash = 0, fees = 0, outParcels = 0, cashOld = 0, cash1 = 0, cash2 = 0;
   const pending: PendingSale[] = [];
   for (const o of all<Order>('orders')) {
     if (!isMine(o, u)) continue;
     const old = saleDay(o) < date;
+    const oldCash = (n: number) => { if (!old) return; if (date <= firstPayDay(saleDay(o))) cash1 += n; else cash2 += n; };
     for (const p of o.payments || []) {
       // Espèces encaissées par le livreur : comptées le jour où il les verse (règlement), pas le jour de la livraison.
       if (p.method === 'cash' && p.receivedBy === 'courier') continue;
       if (dayOf(p.at) !== date) continue;
       pay[p.method] += p.amount;
-      if (p.method === 'cash') { shopCash += p.amount; if (old) cashOld += p.amount; }
+      if (p.method === 'cash') { shopCash += p.amount; if (old) cashOld += p.amount; oldCash(p.amount); }
     }
     if (o.courierSettledAt && dayOf(o.courierSettledAt) === date) {
       const got = (o.payments || []).filter((p) => p.method === 'cash' && p.receivedBy === 'courier').reduce((t, p) => t + p.amount, 0);
-      pay.cash += got; courierCash += got; if (old) cashOld += got;
+      pay.cash += got; courierCash += got; if (old) cashOld += got; oldCash(got);
       // Le livreur garde ses frais sur l'argent encaissé : ce que le vendeur reçoit est diminué d'autant.
       if (!isPickupZone(o.zoneId) && o.feeStatus !== 'paid') { const f = courierSplit(o).feeKept; fees += f; if (old) cashOld -= f; }
     }
@@ -104,7 +109,7 @@ export function sellerDay(u: User, date: string): SellerDay {
   return {
     user: u, date, pages: list, sales, orders: seen.size, pay, shopCash, courierCash, fees, expenses, expenseMoves,
     // Les dépenses sont débitées de la caisse de la boutique, pas du versement du vendeur.
-    toPay: pay.cash - fees, mobile: pay.mvola + pay.orange + pay.airtel, outParcels, cashOld,
+    toPay: pay.cash - fees, mobile: pay.mvola + pay.orange + pay.airtel, outParcels, cashOld, cash1, cash2,
     pending: pending.sort((a, b) => a.day.localeCompare(b.day) || (a.o.number || '').localeCompare(b.o.number || '')),
     handover: h?.status === 'received' ? h : undefined,
   };
@@ -168,7 +173,7 @@ export function pagesOfDay(date: string): PageDay[] {
     if (!r) {
       const name = pageLabel(pageId);
       r = { pageId, sellers: [], ids: new Set(), names: new Set(), user: { id: pageKey(pageId), fullName: name } as User, date, pages: [{ pageId, name, sales: 0 }], sales: 0, orders: 0,
-        pay: { cash: 0, mvola: 0, orange: 0, airtel: 0, card: 0 }, shopCash: 0, courierCash: 0, fees: 0, expenses: 0, expenseMoves: [], toPay: 0, mobile: 0, outParcels: 0, cashOld: 0, pending: [] };
+        pay: { cash: 0, mvola: 0, orange: 0, airtel: 0, card: 0 }, shopCash: 0, courierCash: 0, fees: 0, expenses: 0, expenseMoves: [], toPay: 0, mobile: 0, outParcels: 0, cashOld: 0, cash1: 0, cash2: 0, pending: [] };
       rows.set(pageId, r);
     }
     return r;
@@ -181,18 +186,19 @@ export function pagesOfDay(date: string): PageDay[] {
   }
   for (const o of all<Order>('orders')) {
     const u = ownerOf(o); if (!u) continue;
-    const old = saleDay(o) < date;
+    const old = saleDay(o) < date, first = old && date <= firstPayDay(saleDay(o));
+    const oldCash = (r: PageDay, n: number) => { if (!old) return; if (first) r.cash1 += n; else r.cash2 += n; };
     const share = pageShare(o);
     const add = (f: (r: PageDay, k: number) => void) => { for (const [p, k] of share) { const r = row(p); f(r, k); rows.get(p)!.names.add(u.fullName); } };
     for (const p of o.payments || []) {
       if (p.method === 'cash' && p.receivedBy === 'courier') continue;
       if (dayOf(p.at) !== date) continue;
-      add((r, k) => { r.pay[p.method] += p.amount * k; if (p.method === 'cash') { r.shopCash += p.amount * k; if (old) r.cashOld += p.amount * k; } });
+      add((r, k) => { r.pay[p.method] += p.amount * k; if (p.method === 'cash') { r.shopCash += p.amount * k; if (old) r.cashOld += p.amount * k; oldCash(r, p.amount * k); } });
     }
     if (o.courierSettledAt && dayOf(o.courierSettledAt) === date) {
       const got = (o.payments || []).filter((p) => p.method === 'cash' && p.receivedBy === 'courier').reduce((t, p) => t + p.amount, 0);
       const f = !isPickupZone(o.zoneId) && o.feeStatus !== 'paid' ? courierSplit(o).feeKept : 0;
-      add((r, k) => { r.pay.cash += got * k; r.courierCash += got * k; r.fees += f * k; if (old) r.cashOld += (got - f) * k; });
+      add((r, k) => { r.pay.cash += got * k; r.courierCash += got * k; r.fees += f * k; if (old) r.cashOld += (got - f) * k; oldCash(r, got * k); });
     }
   }
   const list = [...rows.values()].map(({ ids, names, ...r }) => {

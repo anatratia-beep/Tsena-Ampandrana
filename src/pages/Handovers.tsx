@@ -111,15 +111,17 @@ function Boards({ date }: { date: string }) {
 /** Responsable : toutes les pages du jour. Espèces reçues saisies directement dans le tableau. */
 function PageBoard({ date }: { date: string }) {
   const rows = pagesOfDay(date);
-  const t = rows.reduce((a, d) => ({ sales: a.sales + d.sales, cash: a.cash + d.pay.cash, mvola: a.mvola + d.pay.mvola, orange: a.orange + d.pay.orange, airtel: a.airtel + d.pay.airtel, fees: a.fees + d.fees, toPay: a.toPay + d.toPay, got: a.got + (d.handover?.amount ?? 0) }),
-    { sales: 0, cash: 0, mvola: 0, orange: 0, airtel: 0, fees: 0, toPay: 0, got: 0 });
+  const t = rows.reduce((a, d) => ({ sales: a.sales + d.sales, cash: a.cash + d.pay.cash, day: a.day + dayCash(d).shown, c1: a.c1 + d.cash1, c2: a.c2 + d.cash2, mvola: a.mvola + d.pay.mvola, orange: a.orange + d.pay.orange, airtel: a.airtel + d.pay.airtel, fees: a.fees + d.fees, toPay: a.toPay + d.toPay, got: a.got + (d.handover?.amount ?? 0) }),
+    { sales: 0, cash: 0, day: 0, c1: 0, c2: 0, mvola: 0, orange: 0, airtel: 0, fees: 0, toPay: 0, got: 0 });
   const rest = rows.filter((d) => !d.handover).reduce((s, d) => s + d.toPay, 0);
   const waiting = rows.filter((d) => !d.handover && (d.toPay || d.sales));
   const cols: Col<PageDay>[] = [
     { key: 'p', label: 'Page', value: (d) => d.user.fullName, width: 24 },
     { key: 'v', label: 'Vendeurs', value: (d) => d.sellers.join(', '), width: 28 },
     { key: 's', label: 'Total ventes', value: (d) => Math.round(d.sales), money: true, width: 14 },
-    { key: 'c', label: 'Espèces', value: (d) => Math.round(d.pay.cash), money: true, width: 13 },
+    { key: 'c', label: 'Espèces du jour', value: (d) => Math.round(dayCash(d).shown), money: true, width: 13 },
+    { key: 'c1', label: '1er paiement espèces', value: (d) => Math.round(d.cash1), money: true, width: 13 },
+    { key: 'c2', label: '2ème paiement espèces', value: (d) => Math.round(d.cash2), money: true, width: 13 },
     { key: 'mv', label: 'MVola', value: (d) => Math.round(d.pay.mvola), money: true, width: 13 },
     { key: 'or', label: 'Orange Money', value: (d) => Math.round(d.pay.orange), money: true, width: 13 },
     { key: 'ai', label: 'Airtel Money', value: (d) => Math.round(d.pay.airtel), money: true, width: 13 },
@@ -153,13 +155,13 @@ function PageBoard({ date }: { date: string }) {
         </div>
         {rows.length === 0 ? <p className="card-pad small muted">Aucune vente ce jour.</p> : (
           <div className="table-wrap"><table className="table table-grid handover-table">
-            <thead><tr><th>Page</th><th className="t-num">Total ventes</th><th className="t-num">Espèces</th><th className="t-num">MVola</th><th className="t-num">Orange Money</th><th className="t-num">Airtel Money</th><th className="t-num">Frais livreurs</th><th className="t-num">Total à payer</th><th>Espèces reçues</th></tr></thead>
+            <thead><tr><th>Page</th><th className="t-num">Total ventes</th><th className="t-num">Espèces du jour</th><th className="t-num">1er paiement espèces</th><th className="t-num">2ème paiement espèces</th><th className="t-num">MVola</th><th className="t-num">Orange Money</th><th className="t-num">Airtel Money</th><th className="t-num">Frais livreurs</th><th className="t-num">Total à payer</th><th>Espèces reçues</th></tr></thead>
             <tbody>
               {rows.map((d) => (
                 <tr key={d.pageId}>
                   <td><strong>{d.user.fullName}</strong><div className="small muted">{d.sellers.join(', ') || '—'}</div></td>
                   <td className="t-num">{money(d.sales)}</td>
-                  <td className="t-num">{money(d.pay.cash)}</td>
+                  <CashCells d={d} />
                   <td className="t-num">{money(d.pay.mvola)}</td>
                   <td className="t-num">{money(d.pay.orange)}</td>
                   <td className="t-num">{money(d.pay.airtel)}</td>
@@ -169,7 +171,7 @@ function PageBoard({ date }: { date: string }) {
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr className="t-total"><td>Total</td><td className="t-num">{fmtAr(t.sales)}</td><td className="t-num">{fmtAr(t.cash)}</td><td className="t-num">{fmtAr(t.mvola)}</td><td className="t-num">{fmtAr(t.orange)}</td><td className="t-num">{fmtAr(t.airtel)}</td><td className="t-num">{fmtAr(t.fees)}</td><td className="t-num">{fmtAr(t.toPay)}</td><td className="t-num">{fmtAr(t.got)}</td></tr></tfoot>
+            <tfoot><tr className="t-total"><td>Total</td><td className="t-num">{fmtAr(t.sales)}</td><td className="t-num">{fmtAr(t.day)}</td><td className="t-num">{fmtAr(t.c1)}</td><td className="t-num">{fmtAr(t.c2)}</td><td className="t-num">{fmtAr(t.mvola)}</td><td className="t-num">{fmtAr(t.orange)}</td><td className="t-num">{fmtAr(t.airtel)}</td><td className="t-num">{fmtAr(t.fees)}</td><td className="t-num">{fmtAr(t.toPay)}</td><td className="t-num">{fmtAr(t.got)}</td></tr></tfoot>
           </table></div>
         )}
       </div>
@@ -181,8 +183,8 @@ function PageBoard({ date }: { date: string }) {
 function Board({ date }: { date: string }) {
   const rows = sellersOfDay(date);
   const [open, setOpen] = useState<string | null>(null);
-  const t = rows.reduce((a, d) => ({ sales: a.sales + d.sales, cash: a.cash + d.pay.cash, mvola: a.mvola + d.pay.mvola, orange: a.orange + d.pay.orange, airtel: a.airtel + d.pay.airtel, fees: a.fees + d.fees, exp: a.exp + d.expenses, toPay: a.toPay + d.toPay, got: a.got + (d.handover?.amount ?? 0) }),
-    { sales: 0, cash: 0, mvola: 0, orange: 0, airtel: 0, fees: 0, exp: 0, toPay: 0, got: 0 });
+  const t = rows.reduce((a, d) => ({ sales: a.sales + d.sales, cash: a.cash + d.pay.cash, day: a.day + dayCash(d).shown, c1: a.c1 + d.cash1, c2: a.c2 + d.cash2, mvola: a.mvola + d.pay.mvola, orange: a.orange + d.pay.orange, airtel: a.airtel + d.pay.airtel, fees: a.fees + d.fees, exp: a.exp + d.expenses, toPay: a.toPay + d.toPay, got: a.got + (d.handover?.amount ?? 0) }),
+    { sales: 0, cash: 0, day: 0, c1: 0, c2: 0, mvola: 0, orange: 0, airtel: 0, fees: 0, exp: 0, toPay: 0, got: 0 });
   const waiting = rows.filter((d) => !d.handover && (d.toPay || d.sales));
   const rest = rows.filter((d) => !d.handover).reduce((s, d) => s + d.toPay, 0);
   const sel = rows.find((d) => d.user.id === open);
@@ -191,7 +193,9 @@ function Board({ date }: { date: string }) {
     { key: 'v', label: 'Vendeur', value: (d) => d.user.fullName, width: 22 },
     { key: 'p', label: 'Pages', value: (d) => d.pages.map((p) => `${p.name} : ${Math.round(p.sales).toLocaleString('fr-FR')}`).join(' ; '), width: 40 },
     { key: 's', label: 'Total ventes', value: (d) => Math.round(d.sales), money: true, width: 14 },
-    { key: 'c', label: 'Espèces', value: (d) => Math.round(d.pay.cash), money: true, width: 13 },
+    { key: 'c', label: 'Espèces du jour', value: (d) => Math.round(dayCash(d).shown), money: true, width: 13 },
+    { key: 'c1', label: '1er paiement espèces', value: (d) => Math.round(d.cash1), money: true, width: 13 },
+    { key: 'c2', label: '2ème paiement espèces', value: (d) => Math.round(d.cash2), money: true, width: 13 },
     { key: 'mv', label: 'MVola', value: (d) => Math.round(d.pay.mvola), money: true, width: 13 },
     { key: 'or', label: 'Orange Money', value: (d) => Math.round(d.pay.orange), money: true, width: 13 },
     { key: 'ai', label: 'Airtel Money', value: (d) => Math.round(d.pay.airtel), money: true, width: 13 },
@@ -228,13 +232,13 @@ function Board({ date }: { date: string }) {
         </div>
         {rows.length === 0 ? <p className="card-pad small muted">Aucun vendeur ni aucune vente ce jour.</p> : (
           <div className="table-wrap"><table className="table table-grid handover-table">
-            <thead><tr><th>Vendeur</th><th className="t-num">Total ventes</th><th className="t-num">Espèces</th><th className="t-num">MVola</th><th className="t-num">Orange Money</th><th className="t-num">Airtel Money</th><th className="t-num">Frais livreurs</th><th className="t-num">Dépenses</th><th className="t-num">Total à payer</th><th>Espèces reçues</th></tr></thead>
+            <thead><tr><th>Vendeur</th><th className="t-num">Total ventes</th><th className="t-num">Espèces du jour</th><th className="t-num">1er paiement espèces</th><th className="t-num">2ème paiement espèces</th><th className="t-num">MVola</th><th className="t-num">Orange Money</th><th className="t-num">Airtel Money</th><th className="t-num">Frais livreurs</th><th className="t-num">Dépenses</th><th className="t-num">Total à payer</th><th>Espèces reçues</th></tr></thead>
             <tbody>
               {rows.map((d) => (
                 <tr key={d.user.id} className="row-link" onClick={() => setOpen(d.user.id)}>
                   <td><strong>{d.user.fullName}</strong><div className="small muted">{d.pages.length ? d.pages.map((p) => p.name).join(', ') : 'aucune vente'}</div></td>
                   <td className="t-num">{money(d.sales)}</td>
-                  <td className="t-num">{money(d.pay.cash)}</td>
+                  <CashCells d={d} />
                   <td className="t-num">{money(d.pay.mvola)}</td>
                   <td className="t-num">{money(d.pay.orange)}</td>
                   <td className="t-num">{money(d.pay.airtel)}</td>
@@ -245,11 +249,32 @@ function Board({ date }: { date: string }) {
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr className="t-total"><td>Total</td><td className="t-num">{fmtAr(t.sales)}</td><td className="t-num">{fmtAr(t.cash)}</td><td className="t-num">{fmtAr(t.mvola)}</td><td className="t-num">{fmtAr(t.orange)}</td><td className="t-num">{fmtAr(t.airtel)}</td><td className="t-num">{fmtAr(t.fees)}</td><td className="t-num">{fmtAr(t.exp)}</td><td className="t-num">{fmtAr(t.toPay)}</td><td className="t-num">{fmtAr(t.got)}</td></tr></tfoot>
+            <tfoot><tr className="t-total"><td>Total</td><td className="t-num">{fmtAr(t.sales)}</td><td className="t-num">{fmtAr(t.day)}</td><td className="t-num">{fmtAr(t.c1)}</td><td className="t-num">{fmtAr(t.c2)}</td><td className="t-num">{fmtAr(t.mvola)}</td><td className="t-num">{fmtAr(t.orange)}</td><td className="t-num">{fmtAr(t.airtel)}</td><td className="t-num">{fmtAr(t.fees)}</td><td className="t-num">{fmtAr(t.exp)}</td><td className="t-num">{fmtAr(t.toPay)}</td><td className="t-num">{fmtAr(t.got)}</td></tr></tfoot>
           </table></div>
         )}
       </div>
       {sel && <Modal title={`Versement de ${sel.user.fullName}`} wide onClose={() => setOpen(null)}><Sheet d={sel} onDone={() => setOpen(null)} /></Modal>}
+    </>
+  );
+}
+
+/**
+ * Espèces du jour (ventes du jour), séparées du 1er et du 2ème paiement espèces (restes des jours précédents).
+ * Quand le responsable a saisi un montant reçu différent, la case « Espèces du jour » suit ce montant
+ * (reçu − 1er − 2ème paiement + frais livreurs) ; le chiffre calculé reste affiché en dessous. Affichage seulement.
+ */
+function dayCash(d: SellerDay) {
+  const calc = d.pay.cash - d.cash1 - d.cash2;
+  const shown = d.handover ? d.handover.amount - d.cash1 - d.cash2 + d.fees : calc;
+  return { calc, shown, changed: !!d.handover && Math.round(shown) !== Math.round(calc) };
+}
+function CashCells({ d }: { d: SellerDay }) {
+  const c = dayCash(d);
+  return (
+    <>
+      <td className="t-num">{c.changed ? <><strong>{fmtAr(c.shown)}</strong><div className="small muted">calculé {fmtAr(c.calc)}</div></> : money(c.shown)}</td>
+      <td className="t-num">{money(d.cash1)}</td>
+      <td className="t-num">{money(d.cash2)}</td>
     </>
   );
 }
@@ -263,9 +288,11 @@ function ReceivedCell({ d }: { d: SellerDay }) {
   const [busy, setBusy] = useState(false);
   if (!ho && !d.toPay && !d.sales) return <span className="small muted">—</span>;
   if (ho && !edit) return (
-    <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
-      <Badge tone={ho.gap ? 'warn' : 'ok'}>{fmtAr(ho.amount)}</Badge>
-      <IconButton icon="edit" label="Corriger le montant reçu" onClick={() => { setVal(String(ho.amount)); setEdit(true); }} />
+    <div>
+      <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+        <Badge tone={ho.gap ? 'warn' : 'ok'}>{fmtAr(ho.amount)}</Badge>
+        <IconButton icon="edit" label="Corriger le montant reçu" onClick={() => { setVal(String(ho.amount)); setEdit(true); }} />
+      </div>
       {ho.gap ? <div className="small neg">écart {ho.gap > 0 ? '+' : '−'} {fmtAr(Math.abs(ho.gap))}</div> : null}
       {changedSince(d) && <div className="small neg">chiffres changés</div>}
     </div>
