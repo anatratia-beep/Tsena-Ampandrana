@@ -24,6 +24,7 @@ export function HandoversPage() {
   const me = useCurrentUser();
   useTable('orders'); useTable('cashMoves'); useTable('handovers'); useTable('users'); useTable('roles'); useTable('categories'); useTable('products'); useTable('variants');
   const [date, setDate] = useState(today());
+  const [view, setView] = useState<'page' | 'seller'>('page');
   const boss = can('handover.receive');
   if (!me || (!boss && !can('handover.self'))) return <Empty icon="lock" title="Accès réservé" />;
   const isToday = date === today();
@@ -35,8 +36,12 @@ export function HandoversPage() {
         <strong style={{ textTransform: 'capitalize' }}>{longDate(date)}</strong>
         <IconButton icon="chevronRight" label="Jour suivant" disabled={isToday} onClick={() => setDate(addDays(date, 1))} />
         {!isToday && <Button variant="quiet" onClick={() => setDate(today())}>Aujourd’hui</Button>}
+        {boss && <div className="segmented" role="group" aria-label="Affichage" style={{ marginLeft: 'auto' }}>
+          <button type="button" aria-pressed={view === 'page'} onClick={() => setView('page')}><Icon name="store" size={16} />Par page</button>
+          <button type="button" aria-pressed={view === 'seller'} onClick={() => setView('seller')}><Icon name="users" size={16} />Par vendeur</button>
+        </div>}
       </div>
-      {boss ? <Boards date={date} /> : <Sheet d={sellerDay(me, date)} self />}
+      {boss ? <Boards date={date} view={view} /> : <Sheet d={sellerDay(me, date)} self />}
       <Restes date={date} pages={boss ? undefined : userPages(me)} />
       <History userId={boss ? undefined : me.id} />
     </>
@@ -95,14 +100,9 @@ function Restes({ date, pages }: { date: string; pages?: string[] }) {
 }
 
 /** Responsable : versement du jour par page (par défaut) ou par vendeur. */
-function Boards({ date }: { date: string }) {
-  const [view, setView] = useState<'page' | 'seller'>('page');
+function Boards({ date, view }: { date: string; view: 'page' | 'seller' }) {
   return (
     <>
-      <div className="row" style={{ gap: 6 }}>
-        <Button variant={view === 'page' ? 'primary' : 'ghost'} className="btn-sm" onClick={() => setView('page')}>Par page</Button>
-        <Button variant={view === 'seller' ? 'primary' : 'ghost'} className="btn-sm" onClick={() => setView('seller')}>Par vendeur</Button>
-      </div>
       {view === 'page' ? <PageBoard date={date} /> : <Board date={date} />}
       <SellerGaps date={date} />
     </>
