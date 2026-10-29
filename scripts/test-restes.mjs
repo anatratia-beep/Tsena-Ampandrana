@@ -34,6 +34,7 @@ await p.getByRole('button', { name: /Restes payés ce jour/ }).click(); await p.
 tx = N(await p.locator('main').innerText());
 ok(tx.includes('V-R1') && tx.includes('30 000 Ar'), 'restes payés ce jour : 30 000 (1er paiement)');
 // Feuille d'Aina : dépense non déduite
+await p.getByRole('button', { name: 'Par vendeur' }).click(); await p.waitForTimeout(300);
 await p.getByRole('button', { name: /Aina/ }).first().click().catch(() => {}); await p.waitForTimeout(300);
 tx = N(await p.locator('main').innerText());
 ok(tx.includes('débitées de la caisse de la boutique'), 'dépense : débitée de la caisse, pas du versement');
