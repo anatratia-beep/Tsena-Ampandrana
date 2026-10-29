@@ -14,7 +14,7 @@ import { all, get, getMeta, save, type BaseRecord } from './db';
 import { audit, currentUser, roleOf, type User } from './auth';
 import { salesLedger } from './analytics';
 import { rootOf, variantPage } from './scope';
-import { dayOf, type CashMove } from './money';
+import { addDays, dayOf, type CashMove } from './money';
 import { courierSplit, isPickupZone, isWalkIn, unpaidOf, type Order, type PayMethod } from './orders';
 import type { Category } from './catalog';
 import { COURIER_ROLE, SUPERADMIN_ROLE } from './permissions';
@@ -32,6 +32,8 @@ export interface Handover extends BaseRecord {
   byId?: string; byName?: string; at: string; device?: string;
   status: 'received' | 'cancelled';
   cancelledBy?: string; cancelledAt?: string; cancelReason?: string;
+  /** Écart en moins remboursé ensuite par le vendeur (impayé vendeur réglé). */
+  repaid?: number; repayments?: { at: string; amount: number; byName?: string }[];
 }
 
 export const handoverId = (userId: string, date: string) => `ho_${userId}_${date}`;
@@ -136,7 +138,7 @@ export async function receiveHandover(d: SellerDay, amount: number, note?: strin
     sales: d.sales, perPage: d.pages, cash: d.pay.cash, mvola: d.pay.mvola, orange: d.pay.orange, airtel: d.pay.airtel,
     fees: d.fees, expenses: d.expenses, expected: d.toPay, amount, gap, note: note || undefined,
     byId: me?.id, byName: me?.fullName, at: new Date().toISOString(), device: getMeta('deviceName', '') || undefined,
-    status: 'received', cancelledBy: undefined, cancelledAt: undefined, cancelReason: undefined, deleted: false,
+    status: 'received', cancelledBy: undefined, cancelledAt: undefined, cancelReason: undefined, repaid: 0, repayments: [], deleted: false,
   } as Partial<Handover>);
   await audit('Versement vendeur reçu', `${d.user.fullName}, ${d.date} : ${ar(amount)} reçu (à payer ${ar(d.toPay)}${gap ? `, écart ${gap > 0 ? '+' : ''}${ar(gap)}` : ''})`, 'handovers', handoverId(d.user.id, d.date));
 }
@@ -218,4 +220,26 @@ function pageShare(o: Order): Map<string, number> {
   if (tot <= 0) { const k = 1 / w.size; for (const p of w.keys()) w.set(p, k); return w; }
   for (const [p, v] of w) w.set(p, v / tot);
   return w;
+}
+
+/**
+ * Impayés vendeurs : un versement reçu avec un écart en moins (le vendeur a remis moins que prévu) reste à réclamer
+ * au vendeur (ou à la page) jusqu'à ce qu'il le rembourse. Séparé des impayés clients : aucune formule existante ne change.
+ */
+export const gapDue = (h: Handover) => (h.status === 'received' && h.gap < -0.5 ? Math.max(0, -h.gap - (h.repaid || 0)) : 0);
+/** Écarts encore à réclamer, des versements jusqu'au jour `upTo` inclus (`key` : un vendeur ou « page:… »). */
+export const openGaps = (upTo: string, key?: string) => all<Handover>('handovers')
+  .filter((h) => !h.deleted && h.date <= upTo && (!key || h.userId === key) && gapDue(h) > 0.5)
+  .sort((a, b) => a.date.localeCompare(b.date) || a.userName.localeCompare(b.userName, 'fr'));
+/** Total encore à réclamer pour un vendeur / une page, des jours AVANT `date`. */
+export const gapsBefore = (key: string, date: string) => openGaps(addDays(date, -1), key).reduce((t, h) => t + gapDue(h), 0);
+
+/** Le vendeur rembourse tout ou partie d'un écart. */
+export async function repayGap(h: Handover, amount: number) {
+  const due = gapDue(h);
+  if (!(amount > 0) || !isFinite(amount)) throw new Error('Montant invalide.');
+  if (amount > due + 0.5) throw new Error(`Il reste seulement ${ar(due)} à réclamer.`);
+  const me = currentUser();
+  await save('handovers', { id: h.id, repaid: (h.repaid || 0) + amount, repayments: [...(h.repayments || []), { at: new Date().toISOString(), amount, byName: me?.fullName }] } as Partial<Handover>);
+  await audit('Impayé vendeur réglé', `${h.userName}, versement du ${h.date} : ${ar(amount)} remboursé (reste ${ar(due - amount)})`, 'handovers', h.id);
 }

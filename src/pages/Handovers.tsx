@@ -8,7 +8,7 @@ import { get, useTable } from '../lib/db';
 import type { Courier } from '../lib/orders';
 import { fmtAr, parseNum, parseAr } from '../lib/catalog';
 import { addDays, today } from '../lib/money';
-import { cancelHandover, changedSince, handoverHistory, pagesOfDay, receiveHandover, sellerDay, sellersOfDay, type Handover, type PageDay, type PendingSale, type SellerDay } from '../lib/handovers';
+import { cancelHandover, changedSince, gapDue, gapsBefore, handoverHistory, openGaps, pagesOfDay, repayGap, receiveHandover, sellerDay, sellersOfDay, type Handover, type PageDay, type PendingSale, type SellerDay } from '../lib/handovers';
 import { printA4, a4Table, arA4, h } from '../lib/a4';
 import { restLedger, type RestRow } from '../lib/situation';
 import { userPages } from '../lib/scope';
@@ -104,7 +104,58 @@ function Boards({ date }: { date: string }) {
         <Button variant={view === 'seller' ? 'primary' : 'ghost'} className="btn-sm" onClick={() => setView('seller')}>Par vendeur</Button>
       </div>
       {view === 'page' ? <PageBoard date={date} /> : <Board date={date} />}
+      <SellerGaps date={date} />
     </>
+  );
+}
+
+/** Impayé vendeur des jours précédents (écart en moins pas encore remboursé). */
+function PrevGap({ k, date }: { k: string; date: string }) {
+  const n = gapsBefore(k, date);
+  return n > 0.5 ? <div className="small neg">impayé précédent {fmtAr(n)}</div> : null;
+}
+
+/** Impayés vendeurs : écarts en moins à réclamer (vendeur ou page), jusqu'au jour affiché, avec remboursement. */
+function SellerGaps({ date }: { date: string }) {
+  const list = openGaps(date);
+  const [pay, setPay] = useState<{ id: string; val: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const total = list.reduce((t, h) => t + gapDue(h), 0);
+  const submit = async () => {
+    const h = list.find((x) => x.id === pay?.id); const n = parseAr(pay?.val || '');
+    if (!h || n == null) return;
+    setBusy(true);
+    try { await repayGap(h, n); toast(`${fmtAr(n)} remboursé par ${h.userName}`); setPay(null); }
+    catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
+  };
+  return (
+    <div className="card card-flush">
+      <div className="card-pad stack-s">
+        <div className="row-between"><h2>Impayés vendeurs (écarts à réclamer)</h2><strong className={`num ${total > 0.5 ? 'neg' : ''}`}>{fmtAr(total)}</strong></div>
+        <p className="small muted" style={{ margin: 0 }}>Quand un vendeur remet moins que prévu, l’écart reste ici à réclamer jusqu’à ce qu’il le rembourse (bouton « Régler »). Séparé des impayés clients.</p>
+      </div>
+      {list.length === 0 ? <p className="card-pad small muted" style={{ paddingTop: 0 }}>Aucun écart à réclamer.</p> : (
+        <div className="table-wrap"><table className="table table-grid">
+          <thead><tr><th>Jour</th><th>Page / vendeur</th><th className="t-num">Écart</th><th className="t-num">Déjà remboursé</th><th className="t-num">Reste à réclamer</th><th></th></tr></thead>
+          <tbody>{list.map((h) => (
+            <tr key={h.id}>
+              <td>{fmtDate(h.date)}</td>
+              <td><strong>{h.userName}</strong>{h.userId.startsWith('page:') ? <span className="small muted"> · page</span> : null}</td>
+              <td className="t-num neg">{fmtAr(-h.gap)}</td>
+              <td className="t-num">{money(h.repaid || 0)}</td>
+              <td className="t-num"><strong className="neg">{fmtAr(gapDue(h))}</strong></td>
+              <td>{pay?.id === h.id ? (
+                <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+                  <input className="cell-input num-input" style={{ width: 110 }} inputMode="numeric" aria-label={`Remboursé par ${h.userName}`} value={pay.val} disabled={busy}
+                    onChange={(e) => setPay({ id: h.id, val: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') setPay(null); }} />
+                  <IconButton icon="check" label="Valider le remboursement" disabled={busy || !pay.val.trim()} onClick={submit} />
+                </div>
+              ) : <Button variant="ghost" className="btn-sm" onClick={() => setPay({ id: h.id, val: String(Math.round(gapDue(h))) })}>Régler</Button>}</td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      )}
+    </div>
   );
 }
 
@@ -159,7 +210,7 @@ function PageBoard({ date }: { date: string }) {
             <tbody>
               {rows.map((d) => (
                 <tr key={d.pageId}>
-                  <td><strong>{d.user.fullName}</strong><div className="small muted">{d.sellers.join(', ') || '—'}</div></td>
+                  <td><strong>{d.user.fullName}</strong><div className="small muted">{d.sellers.join(', ') || '—'}</div><PrevGap k={d.user.id} date={date} /></td>
                   <td className="t-num">{money(d.sales)}</td>
                   <CashCells d={d} />
                   <td className="t-num">{money(d.pay.mvola)}</td>
@@ -236,7 +287,7 @@ function Board({ date }: { date: string }) {
             <tbody>
               {rows.map((d) => (
                 <tr key={d.user.id} className="row-link" onClick={() => setOpen(d.user.id)}>
-                  <td><strong>{d.user.fullName}</strong><div className="small muted">{d.pages.length ? d.pages.map((p) => p.name).join(', ') : 'aucune vente'}</div></td>
+                  <td><strong>{d.user.fullName}</strong><div className="small muted">{d.pages.length ? d.pages.map((p) => p.name).join(', ') : 'aucune vente'}</div><PrevGap k={d.user.id} date={date} /></td>
                   <td className="t-num">{money(d.sales)}</td>
                   <CashCells d={d} />
                   <td className="t-num">{money(d.pay.mvola)}</td>

@@ -37,6 +37,9 @@ await p.evaluate(async () => {
     { ...shop('Y1', 'u1', 'Aina', 'va', 1, 15000, 'cash'), createdAt: ago(1), payments: [{ id: 'py1', at: ago(1), amount: 5000, method: 'cash', receivedBy: 'shop' }, { id: 'py2', at: now, amount: 10000, method: 'cash', receivedBy: 'shop' }] },
     { ...shop('W1', 'u1', 'Aina', 'va', 1, 15000, 'cash'), createdAt: ago(7), payments: [{ id: 'pw1', at: now, amount: 15000, method: 'cash', receivedBy: 'shop' }] },
   ]);
+  // Versement d'hier de la page Intimity style : 5 000 de moins que prévu → impayé vendeur à réclamer
+  const y = new Date(Date.now() - 864e5); const yd = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
+  await t.save('handovers', { id: `ho_page:is_${yd}`, userId: 'page:is', userName: 'Intimity style', date: yd, sales: 0, perPage: [], cash: 0, mvola: 0, orange: 0, airtel: 0, fees: 0, expenses: 0, expected: 25000, amount: 20000, gap: -5000, at: ago(1), status: 'received', repaid: 0, repayments: [] });
   await t.save('cashMoves', { at: now, account: 'cash', amount: -2000, type: 'expense', label: 'Taxi', userName: 'Aina' });
 });
 await p.goto('http://localhost:5173/#/versements'); await p.waitForTimeout(800);
@@ -46,24 +49,39 @@ const row = (name) => p.locator('.handover-table tbody tr', { hasText: name });
 let rA = N(await row('Poignet précieux').innerText()).replace(/\s+/g, ' ');
 ok(/Poignet précieux Aina 45 000 Ar 48 000 Ar 10 000 Ar 15 000 Ar — — — − 3 000 Ar 70 000 Ar/.test(rA), `Poignet précieux : ventes 45 000, espèces du jour 48 000, 1er paiement 10 000, 2ème paiement 15 000, frais − 3 000, à payer 70 000 (${rA})`);
 let rB = N(await row('Intimity style').innerText()).replace(/\s+/g, ' ');
-ok(/Intimity style Aina, Bako 30 000 Ar 20 000 Ar — — 10 000 Ar — — — 20 000 Ar/.test(rB), `Intimity style : ventes 30 000, espèces 20 000, MVola 10 000, à payer 20 000 (${rB})`);
+ok(/Intimity style Aina, Bako impayé précédent 5 000 Ar 30 000 Ar 20 000 Ar — — 10 000 Ar — — — 20 000 Ar/.test(rB), `Intimity style : ventes 30 000, espèces 20 000, MVola 10 000, à payer 20 000 (${rB})`);
 ok(/Total\s+75 000 Ar\s+68 000 Ar\s+10 000 Ar\s+15 000 Ar\s+10 000 Ar\s+0 Ar\s+0 Ar\s+3 000 Ar\s+90 000 Ar\s+0 Ar/.test(tx), 'ligne Total : 75 000 ventes, espèces 68 000 + 10 000 + 15 000, 90 000 à payer (comme par vendeur)');
 // Saisie directe des espèces reçues
 await row('Poignet précieux').getByLabel(/Espèces du jour reçues de/).fill('18000');
 await row('Poignet précieux').getByLabel(/Espèces du jour reçues de/).press('Enter'); await p.waitForTimeout(500);
-let hs = await p.evaluate(() => window.__tsena.all('handovers'));
+let hs = await p.evaluate(() => window.__tsena.all('handovers').filter((h) => h.userId === 'page:pp'));
 ok(hs.length === 1 && hs[0].amount === 40000 && hs[0].expected === 70000 && hs[0].gap === -30000 && hs[0].userName === 'Poignet précieux', 'page Poignet précieux : 18 000 d’espèces du jour saisi → versement 18 000 + 10 000 + 15 000 − 3 000 = 40 000, écart −30 000');
 rA = N(await row('Poignet précieux').innerText()).replace(/\s+/g, ' ');
 ok(rA.includes('18 000 Ar') && rA.includes('versement total 40 000 Ar') && rA.includes('écart − 30 000 Ar'), `montant reçu affiché avec l’écart (${rA})`);
 ok(/Poignet précieux Aina 45 000 Ar 18 000 Ar calculé 48 000 Ar 10 000 Ar 15 000 Ar/.test(rA), `espèces du jour suivent le montant reçu : 40 000 − 10 000 − 15 000 + 3 000 = 18 000, calculé 48 000 (${rA})`);
+// L'écart devient un impayé vendeur à réclamer
+const gaps = () => p.locator('.card', { hasText: 'Impayés vendeurs (écarts à réclamer)' });
+let g = N(await gaps().innerText()).replace(/\s+/g, ' ');
+ok(/Impayés vendeurs \(écarts à réclamer\) 35 000 Ar/i.test(g) && /Intimity style · page 5 000 Ar — 5 000 Ar/.test(g) && /Poignet précieux · page 30 000 Ar — 30 000 Ar/.test(g), `impayés vendeurs : hier Intimity 5 000 + aujourd’hui Poignet 30 000 = 35 000 (${g})`);
+// Remboursement partiel de l'impayé d'hier
+await gaps().locator('tr', { hasText: 'Intimity style' }).getByRole('button', { name: 'Régler' }).click();
+await gaps().getByLabel(/Remboursé par Intimity style/).fill('2000');
+await gaps().getByLabel(/Remboursé par Intimity style/).press('Enter'); await p.waitForTimeout(500);
+g = N(await gaps().innerText()).replace(/\s+/g, ' ');
+ok(/Intimity style · page 5 000 Ar 2 000 Ar 3 000 Ar/.test(g) && /33 000 Ar/.test(g), `remboursement partiel : reste 3 000 (${g})`);
+ok(N(await row('Intimity style').innerText()).includes('impayé précédent 3 000 Ar'), 'tableau : impayé précédent 3 000');
+await gaps().locator('tr', { hasText: 'Intimity style' }).getByRole('button', { name: 'Régler' }).click();
+await gaps().getByLabel(/Remboursé par Intimity style/).press('Enter'); await p.waitForTimeout(500);
+ok(!(await row('Intimity style').innerText()).includes('impayé précédent'), 'remboursé en entier : plus d’impayé précédent');
 // Correction
 await row('Poignet précieux').getByRole('button', { name: 'Corriger le montant reçu' }).click();
 await row('Poignet précieux').getByLabel(/Espèces du jour reçues de/).fill('48000');
 await row('Poignet précieux').getByRole('button', { name: 'Valider le montant reçu' }).click(); await p.waitForTimeout(500);
-hs = await p.evaluate(() => window.__tsena.all('handovers'));
+hs = await p.evaluate(() => window.__tsena.all('handovers').filter((h) => h.userId === 'page:pp'));
 ok(hs.length === 1 && hs[0].status === 'received' && hs[0].amount === 70000 && hs[0].gap === 0, 'correction : 48 000 d’espèces du jour → versement 70 000, plus d’écart');
 rA = N(await row('Poignet précieux').innerText()).replace(/\s+/g, ' ');
 ok(/Poignet précieux Aina 45 000 Ar 48 000 Ar 10 000 Ar/.test(rA) && !rA.includes('calculé'), `espèces du jour revenues au calcul (${rA})`);
+ok(/Aucun écart à réclamer/.test(await gaps().innerText()), 'plus d’écart : plus rien à réclamer');
 const au = await p.evaluate(() => window.__tsena.all('audit').filter((a) => /Versement vendeur/.test(a.action)).map((a) => a.action));
 ok(au.includes('Versement vendeur annulé') && au.filter((a) => a === 'Versement vendeur reçu').length === 2, 'ancien montant tracé dans le journal');
 // Les vendeurs ne sont pas touchés
