@@ -49,19 +49,19 @@ let rB = N(await row('Intimity style').innerText()).replace(/\s+/g, ' ');
 ok(/Intimity style Aina, Bako 30 000 Ar 20 000 Ar — — 10 000 Ar — — — 20 000 Ar/.test(rB), `Intimity style : ventes 30 000, espèces 20 000, MVola 10 000, à payer 20 000 (${rB})`);
 ok(/Total\s+75 000 Ar\s+68 000 Ar\s+10 000 Ar\s+15 000 Ar\s+10 000 Ar\s+0 Ar\s+0 Ar\s+3 000 Ar\s+90 000 Ar\s+0 Ar/.test(tx), 'ligne Total : 75 000 ventes, espèces 68 000 + 10 000 + 15 000, 90 000 à payer (comme par vendeur)');
 // Saisie directe des espèces reçues
-await row('Poignet précieux').getByLabel(/Espèces reçues de/).fill('40000');
-await row('Poignet précieux').getByLabel(/Espèces reçues de/).press('Enter'); await p.waitForTimeout(500);
+await row('Poignet précieux').getByLabel(/Espèces du jour reçues de/).fill('18000');
+await row('Poignet précieux').getByLabel(/Espèces du jour reçues de/).press('Enter'); await p.waitForTimeout(500);
 let hs = await p.evaluate(() => window.__tsena.all('handovers'));
-ok(hs.length === 1 && hs[0].amount === 40000 && hs[0].expected === 70000 && hs[0].gap === -30000 && hs[0].userName === 'Poignet précieux', 'page Poignet précieux : 40 000 reçu, écart −30 000');
+ok(hs.length === 1 && hs[0].amount === 40000 && hs[0].expected === 70000 && hs[0].gap === -30000 && hs[0].userName === 'Poignet précieux', 'page Poignet précieux : 18 000 d’espèces du jour saisi → versement 18 000 + 10 000 + 15 000 − 3 000 = 40 000, écart −30 000');
 rA = N(await row('Poignet précieux').innerText()).replace(/\s+/g, ' ');
-ok(rA.includes('40 000 Ar') && rA.includes('écart − 30 000 Ar'), `montant reçu affiché avec l’écart (${rA})`);
+ok(rA.includes('18 000 Ar') && rA.includes('versement total 40 000 Ar') && rA.includes('écart − 30 000 Ar'), `montant reçu affiché avec l’écart (${rA})`);
 ok(/Poignet précieux Aina 45 000 Ar 18 000 Ar calculé 48 000 Ar 10 000 Ar 15 000 Ar/.test(rA), `espèces du jour suivent le montant reçu : 40 000 − 10 000 − 15 000 + 3 000 = 18 000, calculé 48 000 (${rA})`);
 // Correction
 await row('Poignet précieux').getByRole('button', { name: 'Corriger le montant reçu' }).click();
-await row('Poignet précieux').getByLabel(/Espèces reçues de/).fill('70000');
+await row('Poignet précieux').getByLabel(/Espèces du jour reçues de/).fill('48000');
 await row('Poignet précieux').getByRole('button', { name: 'Valider le montant reçu' }).click(); await p.waitForTimeout(500);
 hs = await p.evaluate(() => window.__tsena.all('handovers'));
-ok(hs.length === 1 && hs[0].status === 'received' && hs[0].amount === 70000 && hs[0].gap === 0, 'correction : 70 000, plus d’écart');
+ok(hs.length === 1 && hs[0].status === 'received' && hs[0].amount === 70000 && hs[0].gap === 0, 'correction : 48 000 d’espèces du jour → versement 70 000, plus d’écart');
 rA = N(await row('Poignet précieux').innerText()).replace(/\s+/g, ' ');
 ok(/Poignet précieux Aina 45 000 Ar 48 000 Ar 10 000 Ar/.test(rA) && !rA.includes('calculé'), `espèces du jour revenues au calcul (${rA})`);
 const au = await p.evaluate(() => window.__tsena.all('audit').filter((a) => /Versement vendeur/.test(a.action)).map((a) => a.action));
@@ -71,8 +71,8 @@ await p.getByRole('button', { name: 'Par vendeur' }).click(); await p.waitForTim
 tx = N(await p.locator('main').innerText());
 const rowS = N(await p.locator('tr.row-link', { hasText: 'Aina' }).innerText()).replace(/\s+/g, ' ');
 ok(/Aina Poignet précieux, Intimity style 55 000 Ar 48 000 Ar 10 000 Ar 15 000 Ar 10 000 Ar — — − 3 000 Ar 2 000 Ar 70 000 Ar À recevoir/.test(rowS), `vue par vendeur : Aina 55 000 ventes, espèces 48 000 + 1er 10 000 + 2ème 15 000, 70 000 à payer, à recevoir (${rowS})`);
-await p.locator('tr.row-link', { hasText: 'Bako' }).getByLabel(/Espèces reçues de/).fill('20000');
-await p.locator('tr.row-link', { hasText: 'Bako' }).getByLabel(/Espèces reçues de/).press('Enter'); await p.waitForTimeout(500);
+await p.locator('tr.row-link', { hasText: 'Bako' }).getByLabel(/Espèces du jour reçues de/).fill('20000');
+await p.locator('tr.row-link', { hasText: 'Bako' }).getByLabel(/Espèces du jour reçues de/).press('Enter'); await p.waitForTimeout(500);
 ok(!(await p.getByRole('dialog').count()), 'saisir dans le tableau n’ouvre pas la fiche');
 hs = await p.evaluate(() => window.__tsena.all('handovers').filter((h) => h.userId === 'u2'));
 ok(hs.length === 1 && hs[0].amount === 20000 && hs[0].gap === 0, 'vendeur Bako : 20 000 reçu directement dans le tableau');

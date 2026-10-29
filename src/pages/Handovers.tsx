@@ -147,7 +147,7 @@ function PageBoard({ date }: { date: string }) {
       <div className="card card-flush">
         <div className="card-pad row-between">
           <div><h2>Page par page</h2>
-            <Help>Mêmes calculs que par vendeur, regroupés par page : total à payer = espèces encaissées − frais gardés par les livreurs. Total ventes, MVola et Orange Money se remplissent tout seuls. Saisissez dans la dernière colonne les espèces vraiment reçues pour la page (Entrée ou ✓ pour valider) ; le crayon permet de corriger.</Help></div>
+            <Help>Mêmes calculs que par vendeur, regroupés par page : total à payer = espèces encaissées − frais gardés par les livreurs. Total ventes, MVola et Orange Money se remplissent tout seuls. Saisissez dans la dernière colonne les espèces du jour vraiment reçues pour la page (Entrée ou ✓ pour valider) : le 1er et le 2ème paiement espèces s’ajoutent tout seuls, et l’écart s’affiche. Le crayon permet de corriger.</Help></div>
           <div className="row" style={{ gap: 6 }}>
             <Button variant="ghost" className="btn-sm" icon="download" onClick={exportXls}>Excel</Button>
             <Button variant="ghost" className="btn-sm" icon="printer" onClick={exportPdf}>PDF A4</Button>
@@ -155,7 +155,7 @@ function PageBoard({ date }: { date: string }) {
         </div>
         {rows.length === 0 ? <p className="card-pad small muted">Aucune vente ce jour.</p> : (
           <div className="table-wrap"><table className="table table-grid handover-table">
-            <thead><tr><th>Page</th><th className="t-num">Total ventes</th><th className="t-num">Espèces du jour</th><th className="t-num">1er paiement espèces</th><th className="t-num">2ème paiement espèces</th><th className="t-num">MVola</th><th className="t-num">Orange Money</th><th className="t-num">Airtel Money</th><th className="t-num">Frais livreurs</th><th className="t-num">Total à payer</th><th>Espèces reçues</th></tr></thead>
+            <thead><tr><th>Page</th><th className="t-num">Total ventes</th><th className="t-num">Espèces du jour</th><th className="t-num">1er paiement espèces</th><th className="t-num">2ème paiement espèces</th><th className="t-num">MVola</th><th className="t-num">Orange Money</th><th className="t-num">Airtel Money</th><th className="t-num">Frais livreurs</th><th className="t-num">Total à payer</th><th>Espèces du jour reçues</th></tr></thead>
             <tbody>
               {rows.map((d) => (
                 <tr key={d.pageId}>
@@ -232,7 +232,7 @@ function Board({ date }: { date: string }) {
         </div>
         {rows.length === 0 ? <p className="card-pad small muted">Aucun vendeur ni aucune vente ce jour.</p> : (
           <div className="table-wrap"><table className="table table-grid handover-table">
-            <thead><tr><th>Vendeur</th><th className="t-num">Total ventes</th><th className="t-num">Espèces du jour</th><th className="t-num">1er paiement espèces</th><th className="t-num">2ème paiement espèces</th><th className="t-num">MVola</th><th className="t-num">Orange Money</th><th className="t-num">Airtel Money</th><th className="t-num">Frais livreurs</th><th className="t-num">Dépenses</th><th className="t-num">Total à payer</th><th>Espèces reçues</th></tr></thead>
+            <thead><tr><th>Vendeur</th><th className="t-num">Total ventes</th><th className="t-num">Espèces du jour</th><th className="t-num">1er paiement espèces</th><th className="t-num">2ème paiement espèces</th><th className="t-num">MVola</th><th className="t-num">Orange Money</th><th className="t-num">Airtel Money</th><th className="t-num">Frais livreurs</th><th className="t-num">Dépenses</th><th className="t-num">Total à payer</th><th>Espèces du jour reçues</th></tr></thead>
             <tbody>
               {rows.map((d) => (
                 <tr key={d.user.id} className="row-link" onClick={() => setOpen(d.user.id)}>
@@ -279,37 +279,41 @@ function CashCells({ d }: { d: SellerDay }) {
   );
 }
 
-/** Espèces vraiment remises par le vendeur, saisies directement dans le tableau (Entrée ou ✓ pour valider). Total ventes,
- *  MVola et Orange Money restent calculés tout seuls. Un montant déjà validé peut être corrigé (l'ancien reste tracé). */
+/** Espèces du jour vraiment remises par le vendeur, saisies directement dans le tableau (Entrée ou ✓ pour valider).
+ *  Le 1er et le 2ème paiement espèces sont comptés en plus, les frais livreurs déduits : versement = saisi + 1er + 2ème − frais.
+ *  Total ventes, MVola et Orange Money restent calculés tout seuls. Un montant déjà validé peut être corrigé (l'ancien reste tracé). */
 function ReceivedCell({ d }: { d: SellerDay }) {
   const ho = d.handover;
   const [edit, setEdit] = useState(false);
   const [val, setVal] = useState('');
   const [busy, setBusy] = useState(false);
+  const c = dayCash(d);
   if (!ho && !d.toPay && !d.sales) return <span className="small muted">—</span>;
   if (ho && !edit) return (
     <div>
       <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
-        <Badge tone={ho.gap ? 'warn' : 'ok'}>{fmtAr(ho.amount)}</Badge>
-        <IconButton icon="edit" label="Corriger le montant reçu" onClick={() => { setVal(String(ho.amount)); setEdit(true); }} />
+        <Badge tone={ho.gap ? 'warn' : 'ok'}>{fmtAr(c.shown)}</Badge>
+        <IconButton icon="edit" label="Corriger le montant reçu" onClick={() => { setVal(String(Math.round(c.shown))); setEdit(true); }} />
       </div>
+      {Math.round(ho.amount) !== Math.round(c.shown) && <div className="small muted">versement total {fmtAr(ho.amount)}</div>}
       {ho.gap ? <div className="small neg">écart {ho.gap > 0 ? '+' : '−'} {fmtAr(Math.abs(ho.gap))}</div> : null}
       {changedSince(d) && <div className="small neg">chiffres changés</div>}
     </div>
   );
   const save = async () => {
     const n = parseAr(val);
-    if (n == null || n < 0) { toast('Indiquez le montant en espèces reçu.', 'error'); return; }
+    if (n == null || n < 0) { toast('Indiquez les espèces du jour reçues.', 'error'); return; }
+    const total = Math.max(0, n + d.cash1 + d.cash2 - d.fees);
     setBusy(true);
     try {
-      if (ho) await cancelHandover(ho, `Montant corrigé dans le tableau : ${fmtAr(ho.amount)} → ${fmtAr(n)}`);
-      await receiveHandover(d, n);
-      toast(`${fmtAr(n)} reçu de ${d.user.fullName}`); setEdit(false); setVal('');
+      if (ho) await cancelHandover(ho, `Montant corrigé dans le tableau : ${fmtAr(ho.amount)} → ${fmtAr(total)}`);
+      await receiveHandover(d, total);
+      toast(`${fmtAr(n)} d’espèces du jour reçu de ${d.user.fullName}`); setEdit(false); setVal('');
     } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
   };
   return (
     <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
-      <input className="cell-input num-input" style={{ width: 110 }} inputMode="numeric" aria-label={`Espèces reçues de ${d.user.fullName}`} placeholder={fmtAr(d.toPay)}
+      <input className="cell-input num-input" style={{ width: 110 }} inputMode="numeric" aria-label={`Espèces du jour reçues de ${d.user.fullName}`} placeholder={fmtAr(c.calc)}
         value={val} disabled={busy} onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEdit(false); }} />
       <IconButton icon="check" label="Valider le montant reçu" disabled={busy || !val.trim()} onClick={save} />
       {!ho && !val && <Badge tone="danger">À recevoir</Badge>}
