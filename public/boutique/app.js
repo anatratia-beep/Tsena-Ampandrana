@@ -5,6 +5,7 @@ import {
   buildCards, cartAdd, cartCount, cartLines, cartTotal, fmtAr, fmtPhone, monogram, niceName, normPhone,
   priceLabel, resolvePage, stockLabel, todayHours, validPhone,
 } from './lib.js';
+import { PAGES, legalPage, trackForm, trackResult } from './pages.js';
 
 const CFG = window.BOUTIQUE || {};
 const $ = (s, el = document) => el.querySelector(s);
@@ -188,7 +189,7 @@ function renderPage() {
   const delivery = zones.filter((z) => !z.pickup);
   const minFee = delivery.length ? Math.min(...delivery.map((z) => Number(z.fee) || 0)) : null;
 
-  $('#main').innerHTML = `
+  $('#main').innerHTML = `<div id="shopView">
     <div class="wrap">
       <section class="hero">
         <div class="hero-copy">
@@ -225,17 +226,37 @@ function renderPage() {
           <li><h3>Vous payez à la réception</h3><p>En espèces ou par Mobile Money, au livreur ou en boutique si vous venez chercher.</p></li>
         </ol>
         <div class="zones">${zones.map((z) => `<div><span>${esc(z.name)}</span><span>${z.pickup ? 'Gratuit' : esc(fmtAr(z.fee))}</span></div>`).join('')}</div>
+        <p class="section-more"><a href="#/livraison-retours">Délais, retours et échanges</a> · <a href="#/suivi">Suivre ma commande</a></p>
       </section>
-    </div>`;
+    </div></div>
+    <div id="pageView" class="wrap doc" hidden></div>`;
+
+  // Bandeau d'annonce (comme sur les grandes boutiques en ligne).
+  const ann = $('#announce');
+  if (ann) {
+    const bits = [minFee != null ? `Livraison à Tana dès ${fmtAr(minFee)}` : '', 'Paiement à la réception', cardOn() ? 'Carte Visa / Mastercard acceptée' : 'Mobile Money accepté', 'Suivi de commande en ligne'].filter(Boolean);
+    ann.innerHTML = bits.map((b) => `<span>${esc(b)}</span>`).join('');
+    ann.hidden = false;
+  }
 
   $('#foot').innerHTML = `
     <div class="wrap">
       <div class="foot-grid">
-        <div><h2>${esc(name)}</h2><p>${esc(lede)}</p></div>
-        <div><h3>Nous trouver</h3><p>${esc(co.address || '')}${phone ? `<br><a href="tel:${esc(normPhone(phone))}">${esc(fmtPhone(phone))}</a>` : ''}</p></div>
-        <div><h3>Nous suivre</h3><p>${pc.facebook ? `<a href="${esc(pc.facebook)}" target="_blank" rel="noopener">Notre page Facebook</a><br>` : ''}${messengerLink() ? `<a href="${esc(messengerLink())}" target="_blank" rel="noopener">Messenger</a>` : 'Sur Facebook : ' + esc(name)}</p></div>
+        <div><h2>${esc(name)}</h2><p>${esc(lede)}</p>
+          <p class="foot-contact">${esc(co.address || '')}${phone ? `<br><a href="tel:${esc(normPhone(phone))}">${esc(fmtPhone(phone))}</a>` : ''}</p></div>
+        <nav aria-label="Aide"><h3>Aide</h3><ul>
+          <li><a href="#/suivi">Suivre ma commande</a></li><li><a href="#/livraison-retours">Livraison et retours</a></li><li><a href="#/contact">Contact</a></li></ul></nav>
+        <nav aria-label="Informations"><h3>Informations</h3><ul>
+          <li><a href="#/cgv">Conditions générales de vente</a></li><li><a href="#/confidentialite">Politique de confidentialité</a></li></ul></nav>
+        <nav aria-label="Réseaux"><h3>Nous suivre</h3><ul>
+          ${pc.facebook ? `<li><a href="${esc(pc.facebook)}" target="_blank" rel="noopener">Facebook</a></li>` : ''}
+          ${messengerLink() ? `<li><a href="${esc(messengerLink())}" target="_blank" rel="noopener">Messenger</a></li>` : ''}
+          ${!pc.facebook && !messengerLink() ? `<li>${esc(name)} sur Facebook</li>` : ''}</ul></nav>
       </div>
-      <small>© ${new Date().getFullYear()} ${esc(name)}${co.name && co.name !== 'Ma boutique' ? ' · ' + esc(co.name) : ''}</small>
+      <div class="foot-bottom">
+        <small>© ${new Date().getFullYear()} ${esc(name)}${co.name && co.name !== 'Ma boutique' && co.name !== name ? ' · ' + esc(co.name) : ''}</small>
+        <ul class="pay-badges" aria-label="Moyens de paiement"><li>Espèces</li><li>MVola</li><li>Orange Money</li><li>Airtel Money</li>${cardOn() ? '<li>Visa</li><li>Mastercard</li>' : ''}</ul>
+      </div>
     </div>`;
 
   const q = $('#q');
@@ -246,6 +267,8 @@ function renderPage() {
     renderGrid();
   });
   renderGrid();
+  window.addEventListener('hashchange', route);
+  route();
   // Lien direct vers un article (#article=…) partagé depuis Facebook.
   const m = /article=([^&]+)/.exec(location.hash);
   if (m) { const c = state.cards.find((x) => x.codes.includes(decodeURIComponent(m[1])) || x.key === decodeURIComponent(m[1])); if (c) openSheet(c); }
@@ -406,8 +429,11 @@ function renderDrawer() {
           ? `<p>Le paiement par carte n’a pas été terminé. Votre commande reste enregistrée : nous vous appelons${state.form.phone ? ` au ${esc(fmtPhone(state.form.phone))}` : ''}, et vous pourrez payer à la réception.</p>`
           : `<p>Nous vous appelons au ${esc(fmtPhone(state.form.phone))} pour confirmer${r.outsideHours ? ' dès l’ouverture' : ''}. Total à payer à la réception : <strong>${esc(fmtAr(r.total))}</strong>${r.fee ? ` (livraison ${esc(r.zone)} incluse)` : ''}.</p>`}
       ${messengerLink() ? `<a class="btn ghost" href="${esc(messengerLink())}" target="_blank" rel="noopener">${ICON_MSG}Nous écrire sur Messenger</a>` : ''}
+      <a class="btn ghost" href="#/suivi?n=${encodeURIComponent(r.number || '')}" data-track-link>Suivre ma commande</a>
       <button class="btn" type="button" data-continue>Continuer mes achats</button></div></div>`;
     d.querySelector('[data-continue]').onclick = closeDrawer;
+    d.querySelector('[data-track-link]').onclick = () => closeDrawer();
+    rememberOrder(r.number, state.form.phone);
   } else if (!lines.length) {
     d.innerHTML = `${head('Panier')}<div class="drawer-body"><p class="bag-empty">Votre panier est vide. Parcourez la collection et ajoutez ce qui vous plaît.</p>
       <button class="btn ghost" type="button" data-continue>Voir la collection</button></div>`;
@@ -548,6 +574,61 @@ async function handleReturnFromPayment() {
     } else state.lastOrder = { ...state.lastOrder, paidByCard: false, cardPending: true };
   } catch { /* le paiement sera confirmé par Stripe directement dans Tsena */ }
   renderDrawer();
+}
+
+// ---------- Pages (suivi, CGV, confidentialité, livraison, contact) ----------
+function pageCtx() {
+  const p = state.page;
+  return { cfg: CFG, company: state.data.company, shopName: p.ticketName || p.name, phone: p.phone || state.data.company?.phone,
+    zones: state.data.zones || [], cardOn: cardOn(), pixel: state.pageCfg.pixel, messenger: messengerLink() };
+}
+function route() {
+  const shop = $('#shopView'), view = $('#pageView');
+  if (!shop || !view) return;
+  const m = /^#\/([a-z-]+)(?:\?(.*))?$/.exec(location.hash);
+  const name = state.page.ticketName || state.page.name;
+  document.querySelectorAll('.bar-links a').forEach((a) => a.removeAttribute('aria-current'));
+  if (m && PAGES[m[1]]) {
+    const kind = m[1], params = new URLSearchParams(m[2] || '');
+    shop.hidden = true; view.hidden = false;
+    document.title = `${PAGES[kind]} — ${name}`;
+    document.querySelector(`.bar-links a[href="#/${kind}"]`)?.setAttribute('aria-current', 'page');
+    view.innerHTML = `<a class="back-link" href="#collection">Retour à la boutique</a>` +
+      (kind === 'suivi' ? trackForm({ number: params.get('n') || '', phone: state.form.phone || '' }, recentOrders()) : legalPage(kind, pageCtx()));
+    if (kind === 'suivi') bindTracking(params.get('n'));
+    window.scrollTo(0, 0);
+    view.querySelector('h1')?.focus?.();
+    return;
+  }
+  if (!shop.hidden) return;
+  shop.hidden = false; view.hidden = true;
+  document.title = `${name} — boutique en ligne`;
+  const target = location.hash && /^#[a-z]/.test(location.hash) ? document.getElementById(location.hash.slice(1)) : null;
+  if (target) target.scrollIntoView(); else window.scrollTo(0, 0);
+}
+
+// Commandes passées sur cet appareil : proposées sur la page de suivi.
+function recentOrders() { try { return JSON.parse(localStorage.getItem('boutique-orders') || '[]') || []; } catch { return []; } }
+function rememberOrder(number, phone) {
+  if (!number || number === '…') return;
+  try { const list = recentOrders().filter((o) => o.number !== number); localStorage.setItem('boutique-orders', JSON.stringify([{ number, phone }, ...list].slice(0, 6))); } catch { /* facultatif */ }
+}
+function bindTracking(autoNumber) {
+  const form = $('#trackForm'), out = $('#trackResult'), err = $('#trackErr');
+  const run = async (num, phone) => {
+    err.hidden = true;
+    if (!num || !validPhone(phone)) { err.textContent = 'Indiquez le numéro de commande (ex. WEB-0012) et votre téléphone.'; err.hidden = false; return; }
+    out.innerHTML = '<p class="small-muted">Recherche de votre commande…</p>';
+    try {
+      const t = await rpc('shop_track', { p_number: num.trim(), p_phone: phone });
+      out.innerHTML = trackResult(t);
+      rememberOrder(t.number, phone);
+      out.querySelector('.track-card')?.scrollIntoView({ block: 'nearest' });
+    } catch (e) { out.innerHTML = ''; err.textContent = e.message; err.hidden = false; }
+  };
+  form.addEventListener('submit', (e) => { e.preventDefault(); run(form.num.value, form.phone.value); });
+  $('#pageView').querySelectorAll('[data-track]').forEach((b) => (b.onclick = () => { form.num.value = b.dataset.track; form.phone.value = b.dataset.phone; run(b.dataset.track, b.dataset.phone); }));
+  if (autoNumber && validPhone(form.phone.value)) run(autoNumber, form.phone.value);
 }
 
 let toastTimer;
