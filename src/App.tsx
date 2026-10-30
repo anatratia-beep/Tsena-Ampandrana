@@ -38,6 +38,7 @@ import { BoostsPage } from './pages/Boosts';
 import { DayCashPage } from './pages/DayCash';
 import { HandoversPage } from './pages/Handovers';
 import { CategoriesPage } from './pages/Categories';
+import { WebShopPage } from './pages/WebShop';
 import { MyDeliveriesPage } from './pages/MyDeliveries';
 import { ExpensesPage } from './pages/Expenses';
 import { MyDayReportPage } from './pages/DayReport';
@@ -67,6 +68,7 @@ const NAV: NavItem[] = [
   { path: '/etiquettes', label: 'Étiquettes et QR', icon: 'tag', perm: 'catalog.view', group: 'Articles et stock', page: () => <LabelsPage /> },
   { path: '/achats', label: 'Achats et réceptions', icon: 'inbox', perm: 'purchases.manage|purchases.receive', group: 'Articles et stock', page: () => <PurchasingHub /> },
   { path: '/receptions', label: 'Réceptions', icon: 'download', perm: 'purchases.receive', group: 'hidden', page: () => <ReceptionsPage /> },
+  { path: '/boutique-en-ligne', label: 'Boutique en ligne', icon: 'share', perm: 'settings.company|catalog.edit', group: 'Ventes', page: () => <WebShopPage /> },
   { path: '/boosts', label: 'Boosts pub', icon: 'megaphone', perm: 'boosts.view', group: 'Analyse', page: () => <BoostsPage /> },
   { path: '/rapports', label: 'Rapports', icon: 'chart', perm: 'reports.view', group: 'Analyse', page: () => <ReportsPage /> },
   { path: '/utilisateurs', label: 'Utilisateurs', icon: 'users', perm: 'users.manage', group: 'Administration', page: () => <UsersPage /> },

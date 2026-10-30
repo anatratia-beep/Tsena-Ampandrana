@@ -16,7 +16,10 @@ const ICON_MSG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.4
 const ICON_CARD = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 9.5h19" stroke="currentColor" stroke-width="1.5"/></svg>';
 // Carte : true = pour tous ; 'test' = seulement avec &test=carte dans l'adresse (essais en mode test Stripe).
 const cardTest = (() => { try { const on = new URLSearchParams(location.search).get('test') === 'carte'; if (on) sessionStorage.setItem('boutique-test', '1'); return on || sessionStorage.getItem('boutique-test') === '1'; } catch { return false; } })();
-const cardOn = () => CFG.cardPayment === true || (CFG.cardPayment === 'test' && cardTest);
+// Réglage de Tsena (Boutique en ligne) en priorité, sinon config.js. La page peut refuser la carte.
+const cardMode = () => { const m = state.shop?.global?.cardMode; return m === 'on' ? true : m === 'off' ? false : m === 'test' ? 'test' : CFG.cardPayment; };
+const cardOn = () => { const m = cardMode(); return state.shop?.page?.card !== false && (m === true || (m === 'test' && cardTest)); };
+const cardMinAr = () => Math.max(3000, Number(state.shop?.global?.cardMin) || Number(CFG.cardMin) || 3000);
 const payFn = (p) => `${CFG.supabaseUrl}/functions/v1/shop-pay${p}`;
 
 const state = {
@@ -116,7 +119,7 @@ async function start() {
       : 'La connexion a échoué. Vérifiez votre réseau puis actualisez la page.', true);
   }
   state.page = state.data.page;
-  state.pageCfg = (CFG.pages || {})[String(state.page.code || '').toUpperCase()] || {};
+  applyShopSettings();
   state.cards = buildCards(state.data.products);
   loadCart();
   pruneCart();
@@ -129,13 +132,25 @@ async function start() {
   // Prix et stock à jour quand le client revient sur l'onglet.
   document.addEventListener('visibilitychange', async () => {
     if (document.hidden) return;
-    try { state.data = await rpc('shop_catalog', { p_page: state.pageKey }); state.cards = buildCards(state.data.products); pruneCart(); renderGrid(); updateBag(); } catch { /* garde l'affichage actuel */ }
+    try { state.data = await rpc('shop_catalog', { p_page: state.pageKey }); state.shop = state.data.shop || state.shop; state.cards = buildCards(state.data.products); pruneCart(); renderGrid(); updateBag(); } catch { /* garde l'affichage actuel */ }
   });
 }
 
 function fail(title, text, retry) {
   $('#main').innerHTML = `<section class="fail"><h1>${esc(title)}</h1><p>${esc(text)}</p>${retry ? '<p><a class="btn ghost" href="./">Voir toutes les boutiques</a></p>' : ''}</section>`;
   $('#brandName').textContent = 'Boutique';
+}
+
+// Réglages modifiés dans Tsena (menu « Boutique en ligne ») : prioritaires sur config.js.
+function applyShopSettings() {
+  const fill = (o) => Object.fromEntries(Object.entries(o || {}).filter(([, v]) => v !== null && v !== undefined && v !== ''));
+  state.shop = state.data.shop || { global: {}, page: {} };
+  const ps = fill(state.shop.page), g = fill(state.shop.global);
+  const base = (CFG.pages || {})[String(state.page.code || '').toUpperCase()] || {};
+  state.pageCfg = { ...base, ...ps };
+  if (ps.title) state.page = { ...state.page, ticketName: ps.title };
+  state.legal = { ...(CFG.legal || {}), ...fill({ company: g.company, email: g.email, nif: g.nif, stat: g.stat, returnDays: g.returnDays, cardEntity: g.cardEntity }) };
+  state.texts = { announce: ps.announce || g.announce || '', termsExtra: g.termsExtra || '', about: g.about || '', deliveryNote: g.deliveryNote || '' };
 }
 
 // ---------- Liste des boutiques (adresse principale) ----------
@@ -234,7 +249,8 @@ function renderPage() {
   // Bandeau d'annonce (comme sur les grandes boutiques en ligne).
   const ann = $('#announce');
   if (ann) {
-    const bits = [minFee != null ? `Livraison à Tana dès ${fmtAr(minFee)}` : '', 'Paiement à la réception', cardOn() ? 'Carte Visa / Mastercard acceptée' : 'Mobile Money accepté', 'Suivi de commande en ligne'].filter(Boolean);
+    const custom = (state.texts.announce || '').split('\n').map((x) => x.trim()).filter(Boolean);
+    const bits = custom.length ? custom : [minFee != null ? `Livraison à Tana dès ${fmtAr(minFee)}` : '', 'Paiement à la réception', cardOn() ? 'Carte Visa / Mastercard acceptée' : 'Mobile Money accepté', 'Suivi de commande en ligne'].filter(Boolean);
     ann.innerHTML = bits.map((b) => `<span>${esc(b)}</span>`).join('');
     ann.hidden = false;
   }
@@ -247,7 +263,7 @@ function renderPage() {
         <nav aria-label="Aide"><h3>Aide</h3><ul>
           <li><a href="#/suivi">Suivre ma commande</a></li><li><a href="#/livraison-retours">Livraison et retours</a></li><li><a href="#/contact">Contact</a></li></ul></nav>
         <nav aria-label="Informations"><h3>Informations</h3><ul>
-          <li><a href="#/cgv">Conditions générales de vente</a></li><li><a href="#/confidentialite">Politique de confidentialité</a></li></ul></nav>
+          ${state.texts.about ? '<li><a href="#/a-propos">À propos</a></li>' : ''}<li><a href="#/cgv">Conditions générales de vente</a></li><li><a href="#/confidentialite">Politique de confidentialité</a></li></ul></nav>
         <nav aria-label="Réseaux"><h3>Nous suivre</h3><ul>
           ${pc.facebook ? `<li><a href="${esc(pc.facebook)}" target="_blank" rel="noopener">Facebook</a></li>` : ''}
           ${messengerLink() ? `<li><a href="${esc(messengerLink())}" target="_blank" rel="noopener">Messenger</a></li>` : ''}
@@ -449,7 +465,7 @@ function renderDrawer() {
     };
   } else {
     const f = state.form;
-    const cardMin = Number(CFG.cardMin) || 3000;
+    const cardMin = cardMinAr();
     const cardOk = cardOn() && items + fee >= cardMin;
     if (!cardOk && f.pay === 'card') f.pay = 'cod';
     const byCard = cardOk && f.pay === 'card';
@@ -509,7 +525,7 @@ async function submitOrder(e) {
     return;
   }
   const lines = cartLines(state.cart, state.cards);
-  const payCard = cardOn() && f.pay === 'card' && cartTotal(lines) + (Number(zone.fee) || 0) >= (Number(CFG.cardMin) || 3000);
+  const payCard = cardOn() && f.pay === 'card' && cartTotal(lines) + (Number(zone.fee) || 0) >= (cardMinAr());
   state.sending = true; renderDrawer();
   try {
     const r = await rpc('shop_place_order', {
@@ -579,7 +595,7 @@ async function handleReturnFromPayment() {
 // ---------- Pages (suivi, CGV, confidentialité, livraison, contact) ----------
 function pageCtx() {
   const p = state.page;
-  return { cfg: CFG, company: state.data.company, shopName: p.ticketName || p.name, phone: p.phone || state.data.company?.phone,
+  return { cfg: { ...CFG, legal: state.legal }, texts: state.texts, company: state.data.company, shopName: p.ticketName || p.name, phone: p.phone || state.data.company?.phone,
     zones: state.data.zones || [], cardOn: cardOn(), pixel: state.pageCfg.pixel, messenger: messengerLink() };
 }
 function route() {
@@ -588,7 +604,7 @@ function route() {
   const m = /^#\/([a-z-]+)(?:\?(.*))?$/.exec(location.hash);
   const name = state.page.ticketName || state.page.name;
   document.querySelectorAll('.bar-links a').forEach((a) => a.removeAttribute('aria-current'));
-  if (m && PAGES[m[1]]) {
+  if (m && PAGES[m[1]] && (m[1] !== 'a-propos' || state.texts.about)) {
     const kind = m[1], params = new URLSearchParams(m[2] || '');
     shop.hidden = true; view.hidden = false;
     document.title = `${PAGES[kind]} — ${name}`;

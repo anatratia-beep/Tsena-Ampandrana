@@ -10,7 +10,10 @@ export const PAGES = {
   cgv: 'Conditions générales de vente',
   confidentialite: 'Politique de confidentialité',
   contact: 'Contact',
+  'a-propos': 'À propos',
 };
+// Texte saisi dans Tsena → paragraphes HTML sûrs.
+const paras = (t) => String(t || '').split(/\n{2,}/).map((x) => `<p>${esc(x.trim()).replace(/\n/g, '<br>')}</p>`).join('');
 
 /** Informations légales : config.js (legal) d'abord, sinon la fiche Société de Tsena. */
 export function sellerInfo(ctx) {
@@ -72,7 +75,8 @@ export function legalPage(kind, ctx) {
     <h2>9. Données personnelles</h2>
     <p>Les informations collectées servent uniquement à traiter et livrer les commandes. Voir la <a href="#/confidentialite">Politique de confidentialité</a>.</p>
     <h2>10. Réclamations et litiges</h2>
-    <p>Pour toute question ou réclamation, contactez-nous (page <a href="#/contact">Contact</a>) : nous recherchons toujours une solution à l’amiable. À défaut, le litige relève des juridictions compétentes d’Antananarivo, selon la loi malgache.</p>`;
+    <p>Pour toute question ou réclamation, contactez-nous (page <a href="#/contact">Contact</a>) : nous recherchons toujours une solution à l’amiable. À défaut, le litige relève des juridictions compétentes d’Antananarivo, selon la loi malgache.</p>
+    ${ctx.texts?.termsExtra ? `<h2>11. Conditions particulières</h2>${paras(ctx.texts.termsExtra)}` : ''}`;
 
   if (kind === 'confidentialite') return `
     <h1>Politique de confidentialité</h1>
@@ -99,6 +103,7 @@ export function legalPage(kind, ctx) {
     <h2>Délais</h2>
     <p>Après l’appel de confirmation, les commandes sont livrées en général le jour même ou le lendemain à Antananarivo, aux heures d’ouverture. En province, l’envoi se fait par taxi-brousse ou coopérative : comptez 1 à 4 jours selon la destination ; les frais de transport de la coopérative peuvent s’ajouter et vous sont indiqués lors de l’appel.</p>
     <p>Vous pouvez suivre chaque étape sur la page <a href="#/suivi">Suivre ma commande</a> : commande enregistrée, confirmée, préparée, en route avec le livreur, livrée.</p>
+    ${ctx.texts?.deliveryNote ? paras(ctx.texts.deliveryNote) : ''}
     <h2>Report de livraison</h2>
     <p>Vous n’êtes pas disponible ? Prévenez-nous : la livraison est reportée au jour qui vous convient (3 reports au maximum).</p>
     <h2>Vérification à la réception</h2>
@@ -107,6 +112,9 @@ export function legalPage(kind, ctx) {
     <p>Vous avez ${s.returnDays} jours après la réception pour signaler un article défectueux ou non conforme. Il est échangé (taille, couleur) ou remboursé. L’article doit être dans son état d’origine, non utilisé, avec son emballage. Les sous-vêtements, préservatifs et articles intimes déballés ne sont pas repris.</p>
     <h2>Horaires de la boutique</h2>
     <table class="doc-table"><tbody>${hoursText(ctx.company?.hours)}</tbody></table>`;
+
+  if (kind === 'a-propos') return `<h1>À propos</h1>${paras(ctx.texts?.about)}
+    <p><a href="#/contact">Nous contacter</a></p>`;
 
   if (kind === 'contact') return `
     <h1>Contact</h1>
