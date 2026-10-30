@@ -8,7 +8,7 @@ import { get, save, useTable } from '../lib/db';
 import type { Courier } from '../lib/orders';
 import { fmtAr, parseNum, parseAr } from '../lib/catalog';
 import { addDays, today } from '../lib/money';
-import { cancelHandover, changedSince, gapDue, handoverHistory, openGaps, pagesOfDay, repayGap, receiveHandover, sellerDay, sellersOfDay, type Handover, type PageDay, type PendingSale, type SellerDay } from '../lib/handovers';
+import { cancelHandover, changedSince, gapDue, handoverHistory, impayesFrom, openGaps, pagesOfDay, repayGap, receiveHandover, sellerDay, sellersOfDay, type Handover, type PageDay, type PendingSale, type SellerDay } from '../lib/handovers';
 import { printA4, a4Table, arA4, h } from '../lib/a4';
 import { restLedger, type RestRow } from '../lib/situation';
 import { COUNT_LABELS, moneyCountOf, parseFormula, setMoneyCount, type CountField } from '../lib/moneyCount';
@@ -21,12 +21,9 @@ const longDate = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr
 const money = (n: number) => (n ? fmtAr(n) : <span className="muted">—</span>);
 
 /**
- * Affichage des impayés (restes par page, impayés vendeurs, « impayé précédent ») à partir d'une date :
- * les anciens restes déjà réglés mais jamais cliqués ne s'affichent plus. Simple filtre d'affichage,
- * aucun calcul ni aucune donnée n'est modifié.
+ * Impayés à partir d'une date (voir impayesFrom) : les anciens restes déjà réglés mais jamais cliqués ne s'affichent
+ * plus (restes par page, impayés vendeurs, « impayé précédent ») et ne comptent plus dans le versement. Aucune donnée effacée.
  */
-const IMPAYES_FROM_DEFAULT = '2026-10-26';
-const impayesFrom = () => get<{ date?: string }>('settings', 'impayesFrom')?.date || IMPAYES_FROM_DEFAULT;
 async function setImpayesFrom(date: string) {
   await save('settings', { id: 'impayesFrom', date });
   await audit('Impayés affichés à partir du', date, 'settings', 'impayesFrom', 'medium');

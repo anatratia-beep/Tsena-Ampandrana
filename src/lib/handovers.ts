@@ -84,6 +84,16 @@ function mobileFee(o: Order, owed: number) {
 const pageLabel = (id: string) => (id === '_' ? 'Sans page' : get<Category>('categories', id)?.name ?? 'Page supprimée');
 
 /** Feuille du jour d'un vendeur. */
+/**
+ * Date de départ des impayés (26/10/2026 par défaut, modifiable dans Versements) : les restes des ventes d'avant
+ * étaient déjà réglés mais jamais cliqués. Dans le versement, un paiement cliqué aujourd'hui sur une vente d'avant
+ * cette date n'est donc plus compté (ni 1er ni 2ème paiement), et ces ventes ne sont plus « à recevoir ».
+ * Les jours d'avant cette date restent calculés comme avant.
+ */
+export const IMPAYES_FROM_DEFAULT = '2026-10-26';
+export const impayesFrom = () => get<{ date?: string }>('settings', 'impayesFrom')?.date || IMPAYES_FROM_DEFAULT;
+const beforeStart = (o: Order, date: string) => { const since = impayesFrom(); return date >= since && saleDay(o) < since; };
+
 export function sellerDay(u: User, date: string): SellerDay {
   const pages = new Map<string, number>(); const seen = new Set<string>();
   let sales = 0;
@@ -99,6 +109,7 @@ export function sellerDay(u: User, date: string): SellerDay {
   const pending: PendingSale[] = [];
   for (const o of all<Order>('orders')) {
     if (!isMine(o, u)) continue;
+    if (beforeStart(o, date)) { if (o.status === 'out') outParcels++; continue; }
     const old = saleDay(o) < date;
     const oldCash = (n: number) => { if (!old) return; if (date <= firstPayDay(saleDay(o))) cash1 += n; else cash2 += n; };
     const oldFee = (n: number) => { if (!old) return; if (date <= firstPayDay(saleDay(o))) fee1 += n; else fee2 += n; };
@@ -204,7 +215,7 @@ export function pagesOfDay(date: string): PageDay[] {
     if (l.kind === 'sale') r.ids.add(l.order.id);
   }
   for (const o of all<Order>('orders')) {
-    const u = ownerOf(o); if (!u) continue;
+    const u = ownerOf(o); if (!u || beforeStart(o, date)) continue;
     const old = saleDay(o) < date, first = old && date <= firstPayDay(saleDay(o));
     const oldCash = (r: PageDay, n: number) => { if (!old) return; if (first) r.cash1 += n; else r.cash2 += n; };
     const oldFee = (r: PageDay, n: number) => { if (!old) return; if (first) r.fee1 += n; else r.fee2 += n; };
