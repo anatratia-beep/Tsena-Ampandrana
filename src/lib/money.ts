@@ -166,6 +166,17 @@ export async function deleteMove(m: CashMove) {
   await audit('Opération supprimée', `${MOVE_TYPES[m.type]} ${m.amount} Ar (${ACCOUNTS[m.account]})${m.label ? ' — ' + m.label : ''}`, 'cashMoves', m.id);
 }
 
+/** Corrige le montant (et la description) d'une dépense saisie par erreur. L'ancien montant reste dans le journal. */
+export async function updateExpense(m: CashMove, amount: number, label?: string) {
+  if (m.type !== 'expense') throw new Error('Seule une dépense peut être modifiée ici.');
+  if (m.refType || m.refId || m.transferId) throw new Error('Cette dépense est liée à une autre opération (commande, virement…) : modifiez-la depuis son origine.');
+  if (!(amount > 0) || !isFinite(amount)) throw new Error('Montant invalide.');
+  assertOpenAt(m.at, 'Modification');
+  const old = -m.amount;
+  await save('cashMoves', { id: m.id, amount: -Math.round(amount), ...(label != null ? { label: label.trim() || undefined } : {}) } as Partial<CashMove>);
+  await audit('Dépense corrigée', `${m.label || 'Dépense'} (${ACCOUNTS[m.account]}) : ${old} Ar → ${Math.round(amount)} Ar${label != null && label.trim() !== (m.label ?? '') ? ` · « ${m.label ?? ''} » → « ${label.trim()} »` : ''}`, 'cashMoves', m.id);
+}
+
 // ---------- Opérations récurrentes (loyer, salaires…) ----------
 const monthsBetween = (start: string, end: string) => {
   const out: string[] = [];
