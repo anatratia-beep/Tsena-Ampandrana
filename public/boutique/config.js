@@ -7,8 +7,8 @@ window.BOUTIQUE = {
   supabaseUrl: 'https://ynduqcvuoelkujyixyub.supabase.co',
   supabaseKey: 'sb_publishable_alV65FV6y9TIH5_30fqW8Q_0R-1G5so',
 
-  // Paiement par carte (Stripe) : true quand la clé Stripe est installée dans Supabase (fonction shop-pay).
-  cardPayment: false,
+  // Paiement par carte (Stripe) : false = non ; 'test' = seulement avec &test=carte dans l'adresse ; true = pour tous.
+  cardPayment: 'test',
 
   // Page affichée à l'adresse principale (vide = liste de toutes les boutiques).
   defaultPage: '',

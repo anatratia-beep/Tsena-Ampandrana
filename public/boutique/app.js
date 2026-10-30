@@ -13,7 +13,9 @@ const ICON_X = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M
 const ICON_MSG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.4 2 2 6.1 2 11.4c0 3 1.5 5.7 3.8 7.4V22l3.5-1.9c.9.3 1.8.4 2.7.4 5.6 0 10-4.1 10-9.4S17.6 2 12 2Zm1 12.6-2.5-2.7-5 2.7 5.5-5.8 2.6 2.7 4.9-2.7-5.5 5.8Z"/></svg>';
 
 const ICON_CARD = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 9.5h19" stroke="currentColor" stroke-width="1.5"/></svg>';
-const cardOn = () => !!CFG.cardPayment;
+// Carte : true = pour tous ; 'test' = seulement avec &test=carte dans l'adresse (essais en mode test Stripe).
+const cardTest = (() => { try { const on = new URLSearchParams(location.search).get('test') === 'carte'; if (on) sessionStorage.setItem('boutique-test', '1'); return on || sessionStorage.getItem('boutique-test') === '1'; } catch { return false; } })();
+const cardOn = () => CFG.cardPayment === true || (CFG.cardPayment === 'test' && cardTest);
 const payFn = (p) => `${CFG.supabaseUrl}/functions/v1/shop-pay${p}`;
 
 const state = {
