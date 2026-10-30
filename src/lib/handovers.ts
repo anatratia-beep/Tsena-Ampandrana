@@ -13,11 +13,12 @@
 import { all, get, getMeta, save, type BaseRecord } from './db';
 import { audit, currentUser, roleOf, type User } from './auth';
 import { salesLedger } from './analytics';
-import { rootOf } from './scope';
-import { dayOf, type CashMove } from './money';
+import { rootOf, variantPage } from './scope';
+import { addDays, dayOf, type CashMove } from './money';
 import { courierSplit, isPickupZone, isWalkIn, unpaidOf, type Order, type PayMethod } from './orders';
 import type { Category } from './catalog';
 import { COURIER_ROLE, SUPERADMIN_ROLE } from './permissions';
+import { firstPayDay } from './situation';
 
 export interface Handover extends BaseRecord {
   userId: string; userName: string; date: string;
@@ -31,6 +32,8 @@ export interface Handover extends BaseRecord {
   byId?: string; byName?: string; at: string; device?: string;
   status: 'received' | 'cancelled';
   cancelledBy?: string; cancelledAt?: string; cancelReason?: string;
+  /** Écart en moins remboursé ensuite par le vendeur (impayé vendeur réglé). */
+  repaid?: number; repayments?: { at: string; amount: number; byName?: string }[];
 }
 
 export const handoverId = (userId: string, date: string) => `ho_${userId}_${date}`;
@@ -52,6 +55,9 @@ export interface SellerDay {
   outParcels: number;                      // colis encore chez les livreurs
   /** Espèces encaissées ce jour-là pour des ventes des jours précédents (« reste d'hier »). */
   cashOld: number;
+  /** Détail des espèces du jour venant de ventes des jours précédents (avant frais livreurs) : 1er paiement du reste
+   *  (jour de travail suivant la vente) et 2ème paiement (après). Espèces des ventes du jour = pay.cash − cash1 − cash2. */
+  cash1: number; cash2: number;
   /** Ventes pas encore encaissées (à ce jour) : colis en livraison, argent chez le livreur, client qui doit encore. */
   pending: PendingSale[];
   handover?: Handover;
@@ -73,21 +79,22 @@ export function sellerDay(u: User, date: string): SellerDay {
     if (l.kind === 'sale') seen.add(l.order.id);
   }
   const pay: Record<PayMethod, number> = { cash: 0, mvola: 0, orange: 0, airtel: 0, card: 0 };
-  let shopCash = 0, courierCash = 0, fees = 0, outParcels = 0, cashOld = 0;
+  let shopCash = 0, courierCash = 0, fees = 0, outParcels = 0, cashOld = 0, cash1 = 0, cash2 = 0;
   const pending: PendingSale[] = [];
   for (const o of all<Order>('orders')) {
     if (!isMine(o, u)) continue;
     const old = saleDay(o) < date;
+    const oldCash = (n: number) => { if (!old) return; if (date <= firstPayDay(saleDay(o))) cash1 += n; else cash2 += n; };
     for (const p of o.payments || []) {
       // Espèces encaissées par le livreur : comptées le jour où il les verse (règlement), pas le jour de la livraison.
       if (p.method === 'cash' && p.receivedBy === 'courier') continue;
       if (dayOf(p.at) !== date) continue;
       pay[p.method] += p.amount;
-      if (p.method === 'cash') { shopCash += p.amount; if (old) cashOld += p.amount; }
+      if (p.method === 'cash') { shopCash += p.amount; if (old) cashOld += p.amount; oldCash(p.amount); }
     }
     if (o.courierSettledAt && dayOf(o.courierSettledAt) === date) {
       const got = (o.payments || []).filter((p) => p.method === 'cash' && p.receivedBy === 'courier').reduce((t, p) => t + p.amount, 0);
-      pay.cash += got; courierCash += got; if (old) cashOld += got;
+      pay.cash += got; courierCash += got; if (old) cashOld += got; oldCash(got);
       // Le livreur garde ses frais sur l'argent encaissé : ce que le vendeur reçoit est diminué d'autant.
       if (!isPickupZone(o.zoneId) && o.feeStatus !== 'paid') { const f = courierSplit(o).feeKept; fees += f; if (old) cashOld -= f; }
     }
@@ -104,7 +111,7 @@ export function sellerDay(u: User, date: string): SellerDay {
   return {
     user: u, date, pages: list, sales, orders: seen.size, pay, shopCash, courierCash, fees, expenses, expenseMoves,
     // Les dépenses sont débitées de la caisse de la boutique, pas du versement du vendeur.
-    toPay: pay.cash - fees, mobile: pay.mvola + pay.orange + pay.airtel, outParcels, cashOld,
+    toPay: pay.cash - fees, mobile: pay.mvola + pay.orange + pay.airtel, outParcels, cashOld, cash1, cash2,
     pending: pending.sort((a, b) => a.day.localeCompare(b.day) || (a.o.number || '').localeCompare(b.o.number || '')),
     handover: h?.status === 'received' ? h : undefined,
   };
@@ -131,7 +138,7 @@ export async function receiveHandover(d: SellerDay, amount: number, note?: strin
     sales: d.sales, perPage: d.pages, cash: d.pay.cash, mvola: d.pay.mvola, orange: d.pay.orange, airtel: d.pay.airtel,
     fees: d.fees, expenses: d.expenses, expected: d.toPay, amount, gap, note: note || undefined,
     byId: me?.id, byName: me?.fullName, at: new Date().toISOString(), device: getMeta('deviceName', '') || undefined,
-    status: 'received', cancelledBy: undefined, cancelledAt: undefined, cancelReason: undefined, deleted: false,
+    status: 'received', cancelledBy: undefined, cancelledAt: undefined, cancelReason: undefined, repaid: 0, repayments: [], deleted: false,
   } as Partial<Handover>);
   await audit('Versement vendeur reçu', `${d.user.fullName}, ${d.date} : ${ar(amount)} reçu (à payer ${ar(d.toPay)}${gap ? `, écart ${gap > 0 ? '+' : ''}${ar(gap)}` : ''})`, 'handovers', handoverId(d.user.id, d.date));
 }
@@ -149,3 +156,90 @@ export const handoverHistory = (userId?: string) => all<Handover>('handovers').f
 export const changedSince = (d: SellerDay) => !!d.handover && Math.round(d.handover.expected) !== Math.round(d.toPay);
 
 const ar = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} Ar`;
+
+/**
+ * Versement du jour par PAGE (au lieu de par vendeur) : mêmes règles que la feuille d'un vendeur (ventes du jour,
+ * espèces / mobile money encaissés ce jour, frais gardés par les livreurs, total à payer = espèces − frais), mais
+ * regroupées par page. Une commande qui mélange plusieurs pages est répartie au prorata de ses articles.
+ * Le montant reçu par page est tracé à part (id « ho_page:… ») : les versements par vendeur ne changent pas.
+ */
+export interface PageDay extends SellerDay { pageId: string; sellers: string[] }
+export const pageKey = (pageId: string) => `page:${pageId}`;
+
+export function pagesOfDay(date: string): PageDay[] {
+  const users = all<User>('users').filter((u) => u.roleId !== SUPERADMIN_ROLE && u.roleId !== COURIER_ROLE);
+  const ownerOf = (o: Order) => users.find((u) => isMine(o, u));
+  const rows = new Map<string, PageDay & { ids: Set<string>; names: Set<string> }>();
+  const row = (pageId: string) => {
+    let r = rows.get(pageId);
+    if (!r) {
+      const name = pageLabel(pageId);
+      r = { pageId, sellers: [], ids: new Set(), names: new Set(), user: { id: pageKey(pageId), fullName: name } as User, date, pages: [{ pageId, name, sales: 0 }], sales: 0, orders: 0,
+        pay: { cash: 0, mvola: 0, orange: 0, airtel: 0, card: 0 }, shopCash: 0, courierCash: 0, fees: 0, expenses: 0, expenseMoves: [], toPay: 0, mobile: 0, outParcels: 0, cashOld: 0, cash1: 0, cash2: 0, pending: [] };
+      rows.set(pageId, r);
+    }
+    return r;
+  };
+  for (const l of salesLedger(date, date)) {
+    const u = ownerOf(l.order); if (!u) continue;
+    const r = row(rootOf(l.categoryId) || '_');
+    r.sales += l.amount; r.pages[0].sales += l.amount; r.names.add(u.fullName);
+    if (l.kind === 'sale') r.ids.add(l.order.id);
+  }
+  for (const o of all<Order>('orders')) {
+    const u = ownerOf(o); if (!u) continue;
+    const old = saleDay(o) < date, first = old && date <= firstPayDay(saleDay(o));
+    const oldCash = (r: PageDay, n: number) => { if (!old) return; if (first) r.cash1 += n; else r.cash2 += n; };
+    const share = pageShare(o);
+    const add = (f: (r: PageDay, k: number) => void) => { for (const [p, k] of share) { const r = row(p); f(r, k); rows.get(p)!.names.add(u.fullName); } };
+    for (const p of o.payments || []) {
+      if (p.method === 'cash' && p.receivedBy === 'courier') continue;
+      if (dayOf(p.at) !== date) continue;
+      add((r, k) => { r.pay[p.method] += p.amount * k; if (p.method === 'cash') { r.shopCash += p.amount * k; if (old) r.cashOld += p.amount * k; oldCash(r, p.amount * k); } });
+    }
+    if (o.courierSettledAt && dayOf(o.courierSettledAt) === date) {
+      const got = (o.payments || []).filter((p) => p.method === 'cash' && p.receivedBy === 'courier').reduce((t, p) => t + p.amount, 0);
+      const f = !isPickupZone(o.zoneId) && o.feeStatus !== 'paid' ? courierSplit(o).feeKept : 0;
+      add((r, k) => { r.pay.cash += got * k; r.courierCash += got * k; r.fees += f * k; if (old) r.cashOld += (got - f) * k; oldCash(r, got * k); });
+    }
+  }
+  const list = [...rows.values()].map(({ ids, names, ...r }) => {
+    r.orders = ids.size; r.sellers = [...names].sort((a, b) => a.localeCompare(b, 'fr'));
+    r.toPay = r.pay.cash - r.fees; r.mobile = r.pay.mvola + r.pay.orange + r.pay.airtel;
+    const h = handoverOf(r.user.id, date); r.handover = h?.status === 'received' ? h : undefined;
+    return r;
+  }).filter((r) => r.sales || r.pay.cash || r.mobile || r.fees || r.handover);
+  return list.sort((a, b) => Number(!!a.handover) - Number(!!b.handover) || b.sales - a.sales || a.user.fullName.localeCompare(b.user.fullName, 'fr'));
+}
+
+/** Part de chaque page dans une commande (au prorata des articles ; une seule page dans la plupart des cas). */
+function pageShare(o: Order): Map<string, number> {
+  const w = new Map<string, number>(); let tot = 0;
+  for (const l of o.lines || []) { const p = variantPage(l.variantId) || '_'; const v = Math.max(0, (l.unitPrice || 0) * (l.qty || 0)); w.set(p, (w.get(p) ?? 0) + v); tot += v; }
+  if (!w.size) w.set('_', 1);
+  if (tot <= 0) { const k = 1 / w.size; for (const p of w.keys()) w.set(p, k); return w; }
+  for (const [p, v] of w) w.set(p, v / tot);
+  return w;
+}
+
+/**
+ * Impayés vendeurs : un versement reçu avec un écart en moins (le vendeur a remis moins que prévu) reste à réclamer
+ * au vendeur (ou à la page) jusqu'à ce qu'il le rembourse. Séparé des impayés clients : aucune formule existante ne change.
+ */
+export const gapDue = (h: Handover) => (h.status === 'received' && h.gap < -0.5 ? Math.max(0, -h.gap - (h.repaid || 0)) : 0);
+/** Écarts encore à réclamer, des versements jusqu'au jour `upTo` inclus (`key` : un vendeur ou « page:… »). */
+export const openGaps = (upTo: string, key?: string) => all<Handover>('handovers')
+  .filter((h) => !h.deleted && h.date <= upTo && (!key || h.userId === key) && gapDue(h) > 0.5)
+  .sort((a, b) => a.date.localeCompare(b.date) || a.userName.localeCompare(b.userName, 'fr'));
+/** Total encore à réclamer pour un vendeur / une page, des jours AVANT `date`. */
+export const gapsBefore = (key: string, date: string) => openGaps(addDays(date, -1), key).reduce((t, h) => t + gapDue(h), 0);
+
+/** Le vendeur rembourse tout ou partie d'un écart. */
+export async function repayGap(h: Handover, amount: number) {
+  const due = gapDue(h);
+  if (!(amount > 0) || !isFinite(amount)) throw new Error('Montant invalide.');
+  if (amount > due + 0.5) throw new Error(`Il reste seulement ${ar(due)} à réclamer.`);
+  const me = currentUser();
+  await save('handovers', { id: h.id, repaid: (h.repaid || 0) + amount, repayments: [...(h.repayments || []), { at: new Date().toISOString(), amount, byName: me?.fullName }] } as Partial<Handover>);
+  await audit('Impayé vendeur réglé', `${h.userName}, versement du ${h.date} : ${ar(amount)} remboursé (reste ${ar(due - amount)})`, 'handovers', h.id);
+}

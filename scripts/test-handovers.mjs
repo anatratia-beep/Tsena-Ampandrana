@@ -37,6 +37,7 @@ await p.evaluate(async () => {
   await t.save('cashMoves', { at: now, account: 'cash', amount: -2000, type: 'expense', label: 'Taxi', userName: 'Aina' });
 });
 await p.goto('http://localhost:5173/#/versements'); await p.waitForTimeout(800);
+await p.getByRole('button', { name: 'Par vendeur' }).click(); await p.waitForTimeout(300);
 let tx = N(await p.locator('main').innerText());
 ok(tx.includes('Versements des vendeurs') && tx.includes('Aina') && tx.includes('Bako'), 'tableau des vendeurs du jour');
 const rowA = N(await p.locator('tr.row-link', { hasText: 'Aina' }).innerText());
