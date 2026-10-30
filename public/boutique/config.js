@@ -12,6 +12,15 @@ window.BOUTIQUE = {
   // Montant minimum pour payer par carte (Stripe refuse les paiements de moins d'environ 0,50 $).
   cardMin: 3000,
 
+  // Mentions légales (CGV, confidentialité). Vide = informations de la fiche Société de Tsena.
+  legal: {
+    company: '',        // raison sociale, ex. 'TECH VISION SARL'
+    email: '',          // e-mail de contact affiché
+    nif: '', stat: '',  // sinon ceux de la fiche Société de Tsena
+    returnDays: 7,      // délai pour signaler un article défectueux ou non conforme
+    cardEntity: 'OASIS OF STYLE LLC', // société qui encaisse les paiements par carte (Stripe)
+  },
+
   // Page affichée à l'adresse principale (vide = liste de toutes les boutiques).
   defaultPage: '',
 

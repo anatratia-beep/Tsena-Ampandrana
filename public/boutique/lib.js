@@ -153,3 +153,44 @@ export function fmtPhone(p) {
   const d = normPhone(p);
   return d.length === 10 ? `${d.slice(0, 3)} ${d.slice(3, 5)} ${d.slice(5, 8)} ${d.slice(8)}` : p || '';
 }
+
+/**
+ * Étapes du suivi d'une commande (page « Suivre ma commande »), à partir de ce que renvoie shop_track.
+ * Renvoie { steps: [{ key, label, at, done, current }], state: 'active' | 'done' | 'cancelled' | 'refused', note }.
+ */
+export function trackSteps(t) {
+  const sd = t.statusDates || {};
+  const pickup = !!t.pickup;
+  const at = (...xs) => xs.find(Boolean) || null;
+  const steps = [
+    { key: 'placed', label: 'Commande enregistrée', at: t.createdAt },
+    { key: 'confirmed', label: 'Commande confirmée', at: at(sd.confirmed) },
+    { key: 'ready', label: pickup ? 'Prête : vous pouvez venir la chercher en boutique' : 'Préparée, en attente du livreur', at: at(sd.ready) },
+  ];
+  if (!pickup) steps.push({ key: 'out', label: t.courier ? `En route avec votre livreur (${t.courier})` : 'En route avec votre livreur', at: at(t.dispatchedAt, sd.out) });
+  steps.push({ key: 'delivered', label: pickup ? 'Retirée en boutique' : 'Livrée', at: at(sd.delivered, sd.partial, t.returnedAt) });
+  const rank = { new: 0, confirmed: 1, ready: 2, out: pickup ? 2 : 3, delivered: steps.length - 1, partial: steps.length - 1 };
+  const status = t.status || 'new';
+  let state = status === 'cancelled' ? 'cancelled' : status === 'refused' ? 'refused' : (status === 'delivered' || status === 'partial') ? 'done' : 'active';
+  const cur = rank[status] ?? 0;
+  steps.forEach((s, i) => { s.done = state === 'done' ? true : i <= cur && state === 'active'; s.current = state === 'active' && i === cur; });
+  // Une commande confirmée garde l'étape « confirmée » même sans date (anciennes commandes).
+  if (state !== 'active' && state !== 'done') steps.forEach((s, i) => { s.done = !!s.at && i < steps.length - 1; s.current = false; });
+  const reports = t.reports || [];
+  const lastReport = reports[reports.length - 1];
+  let note = '';
+  if (state === 'cancelled') note = 'Cette commande a été annulée. Contactez-nous pour toute question.';
+  else if (state === 'refused') note = 'La livraison n’a pas pu se faire. Contactez-nous pour organiser une nouvelle livraison.';
+  else if (lastReport && state === 'active' && status !== 'out') note = lastReport.to ? `Livraison reportée au ${frDate(lastReport.to)}, à votre demande.` : 'Livraison reportée à votre demande.';
+  else if (t.wantedDate && state === 'active' && status !== 'out') note = `Livraison prévue le ${frDate(t.wantedDate)}.`;
+  return { steps, state, note };
+}
+export function frDate(ymdOrIso) {
+  if (!ymdOrIso) return '';
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(ymdOrIso) ? new Date(`${ymdOrIso}T12:00:00`) : new Date(ymdOrIso);
+  return d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Indian/Antananarivo' });
+}
+export function frDateTime(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Indian/Antananarivo' });
+}
