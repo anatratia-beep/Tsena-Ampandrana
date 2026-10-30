@@ -11,6 +11,7 @@ import { addDays, today } from '../lib/money';
 import { cancelHandover, changedSince, gapDue, gapsBefore, handoverHistory, openGaps, pagesOfDay, repayGap, receiveHandover, sellerDay, sellersOfDay, type Handover, type PageDay, type PendingSale, type SellerDay } from '../lib/handovers';
 import { printA4, a4Table, arA4, h } from '../lib/a4';
 import { restLedger, type RestRow } from '../lib/situation';
+import { COUNT_LABELS, moneyCountOf, parseFormula, setMoneyCount, type CountField } from '../lib/moneyCount';
 import { userPages } from '../lib/scope';
 import { Badge, Button, Confirm, Empty, Help, IconButton, Modal, PageHead, TextField, fmtDate, toast } from '../ui/kit';
 import { Icon } from '../ui/icons';
@@ -22,7 +23,7 @@ const money = (n: number) => (n ? fmtAr(n) : <span className="muted">—</span>)
 export function HandoversPage() {
   const can = useCan();
   const me = useCurrentUser();
-  useTable('orders'); useTable('cashMoves'); useTable('handovers'); useTable('users'); useTable('roles'); useTable('categories'); useTable('products'); useTable('variants');
+  useTable('orders'); useTable('cashMoves'); useTable('handovers'); useTable('moneyCounts'); useTable('users'); useTable('roles'); useTable('categories'); useTable('products'); useTable('variants');
   const [date, setDate] = useState(today());
   const [view, setView] = useState<'page' | 'seller'>('page');
   const boss = can('handover.receive');
@@ -103,9 +104,199 @@ function Restes({ date, pages }: { date: string; pages?: string[] }) {
 function Boards({ date, view }: { date: string; view: 'page' | 'seller' }) {
   return (
     <>
+      <PageRests date={date} />
       {view === 'page' ? <PageBoard date={date} /> : <Board date={date} />}
+      <MoneyCountCard date={date} />
+      <MoneyWeek date={date} />
       <SellerGaps date={date} />
     </>
+  );
+}
+
+/**
+ * Argent réellement reçu ce jour, saisi à la main (espèces comptées, MVola / Orange Money / Airtel Money vus sur les
+ * téléphones), comparé à ce que l'application a calculé. Contrôle seulement : aucun calcul ne change.
+ */
+/**
+ * Chiffres calculés d'un jour (toutes les pages). MVola / Orange / Airtel : ventes seulement, sans les frais livreurs que
+ * les clients ont payés sur ces téléphones (feeBy, à rendre aux livreurs).
+ */
+function dayCalc(date: string) {
+  const rows = pagesOfDay(date);
+  const sum = (f: (d: PageDay) => number) => rows.reduce((t, d) => t + f(d), 0);
+  const feeBy = { mvola: sum((d) => d.feeBy.mvola), orange: sum((d) => d.feeBy.orange), airtel: sum((d) => d.feeBy.airtel) };
+  const calc: Record<CountField, number> = {
+    cash: sum((d) => d.toPay), mvola: sum((d) => d.pay.mvola) - feeBy.mvola,
+    orange: sum((d) => d.pay.orange) - feeBy.orange, airtel: sum((d) => d.pay.airtel) - feeBy.airtel,
+  };
+  return { calc, feeBy, feeMobile: feeBy.mvola + feeBy.orange + feeBy.airtel };
+}
+
+function MoneyCountCard({ date }: { date: string }) {
+  const { calc, feeBy, feeMobile } = dayCalc(date);
+  const mc = moneyCountOf(date);
+  // Chaque téléphone a son écart (reçu − ventes calculées) ; ensemble, ces écarts doivent être les frais livreurs payés
+  // en mobile money : différence = écart MVola + écart Orange (+ Airtel) − frais. 0 = juste.
+  const mob: CountField[] = ['mvola', 'orange', 'airtel'];
+  const entered = mob.filter((f) => mc?.[f] != null);
+  const mobGap = entered.length ? entered.reduce((t, f) => t + (mc![f]! - calc[f]), 0) : undefined;
+  const signed = (n: number) => `${n > 0.5 ? '+' : n < -0.5 ? '−' : ''} ${fmtAr(Math.abs(n))}`.trim();
+  const feeEntered = entered.reduce((t, f) => t + feeBy[f as 'mvola' | 'orange' | 'airtel'], 0);
+  const gapCell = (gap?: number) => gap == null ? <span className="muted">—</span> : Math.round(gap) === 0 ? <span className="ok-text" style={{ justifyContent: 'flex-end' }}>✓ juste</span> : <strong className={gap < 0 ? 'neg' : 'pos'}>{gap > 0 ? '+' : '−'} {fmtAr(Math.abs(gap))}</strong>;
+  const [draft, setDraft] = useState<Partial<Record<CountField, string>>>({});
+  const fields: CountField[] = ['cash', 'mvola', 'orange', 'airtel'];
+  const commit = async (f: CountField) => {
+    const v = draft[f]; if (v == null) return;
+    const n = v.trim() === '' ? null : parseFormula(v);
+    if (v.trim() !== '' && (n == null || n < 0)) { toast('Montant ou calcul invalide (ex. =20000+15000).', 'error'); return; }
+    if ((n ?? undefined) === mc?.[f] && v.trim() === (mc?.formulas?.[f] ?? String(mc?.[f] ?? ''))) { setDraft((d) => ({ ...d, [f]: undefined })); return; }
+    try { await setMoneyCount(date, f, n ?? null, v); setDraft((d) => ({ ...d, [f]: undefined })); toast(`${COUNT_LABELS[f]} enregistré`); }
+    catch (e: any) { toast(e.message, 'error'); }
+  };
+  return (
+    <div className="card card-flush">
+      <div className="card-pad">
+        <h2>Argent réellement reçu ce jour</h2>
+        <p className="small muted" style={{ margin: 0 }}>Écrivez à la main ce que vous avez vraiment : espèces comptées, MVola et Orange Money vus sur les téléphones de la boutique (chacun à part). Le calcul MVola / Orange compte les ventes seulement ; les frais livreurs payés sur ces téléphones sont à part, dessous. Comme dans Excel, vous pouvez écrire un calcul : =20000+15000+3500. L’écart avec le calcul de l’application s’affiche tout seul. Contrôle seulement : aucun calcul ne change.</p>
+      </div>
+      <div className="table-wrap"><table className="table table-grid money-count">
+        <thead><tr><th></th><th className="t-num">Calculé par l’application</th><th className="t-num">Réellement reçu</th><th className="t-num">Écart</th></tr></thead>
+        <tbody>{fields.map((f) => {
+          const real = mc?.[f]; const gap = real == null ? undefined : real - calc[f];
+          return (
+            <tr key={f}>
+              <td><strong>{COUNT_LABELS[f]}</strong>{f === 'cash' && <div className="small muted">total à payer des vendeurs</div>}</td>
+              <td className="t-num">{fmtAr(calc[f])}</td>
+              <td className="t-num"><input className="cell-input num-input" style={{ width: 170, textAlign: 'right' }} inputMode="numeric" aria-label={`${COUNT_LABELS[f]} réellement reçu`}
+                placeholder="à saisir" value={draft[f] ?? (mc?.formulas?.[f] ?? (real == null ? '' : String(real)))} onChange={(e) => setDraft((d) => ({ ...d, [f]: e.target.value }))}
+                onBlur={() => commit(f)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+                {(() => { const x = draft[f] ?? mc?.formulas?.[f]; if (!x || !/[+\-*/x×÷()]/i.test(x.replace(/^=/, '').trim().slice(1))) return null; const n = parseFormula(x); return <div className={`small ${n == null ? 'neg' : 'muted'}`}>{n == null ? 'calcul invalide' : `= ${fmtAr(n)}`}</div>; })()}</td>
+              <td className="t-num">{gapCell(gap)}</td>
+            </tr>
+          );
+        })}
+          <tr>
+            <td><strong>Total frais MVola / Orange Money (livreurs)</strong><div className="small muted">payés par les clients sur les téléphones, à rendre aux livreurs · MVola {fmtAr(feeBy.mvola)} · Orange {fmtAr(feeBy.orange)}{feeBy.airtel ? ` · Airtel ${fmtAr(feeBy.airtel)}` : ''}</div></td>
+            <td className="t-num">{fmtAr(feeMobile)}</td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr className="t-total">
+            <td><strong>Différence : écart MVola + écart Orange − total frais</strong><div className="small muted">0 = tout est juste (reste éventuel : frais de retrait…)</div></td>
+            <td className="t-num small" colSpan={2}>{mobGap == null ? <span className="muted">—</span> : <>{entered.map((f) => `écart ${COUNT_LABELS[f]} ${signed(mc![f]! - calc[f])}`).join(' + ')} − frais {fmtAr(feeEntered)}</>}</td>
+            <td className="t-num">{gapCell(mobGap == null ? undefined : mobGap - feeEntered)}</td>
+          </tr>
+        </tbody>
+      </table></div>
+    </div>
+  );
+}
+
+/**
+ * Argent réellement reçu, jour par jour, de la semaine (lundi → jour affiché), avec le total de la semaine.
+ * Espèces et MVola + Orange Money sans les frais livreurs, comparés au calcul de l'application.
+ */
+function MoneyWeek({ date }: { date: string }) {
+  // Semaine choisie (calendrier, ‹ ›) ; par défaut celle du jour affiché en haut.
+  const [pick, setPick] = useState<string | null>(null);
+  const ref = pick ?? date;
+  const wd = new Date(`${ref}T12:00:00`).getDay();
+  const monday = addDays(ref, -((wd + 6) % 7));
+  const end = addDays(monday, 6) < today() ? addDays(monday, 6) : today();
+  const days: string[] = []; for (let d = monday; d <= end; d = addDays(d, 1)) days.push(d);
+  const isCurrent = addDays(monday, 6) >= today();
+  const rows = days.map((day) => {
+    const { calc, feeBy } = dayCalc(day); const mc = moneyCountOf(day);
+    // Comme la case du jour : écart espèces à part ; pour le mobile money, écart MVola + écart Orange − total frais
+    // livreurs payés sur les téléphones saisis (0 = juste).
+    const fee = (mc?.mvola != null ? feeBy.mvola : 0) + (mc?.orange != null ? feeBy.orange : 0);
+    const mobIn = mc?.mvola != null || mc?.orange != null;
+    const mobGap = mobIn ? (mc?.mvola != null ? mc.mvola - calc.mvola : 0) + (mc?.orange != null ? mc.orange - calc.orange : 0) - fee : undefined;
+    return { day, cashCalc: calc.cash, cashReal: mc?.cash, cashGap: mc?.cash == null ? undefined : mc.cash - calc.cash, mvCalc: calc.mvola, mvReal: mc?.mvola, orCalc: calc.orange, orReal: mc?.orange, fee: feeBy.mvola + feeBy.orange, mobGap };
+  });
+  const sum = (f: (r: typeof rows[number]) => number | undefined) => rows.reduce((t, r) => t + (f(r) ?? 0), 0);
+  const v = (n?: number) => (n == null ? <span className="muted">—</span> : fmtAr(n));
+  const g = (n?: number) => (n == null ? <span className="muted">—</span> : Math.round(n) === 0 ? <span style={{ color: 'var(--ok)' }}>✓ juste</span> : <strong className={n < 0 ? 'neg' : 'pos'}>{n > 0 ? '+' : '−'} {fmtAr(Math.abs(n))}</strong>);
+  return (
+    <div className="card card-flush">
+      <div className="card-pad stack-s">
+        <h2>Argent réellement reçu : la semaine</h2>
+        <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+          <IconButton icon="chevronLeft" label="Semaine précédente" onClick={() => setPick(addDays(monday, -7))} />
+          <strong>Semaine du {dd(monday)} au {dd(addDays(monday, 6))}</strong>
+          <IconButton icon="chevronRight" label="Semaine suivante" disabled={isCurrent} onClick={() => setPick(addDays(monday, 7))} />
+          <input type="date" className="cell-input" style={{ width: 'auto' }} aria-label="Choisir une semaine" max={today()} value={ref} onChange={(e) => e.target.value && setPick(e.target.value)} />
+          {!isCurrent && <Button variant="quiet" className="btn-sm" onClick={() => setPick(today())}>Cette semaine</Button>}
+        </div>
+        <p className="small muted" style={{ margin: 0 }}>Ce que vous avez écrit chaque jour, comparé au calcul : espèces, MVola et Orange Money chacun à part. Pour le mobile money : écart MVola + écart Orange − total frais livreurs payés sur les téléphones (0 = juste).</p>
+      </div>
+      <div className="table-wrap"><table className="table table-grid money-week">
+        <thead><tr><th>Jour</th><th className="t-num">Espèces (calcul)</th><th className="t-num">Espèces reçues</th><th className="t-num">Écart espèces</th><th className="t-num">MVola (calcul)</th><th className="t-num">MVola reçu</th><th className="t-num">Orange Money (calcul)</th><th className="t-num">Orange Money reçu</th><th className="t-num">Total frais MVola / Orange</th><th className="t-num">Écart MVola + écart Orange − frais</th></tr></thead>
+        <tbody>{rows.map((r) => (
+          <tr key={r.day}><td style={{ textTransform: 'capitalize' }}>{dd(r.day)}</td><td className="t-num">{fmtAr(r.cashCalc)}</td><td className="t-num">{v(r.cashReal)}</td><td className="t-num">{g(r.cashGap)}</td><td className="t-num">{fmtAr(r.mvCalc)}</td><td className="t-num">{v(r.mvReal)}</td><td className="t-num">{fmtAr(r.orCalc)}</td><td className="t-num">{v(r.orReal)}</td><td className="t-num">{money(r.fee)}</td><td className="t-num">{g(r.mobGap)}</td></tr>
+        ))}</tbody>
+        <tfoot><tr className="t-total"><td>Total semaine</td><td className="t-num">{fmtAr(sum((r) => r.cashCalc))}</td><td className="t-num">{fmtAr(sum((r) => r.cashReal))}</td><td className="t-num">{g(rows.some((r) => r.cashGap != null) ? sum((r) => r.cashGap) : undefined)}</td><td className="t-num">{fmtAr(sum((r) => r.mvCalc))}</td><td className="t-num">{fmtAr(sum((r) => r.mvReal))}</td><td className="t-num">{fmtAr(sum((r) => r.orCalc))}</td><td className="t-num">{fmtAr(sum((r) => r.orReal))}</td><td className="t-num">{fmtAr(sum((r) => r.fee))}</td><td className="t-num">{g(rows.some((r) => r.mobGap != null) ? sum((r) => r.mobGap) : undefined)}</td></tr></tfoot>
+      </table></div>
+    </div>
+  );
+}
+
+/**
+ * En haut de la page : tout ce qui reste impayé à ce jour, par page, pour ne rien oublier.
+ * Restes clients = ventes pas encore entièrement payées (mêmes chiffres que « Restes à payer ») ;
+ * impayés vendeur = écarts de versement pas encore remboursés. Lecture seule.
+ */
+function PageRests({ date }: { date: string }) {
+  type Item = { day: string; amount: number; kind: 'client' | 'seller'; ref: string };
+  const m = new Map<string, { key: string; name: string; client: number; seller: number; items: Item[] }>();
+  const at = (k: string, name: string) => { let r = m.get(k); if (!r) { r = { key: k, name, client: 0, seller: 0, items: [] }; m.set(k, r); } return r; };
+  const pageName = (id: string) => get<{ name: string }>('categories', id)?.name ?? 'Sans page';
+  const [open, setOpen] = useState<string | null>(null);
+  for (const r of restLedger('2000-01-01', date)) {
+    if (r.rest <= 0.5) continue;
+    const pages = r.pages.length ? r.pages : ['_'];
+    for (const pg of pages) { const x = at(pg, pageName(pg)), a = r.rest / pages.length; x.client += a; x.items.push({ day: r.day, amount: a, kind: 'client', ref: r.o.number || '' }); }
+  }
+  for (const h of openGaps(date)) {
+    const pg = h.userId.startsWith('page:') ? h.userId.slice(5) : '';
+    const x = pg ? at(pg, h.userName) : at(`u:${h.userId}`, `${h.userName} (vendeur)`), a = gapDue(h);
+    x.seller += a; x.items.push({ day: h.date, amount: a, kind: 'seller', ref: '' });
+  }
+  const rows = [...m.values()].filter((r) => r.client + r.seller > 0.5).sort((a, b) => b.client + b.seller - (a.client + a.seller));
+  const t = rows.reduce((a, r) => ({ client: a.client + r.client, seller: a.seller + r.seller }), { client: 0, seller: 0 });
+  /** Détail par jour : restes clients (avec les commandes) et impayé vendeur de ce jour-là. */
+  const detail = (items: Item[]) => {
+    const days = [...new Set(items.map((i) => i.day))].sort();
+    return days.map((day) => {
+      const cl = items.filter((i) => i.day === day && i.kind === 'client'), se = items.filter((i) => i.day === day && i.kind === 'seller');
+      const sum = (xs: Item[]) => xs.reduce((s, i) => s + i.amount, 0);
+      return (
+        <div key={day} className="row-between small" style={{ padding: '4px 0', borderBottom: '1px dashed var(--line)' }}>
+          <span><strong>Le {dd(day)}</strong>{cl.length ? <> · clients {fmtAr(sum(cl))} <span className="muted">({cl.map((i) => i.ref).filter(Boolean).join(', ')})</span></> : null}{se.length ? <> · impayé vendeur {fmtAr(sum(se))}</> : null}</span>
+          <strong className="neg num">{fmtAr(sum(cl) + sum(se))}</strong>
+        </div>
+      );
+    });
+  };
+  return (
+    <div className="card card-flush">
+      <div className="card-pad row-between">
+        <div><h2>Restes impayés par page</h2><p className="small muted" style={{ margin: 0 }}>Tout ce qui reste à encaisser à ce jour : clients qui doivent encore et écarts de versement pas remboursés. Touchez une page pour voir le détail jour par jour.</p></div>
+        <strong className={`num ${t.client + t.seller > 0.5 ? 'neg' : ''}`}>{fmtAr(t.client + t.seller)}</strong>
+      </div>
+      {rows.length === 0 ? <p className="card-pad small muted" style={{ paddingTop: 0 }}>Aucun impayé.</p> : (
+        <div className="table-wrap"><table className="table table-grid page-rests">
+          <thead><tr><th>Page</th><th className="t-num">Restes clients</th><th className="t-num">Impayés vendeur</th><th className="t-num">Total impayé</th></tr></thead>
+          <tbody>{rows.map((r) => [
+            <tr key={r.key} className="row-link" aria-expanded={open === r.key} onClick={() => setOpen(open === r.key ? null : r.key)}>
+              <td><strong>{r.name}</strong> <Icon name={open === r.key ? 'chevronUp' : 'chevronDown'} size={14} /></td><td className="t-num">{money(r.client)}</td><td className="t-num">{money(r.seller)}</td><td className="t-num"><strong className="neg">{fmtAr(r.client + r.seller)}</strong></td>
+            </tr>,
+            open === r.key && <tr key={`${r.key}-d`} className="rests-detail"><td colSpan={4} style={{ whiteSpace: 'normal' }}>{detail(r.items)}</td></tr>,
+          ])}</tbody>
+          <tfoot><tr className="t-total"><td>Total</td><td className="t-num">{fmtAr(t.client)}</td><td className="t-num">{fmtAr(t.seller)}</td><td className="t-num">{fmtAr(t.client + t.seller)}</td></tr></tfoot>
+        </table></div>
+      )}
+    </div>
   );
 }
 
@@ -162,8 +353,8 @@ function SellerGaps({ date }: { date: string }) {
 /** Responsable : toutes les pages du jour. Espèces reçues saisies directement dans le tableau. */
 function PageBoard({ date }: { date: string }) {
   const rows = pagesOfDay(date);
-  const t = rows.reduce((a, d) => ({ sales: a.sales + d.sales, cash: a.cash + d.pay.cash, day: a.day + dayCash(d).shown, c1: a.c1 + d.cash1, c2: a.c2 + d.cash2, mvola: a.mvola + d.pay.mvola, orange: a.orange + d.pay.orange, airtel: a.airtel + d.pay.airtel, fees: a.fees + d.fees, toPay: a.toPay + d.toPay, got: a.got + (d.handover?.amount ?? 0) }),
-    { sales: 0, cash: 0, day: 0, c1: 0, c2: 0, mvola: 0, orange: 0, airtel: 0, fees: 0, toPay: 0, got: 0 });
+  const t = rows.reduce((a, d) => ({ sales: a.sales + d.sales, cash: a.cash + d.pay.cash, day: a.day + dayCash(d).shown, c1: a.c1 + dayCash(d).n1, c2: a.c2 + dayCash(d).n2, fm: a.fm + d.feeMobile, mvola: a.mvola + d.pay.mvola, orange: a.orange + d.pay.orange, airtel: a.airtel + d.pay.airtel, fees: a.fees + d.fees, toPay: a.toPay + d.toPay, got: a.got + (d.handover?.amount ?? 0) }),
+    { sales: 0, cash: 0, day: 0, c1: 0, c2: 0, fm: 0, mvola: 0, orange: 0, airtel: 0, fees: 0, toPay: 0, got: 0 });
   const rest = rows.filter((d) => !d.handover).reduce((s, d) => s + d.toPay, 0);
   const waiting = rows.filter((d) => !d.handover && (d.toPay || d.sales));
   const cols: Col<PageDay>[] = [
@@ -171,12 +362,12 @@ function PageBoard({ date }: { date: string }) {
     { key: 'v', label: 'Vendeurs', value: (d) => d.sellers.join(', '), width: 28 },
     { key: 's', label: 'Total ventes', value: (d) => Math.round(d.sales), money: true, width: 14 },
     { key: 'c', label: 'Espèces du jour', value: (d) => Math.round(dayCash(d).shown), money: true, width: 13 },
-    { key: 'c1', label: '1er paiement espèces', value: (d) => Math.round(d.cash1), money: true, width: 13 },
-    { key: 'c2', label: '2ème paiement espèces', value: (d) => Math.round(d.cash2), money: true, width: 13 },
+    { key: 'c1', label: '1er paiement espèces', value: (d) => Math.round(dayCash(d).n1), money: true, width: 13 },
+    { key: 'c2', label: '2ème paiement espèces', value: (d) => Math.round(dayCash(d).n2), money: true, width: 13 },
     { key: 'mv', label: 'MVola', value: (d) => Math.round(d.pay.mvola), money: true, width: 13 },
     { key: 'or', label: 'Orange Money', value: (d) => Math.round(d.pay.orange), money: true, width: 13 },
     { key: 'ai', label: 'Airtel Money', value: (d) => Math.round(d.pay.airtel), money: true, width: 13 },
-    { key: 'f', label: 'Frais livreurs', value: (d) => Math.round(d.fees), money: true, width: 13 },
+    { key: 'f', label: 'Frais livreurs MVola / Orange Money', value: (d) => Math.round(d.feeMobile), money: true, width: 15 },
     { key: 't', label: 'Total à payer', value: (d) => Math.round(d.toPay), money: true, width: 14 },
     { key: 'r', label: 'Espèces reçues', value: (d) => (d.handover ? Math.round(d.handover.amount) : ''), money: true, width: 13 },
     { key: 'g', label: 'Écart', value: (d) => (d.handover ? Math.round(d.handover.gap) : ''), money: true, width: 12 },
@@ -184,9 +375,9 @@ function PageBoard({ date }: { date: string }) {
   const exportXls = () => exportTables(`versements-pages_${date}.xlsx`, [{ name: 'Versements par page', cols, rows, notes: [`Versements par page — ${longDate(date)}`] }]);
   const exportPdf = () => printA4('Versements par page', longDate(date), `
     <div class="kpis"><div class="kpi"><span>Total ventes</span><b>${arA4(t.sales)}</b></div><div class="kpi"><span>Espèces</span><b>${arA4(t.cash)}</b></div><div class="kpi"><span>Mobile money</span><b>${arA4(t.mvola + t.orange + t.airtel)}</b></div><div class="kpi strong"><span>Total à payer</span><b>${arA4(t.toPay)}</b></div></div>
-    ${a4Table({ head: ['Page', 'Ventes', 'Espèces', 'MVola', 'Orange', 'Airtel', 'Frais livr.', 'À payer', 'Reçu'], num: [1, 2, 3, 4, 5, 6, 7, 8],
-      rows: rows.map((d) => [h(d.user.fullName), arA4(d.sales), arA4(d.pay.cash), arA4(d.pay.mvola), arA4(d.pay.orange), arA4(d.pay.airtel), arA4(d.fees), `<b>${arA4(d.toPay)}</b>`, d.handover ? arA4(d.handover.amount) : '—']),
-      foot: ['Total', arA4(t.sales), arA4(t.cash), arA4(t.mvola), arA4(t.orange), arA4(t.airtel), arA4(t.fees), arA4(t.toPay), arA4(t.got)] })}`);
+    ${a4Table({ head: ['Page', 'Ventes', 'Espèces du jour', '1er paiement', '2ème paiement', 'MVola', 'Orange', 'Airtel', 'Frais MVola / Orange', 'À payer', 'Reçu'], num: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      rows: rows.map((d) => [h(d.user.fullName), arA4(d.sales), arA4(dayCash(d).shown), arA4(dayCash(d).n1), arA4(dayCash(d).n2), arA4(d.pay.mvola), arA4(d.pay.orange), arA4(d.pay.airtel), arA4(d.feeMobile), `<b>${arA4(d.toPay)}</b>`, d.handover ? arA4(d.handover.amount) : '—']),
+      foot: ['Total', arA4(t.sales), arA4(t.day), arA4(t.c1), arA4(t.c2), arA4(t.mvola), arA4(t.orange), arA4(t.airtel), arA4(t.fm), arA4(t.toPay), arA4(t.got)] })}`);
   return (
     <>
       <div className="stat-grid">
@@ -198,7 +389,7 @@ function PageBoard({ date }: { date: string }) {
       <div className="card card-flush">
         <div className="card-pad row-between">
           <div><h2>Page par page</h2>
-            <Help>Mêmes calculs que par vendeur, regroupés par page : total à payer = espèces encaissées − frais gardés par les livreurs. Total ventes, MVola et Orange Money se remplissent tout seuls. Saisissez dans la dernière colonne les espèces du jour vraiment reçues pour la page (Entrée ou ✓ pour valider) : le 1er et le 2ème paiement espèces s’ajoutent tout seuls, et l’écart s’affiche. Le crayon permet de corriger.</Help></div>
+            <Help>Mêmes calculs que par vendeur, regroupés par page : total à payer = espèces du jour + 1er + 2ème paiement espèces. Total ventes, MVola et Orange Money se remplissent tout seuls. Les frais gardés par les livreurs sont déjà retirés des espèces ; la colonne frais montre seulement les frais payés en MVola / Orange Money. Dans « Espèces du jour » : ✓ si vous avez reçu le montant calculé, ✏️ pour écrire directement le montant vraiment reçu ; l’écart s’affiche dessous et devient un impayé vendeur.</Help></div>
           <div className="row" style={{ gap: 6 }}>
             <Button variant="ghost" className="btn-sm" icon="download" onClick={exportXls}>Excel</Button>
             <Button variant="ghost" className="btn-sm" icon="printer" onClick={exportPdf}>PDF A4</Button>
@@ -206,7 +397,7 @@ function PageBoard({ date }: { date: string }) {
         </div>
         {rows.length === 0 ? <p className="card-pad small muted">Aucune vente ce jour.</p> : (
           <div className="table-wrap"><table className="table table-grid handover-table">
-            <thead><tr><th>Page</th><th className="t-num">Total ventes</th><th className="t-num">Espèces du jour</th><th className="t-num">1er paiement espèces</th><th className="t-num">2ème paiement espèces</th><th className="t-num">MVola</th><th className="t-num">Orange Money</th><th className="t-num">Airtel Money</th><th className="t-num">Frais livreurs</th><th className="t-num">Total à payer</th><th>Espèces du jour reçues</th></tr></thead>
+            <thead><tr><th>Page</th><th className="t-num">Total ventes</th><th className="t-num">Espèces du jour</th><th className="t-num">1er paiement espèces</th><th className="t-num">2ème paiement espèces</th><th className="t-num">MVola</th><th className="t-num">Orange Money</th><th className="t-num">Airtel Money</th><th className="t-num">Frais livreurs MVola / Orange Money</th><th className="t-num">Total à payer</th></tr></thead>
             <tbody>
               {rows.map((d) => (
                 <tr key={d.pageId}>
@@ -216,13 +407,12 @@ function PageBoard({ date }: { date: string }) {
                   <td className="t-num">{money(d.pay.mvola)}</td>
                   <td className="t-num">{money(d.pay.orange)}</td>
                   <td className="t-num">{money(d.pay.airtel)}</td>
-                  <td className="t-num">{d.fees ? <span className="neg">− {fmtAr(d.fees)}</span> : money(0)}</td>
+                  <td className="t-num">{money(d.feeMobile)}</td>
                   <td className="t-num"><strong>{fmtAr(d.toPay)}</strong></td>
-                  <td><ReceivedCell d={d} /></td>
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr className="t-total"><td>Total</td><td className="t-num">{fmtAr(t.sales)}</td><td className="t-num">{fmtAr(t.day)}</td><td className="t-num">{fmtAr(t.c1)}</td><td className="t-num">{fmtAr(t.c2)}</td><td className="t-num">{fmtAr(t.mvola)}</td><td className="t-num">{fmtAr(t.orange)}</td><td className="t-num">{fmtAr(t.airtel)}</td><td className="t-num">{fmtAr(t.fees)}</td><td className="t-num">{fmtAr(t.toPay)}</td><td className="t-num">{fmtAr(t.got)}</td></tr></tfoot>
+            <tfoot><tr className="t-total"><td>Total</td><td className="t-num">{fmtAr(t.sales)}</td><td className="t-num">{fmtAr(t.day)}</td><td className="t-num">{fmtAr(t.c1)}</td><td className="t-num">{fmtAr(t.c2)}</td><td className="t-num">{fmtAr(t.mvola)}</td><td className="t-num">{fmtAr(t.orange)}</td><td className="t-num">{fmtAr(t.airtel)}</td><td className="t-num">{fmtAr(t.fm)}</td><td className="t-num">{fmtAr(t.toPay)}</td></tr></tfoot>
           </table></div>
         )}
       </div>
@@ -234,8 +424,8 @@ function PageBoard({ date }: { date: string }) {
 function Board({ date }: { date: string }) {
   const rows = sellersOfDay(date);
   const [open, setOpen] = useState<string | null>(null);
-  const t = rows.reduce((a, d) => ({ sales: a.sales + d.sales, cash: a.cash + d.pay.cash, day: a.day + dayCash(d).shown, c1: a.c1 + d.cash1, c2: a.c2 + d.cash2, mvola: a.mvola + d.pay.mvola, orange: a.orange + d.pay.orange, airtel: a.airtel + d.pay.airtel, fees: a.fees + d.fees, exp: a.exp + d.expenses, toPay: a.toPay + d.toPay, got: a.got + (d.handover?.amount ?? 0) }),
-    { sales: 0, cash: 0, day: 0, c1: 0, c2: 0, mvola: 0, orange: 0, airtel: 0, fees: 0, exp: 0, toPay: 0, got: 0 });
+  const t = rows.reduce((a, d) => ({ sales: a.sales + d.sales, cash: a.cash + d.pay.cash, day: a.day + dayCash(d).shown, c1: a.c1 + dayCash(d).n1, c2: a.c2 + dayCash(d).n2, fm: a.fm + d.feeMobile, mvola: a.mvola + d.pay.mvola, orange: a.orange + d.pay.orange, airtel: a.airtel + d.pay.airtel, fees: a.fees + d.fees, exp: a.exp + d.expenses, toPay: a.toPay + d.toPay, got: a.got + (d.handover?.amount ?? 0) }),
+    { sales: 0, cash: 0, day: 0, c1: 0, c2: 0, fm: 0, mvola: 0, orange: 0, airtel: 0, fees: 0, exp: 0, toPay: 0, got: 0 });
   const waiting = rows.filter((d) => !d.handover && (d.toPay || d.sales));
   const rest = rows.filter((d) => !d.handover).reduce((s, d) => s + d.toPay, 0);
   const sel = rows.find((d) => d.user.id === open);
@@ -245,12 +435,12 @@ function Board({ date }: { date: string }) {
     { key: 'p', label: 'Pages', value: (d) => d.pages.map((p) => `${p.name} : ${Math.round(p.sales).toLocaleString('fr-FR')}`).join(' ; '), width: 40 },
     { key: 's', label: 'Total ventes', value: (d) => Math.round(d.sales), money: true, width: 14 },
     { key: 'c', label: 'Espèces du jour', value: (d) => Math.round(dayCash(d).shown), money: true, width: 13 },
-    { key: 'c1', label: '1er paiement espèces', value: (d) => Math.round(d.cash1), money: true, width: 13 },
-    { key: 'c2', label: '2ème paiement espèces', value: (d) => Math.round(d.cash2), money: true, width: 13 },
+    { key: 'c1', label: '1er paiement espèces', value: (d) => Math.round(dayCash(d).n1), money: true, width: 13 },
+    { key: 'c2', label: '2ème paiement espèces', value: (d) => Math.round(dayCash(d).n2), money: true, width: 13 },
     { key: 'mv', label: 'MVola', value: (d) => Math.round(d.pay.mvola), money: true, width: 13 },
     { key: 'or', label: 'Orange Money', value: (d) => Math.round(d.pay.orange), money: true, width: 13 },
     { key: 'ai', label: 'Airtel Money', value: (d) => Math.round(d.pay.airtel), money: true, width: 13 },
-    { key: 'f', label: 'Frais livreurs', value: (d) => Math.round(d.fees), money: true, width: 13 },
+    { key: 'f', label: 'Frais livreurs MVola / Orange Money', value: (d) => Math.round(d.feeMobile), money: true, width: 15 },
     { key: 'e', label: 'Dépenses (caisse)', value: (d) => Math.round(d.expenses), money: true, width: 13 },
     { key: 't', label: 'Total à payer', value: (d) => Math.round(d.toPay), money: true, width: 14 },
     { key: 'r', label: 'Reçu', value: (d) => (d.handover ? Math.round(d.handover.amount) : ''), money: true, width: 13 },
@@ -259,9 +449,9 @@ function Board({ date }: { date: string }) {
   const exportXls = () => exportTables(`versements-vendeurs_${date}.xlsx`, [{ name: 'Versements', cols, rows, notes: [`Versements des vendeurs — ${longDate(date)}`] }]);
   const exportPdf = () => printA4('Versements des vendeurs', longDate(date), `
     <div class="kpis"><div class="kpi"><span>Total ventes</span><b>${arA4(t.sales)}</b></div><div class="kpi"><span>Espèces</span><b>${arA4(t.cash)}</b></div><div class="kpi"><span>Mobile money</span><b>${arA4(t.mvola + t.orange + t.airtel)}</b></div><div class="kpi strong"><span>Total à payer</span><b>${arA4(t.toPay)}</b></div></div>
-    ${a4Table({ head: ['Vendeur', 'Ventes', 'Espèces', 'MVola', 'Orange', 'Airtel', 'Frais livr.', 'Dépenses', 'À payer', 'Reçu'], num: [1, 2, 3, 4, 5, 6, 7, 8, 9],
-      rows: rows.map((d) => [h(d.user.fullName), arA4(d.sales), arA4(d.pay.cash), arA4(d.pay.mvola), arA4(d.pay.orange), arA4(d.pay.airtel), arA4(d.fees), arA4(d.expenses), `<b>${arA4(d.toPay)}</b>`, d.handover ? arA4(d.handover.amount) : '—']),
-      foot: ['Total', arA4(t.sales), arA4(t.cash), arA4(t.mvola), arA4(t.orange), arA4(t.airtel), arA4(t.fees), arA4(t.exp), arA4(t.toPay), arA4(t.got)] })}
+    ${a4Table({ head: ['Vendeur', 'Ventes', 'Espèces du jour', '1er paiement', '2ème paiement', 'MVola', 'Orange', 'Airtel', 'Frais MVola / Orange', 'Dépenses', 'À payer', 'Reçu'], num: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+      rows: rows.map((d) => [h(d.user.fullName), arA4(d.sales), arA4(dayCash(d).shown), arA4(dayCash(d).n1), arA4(dayCash(d).n2), arA4(d.pay.mvola), arA4(d.pay.orange), arA4(d.pay.airtel), arA4(d.feeMobile), arA4(d.expenses), `<b>${arA4(d.toPay)}</b>`, d.handover ? arA4(d.handover.amount) : '—']),
+      foot: ['Total', arA4(t.sales), arA4(t.day), arA4(t.c1), arA4(t.c2), arA4(t.mvola), arA4(t.orange), arA4(t.airtel), arA4(t.fm), arA4(t.exp), arA4(t.toPay), arA4(t.got)] })}
     ${rows.filter((d) => d.pages.length).map((d) => a4Table({ title: `Ventes par page — ${h(d.user.fullName)}`, head: ['Page', 'Ventes'], num: [1], rows: d.pages.map((p) => [h(p.name), arA4(p.sales)]), foot: ['Total', arA4(d.sales)] })).join('')}`);
 
   return (
@@ -283,7 +473,7 @@ function Board({ date }: { date: string }) {
         </div>
         {rows.length === 0 ? <p className="card-pad small muted">Aucun vendeur ni aucune vente ce jour.</p> : (
           <div className="table-wrap"><table className="table table-grid handover-table">
-            <thead><tr><th>Vendeur</th><th className="t-num">Total ventes</th><th className="t-num">Espèces du jour</th><th className="t-num">1er paiement espèces</th><th className="t-num">2ème paiement espèces</th><th className="t-num">MVola</th><th className="t-num">Orange Money</th><th className="t-num">Airtel Money</th><th className="t-num">Frais livreurs</th><th className="t-num">Dépenses</th><th className="t-num">Total à payer</th><th>Espèces du jour reçues</th></tr></thead>
+            <thead><tr><th>Vendeur</th><th className="t-num">Total ventes</th><th className="t-num">Espèces du jour</th><th className="t-num">1er paiement espèces</th><th className="t-num">2ème paiement espèces</th><th className="t-num">MVola</th><th className="t-num">Orange Money</th><th className="t-num">Airtel Money</th><th className="t-num">Frais livreurs MVola / Orange Money</th><th className="t-num">Dépenses</th><th className="t-num">Total à payer</th></tr></thead>
             <tbody>
               {rows.map((d) => (
                 <tr key={d.user.id} className="row-link" onClick={() => setOpen(d.user.id)}>
@@ -293,14 +483,13 @@ function Board({ date }: { date: string }) {
                   <td className="t-num">{money(d.pay.mvola)}</td>
                   <td className="t-num">{money(d.pay.orange)}</td>
                   <td className="t-num">{money(d.pay.airtel)}</td>
-                  <td className="t-num">{d.fees ? <span className="neg">− {fmtAr(d.fees)}</span> : money(0)}</td>
+                  <td className="t-num">{money(d.feeMobile)}</td>
                   <td className="t-num muted">{money(d.expenses)}</td>
                   <td className="t-num"><strong>{fmtAr(d.toPay)}</strong></td>
-                  <td onClick={(e) => e.stopPropagation()}><ReceivedCell d={d} /></td>
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr className="t-total"><td>Total</td><td className="t-num">{fmtAr(t.sales)}</td><td className="t-num">{fmtAr(t.day)}</td><td className="t-num">{fmtAr(t.c1)}</td><td className="t-num">{fmtAr(t.c2)}</td><td className="t-num">{fmtAr(t.mvola)}</td><td className="t-num">{fmtAr(t.orange)}</td><td className="t-num">{fmtAr(t.airtel)}</td><td className="t-num">{fmtAr(t.fees)}</td><td className="t-num">{fmtAr(t.exp)}</td><td className="t-num">{fmtAr(t.toPay)}</td><td className="t-num">{fmtAr(t.got)}</td></tr></tfoot>
+            <tfoot><tr className="t-total"><td>Total</td><td className="t-num">{fmtAr(t.sales)}</td><td className="t-num">{fmtAr(t.day)}</td><td className="t-num">{fmtAr(t.c1)}</td><td className="t-num">{fmtAr(t.c2)}</td><td className="t-num">{fmtAr(t.mvola)}</td><td className="t-num">{fmtAr(t.orange)}</td><td className="t-num">{fmtAr(t.airtel)}</td><td className="t-num">{fmtAr(t.fm)}</td><td className="t-num">{fmtAr(t.exp)}</td><td className="t-num">{fmtAr(t.toPay)}</td></tr></tfoot>
           </table></div>
         )}
       </div>
@@ -310,51 +499,40 @@ function Board({ date }: { date: string }) {
 }
 
 /**
- * Espèces du jour (ventes du jour), séparées du 1er et du 2ème paiement espèces (restes des jours précédents).
- * Quand le responsable a saisi un montant reçu différent, la case « Espèces du jour » suit ce montant
- * (reçu − 1er − 2ème paiement + frais livreurs) ; le chiffre calculé reste affiché en dessous. Affichage seulement.
+ * Espèces à remettre, en 3 parts : espèces du jour (ventes du jour), 1er et 2ème paiement espèces (restes des jours
+ * précédents). Les frais gardés par les livreurs sont déjà retirés de chaque part : la somme des 3 = total à payer.
+ * Quand le responsable corrige « Espèces du jour », la case suit ce montant ; le chiffre calculé et l'écart restent
+ * affichés en dessous. Affichage seulement : le total à payer ne change pas.
  */
 function dayCash(d: SellerDay) {
-  const calc = d.pay.cash - d.cash1 - d.cash2;
-  const shown = d.handover ? d.handover.amount - d.cash1 - d.cash2 + d.fees : calc;
-  return { calc, shown, changed: !!d.handover && Math.round(shown) !== Math.round(calc) };
+  const n1 = d.cash1 - d.fee1, n2 = d.cash2 - d.fee2;
+  const calc = d.toPay - n1 - n2;
+  const shown = d.handover ? d.handover.amount - n1 - n2 : calc;
+  return { n1, n2, calc, shown, changed: !!d.handover && Math.round(shown) !== Math.round(calc) };
 }
 function CashCells({ d }: { d: SellerDay }) {
   const c = dayCash(d);
   return (
     <>
-      <td className="t-num">{c.changed ? <><strong>{fmtAr(c.shown)}</strong><div className="small muted">calculé {fmtAr(c.calc)}</div></> : money(c.shown)}</td>
-      <td className="t-num">{money(d.cash1)}</td>
-      <td className="t-num">{money(d.cash2)}</td>
+      <td className="t-num" onClick={(e) => e.stopPropagation()}><DayCashCell d={d} /></td>
+      <td className="t-num">{money(c.n1)}</td>
+      <td className="t-num">{money(c.n2)}</td>
     </>
   );
 }
 
-/** Espèces du jour vraiment remises par le vendeur, saisies directement dans le tableau (Entrée ou ✓ pour valider).
- *  Le 1er et le 2ème paiement espèces sont comptés en plus, les frais livreurs déduits : versement = saisi + 1er + 2ème − frais.
- *  Total ventes, MVola et Orange Money restent calculés tout seuls. Un montant déjà validé peut être corrigé (l'ancien reste tracé). */
-function ReceivedCell({ d }: { d: SellerDay }) {
+/** Case « Espèces du jour » : ✓ = reçu comme calculé ; ✏️ = corriger directement le montant vraiment reçu (Entrée ou ✓).
+ *  Versement enregistré = espèces du jour reçues + 1er + 2ème paiement espèces. Un montant validé peut être corrigé
+ *  (l'ancien reste tracé dans le journal). */
+function DayCashCell({ d }: { d: SellerDay }) {
   const ho = d.handover;
+  const c = dayCash(d);
   const [edit, setEdit] = useState(false);
   const [val, setVal] = useState('');
   const [busy, setBusy] = useState(false);
-  const c = dayCash(d);
-  if (!ho && !d.toPay && !d.sales) return <span className="small muted">—</span>;
-  if (ho && !edit) return (
-    <div>
-      <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
-        <Badge tone={ho.gap ? 'warn' : 'ok'}>{fmtAr(c.shown)}</Badge>
-        <IconButton icon="edit" label="Corriger le montant reçu" onClick={() => { setVal(String(Math.round(c.shown))); setEdit(true); }} />
-      </div>
-      {Math.round(ho.amount) !== Math.round(c.shown) && <div className="small muted">versement total {fmtAr(ho.amount)}</div>}
-      {ho.gap ? <div className="small neg">écart {ho.gap > 0 ? '+' : '−'} {fmtAr(Math.abs(ho.gap))}</div> : null}
-      {changedSince(d) && <div className="small neg">chiffres changés</div>}
-    </div>
-  );
-  const save = async () => {
-    const n = parseAr(val);
-    if (n == null || n < 0) { toast('Indiquez les espèces du jour reçues.', 'error'); return; }
-    const total = Math.max(0, n + d.cash1 + d.cash2 - d.fees);
+  if (!ho && !d.toPay && !d.sales && !Math.round(c.calc)) return money(0);
+  const save = async (n: number) => {
+    const total = Math.max(0, n + c.n1 + c.n2);
     setBusy(true);
     try {
       if (ho) await cancelHandover(ho, `Montant corrigé dans le tableau : ${fmtAr(ho.amount)} → ${fmtAr(total)}`);
@@ -362,12 +540,25 @@ function ReceivedCell({ d }: { d: SellerDay }) {
       toast(`${fmtAr(n)} d’espèces du jour reçu de ${d.user.fullName}`); setEdit(false); setVal('');
     } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
   };
+  const submit = () => { const n = parseAr(val); if (n == null || n < 0) { toast('Indiquez les espèces du jour reçues.', 'error'); return; } save(n); };
+  if (edit) return (
+    <div className="row" style={{ gap: 4, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
+      <input className="cell-input num-input" style={{ width: 110 }} inputMode="numeric" autoFocus aria-label={`Espèces du jour reçues de ${d.user.fullName}`}
+        value={val} disabled={busy} onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') setEdit(false); }} />
+      <IconButton icon="check" label="Valider le montant reçu" disabled={busy || !val.trim()} onClick={submit} />
+    </div>
+  );
   return (
-    <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
-      <input className="cell-input num-input" style={{ width: 110 }} inputMode="numeric" aria-label={`Espèces du jour reçues de ${d.user.fullName}`} placeholder={fmtAr(c.calc)}
-        value={val} disabled={busy} onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEdit(false); }} />
-      <IconButton icon="check" label="Valider le montant reçu" disabled={busy || !val.trim()} onClick={save} />
-      {!ho && !val && <Badge tone="danger">À recevoir</Badge>}
+    <div style={{ textAlign: 'right' }}>
+      <div className="row" style={{ gap: 2, flexWrap: 'nowrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+        <strong>{fmtAr(c.shown)}</strong>
+        {!ho && <IconButton icon="check" label={`Reçu comme calculé (${d.user.fullName})`} disabled={busy} onClick={() => save(c.calc)} />}
+        <IconButton icon="edit" label={`Corriger les espèces du jour (${d.user.fullName})`} onClick={() => { setVal(String(Math.round(c.shown))); setEdit(true); }} />
+      </div>
+      {ho ? <div className="small" style={{ color: "var(--ok)" }}>reçu</div> : <div className="small neg">à recevoir</div>}
+      {c.changed && <div className="small muted">calculé {fmtAr(c.calc)}</div>}
+      {ho?.gap ? <div className="small neg">écart {ho.gap > 0 ? '+' : '−'} {fmtAr(Math.abs(ho.gap))}</div> : null}
+      {changedSince(d) && <div className="small neg">chiffres changés</div>}
     </div>
   );
 }

@@ -1214,7 +1214,8 @@ tr.row-error td { background: var(--danger-soft); }
 .recap-table tr.rc-profit td { font-weight: 700; border-bottom: 2px solid var(--line-strong); }
 .recap-table tfoot tr.rc-boost td, .recap-table tfoot tr.rc-profit td { border-top: 0; }
 .handover-table td { vertical-align: top; }
-.handover-table th { white-space: normal; max-width: 110px; vertical-align: bottom; }
+.handover-table th, .money-week th { white-space: normal; max-width: 110px; vertical-align: bottom; }
+.money-week th, .money-week td { padding-left: 8px; padding-right: 8px; }
 .handover-table th, .handover-table td { padding-left: 10px; padding-right: 10px; }
 @media (min-width: 700px) { .recap-table .rc-label { position: sticky; left: 0; background: var(--surface); z-index: 1; } }
 .cap-first { display: inline-block; } .cap-first::first-letter { text-transform: uppercase; }

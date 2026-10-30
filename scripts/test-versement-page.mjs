@@ -1,5 +1,6 @@
-// Versements : vue PAR PAGE (par défaut), espèces du jour / 1er / 2ème paiement espèces, espèces reçues saisies et
-// corrigées directement dans le tableau (la case « Espèces du jour » suit le montant reçu) ; vue par vendeur disponible.
+// Versements : vue PAR PAGE (par défaut) ; espèces du jour / 1er / 2ème paiement espèces (frais gardés par les livreurs
+// déjà retirés), frais livreurs payés en MVola / Orange Money ; ✓ ou correction directe dans la case « Espèces du jour »,
+// écart affiché dessous et impayé vendeur à réclamer ; vue par vendeur disponible.
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
 const W = Number(process.argv[2] || 1280);
@@ -33,6 +34,11 @@ await p.evaluate(async () => {
     { id: 'D1', number: 'D1', kind: 'order', channel: 'facebook', phone: '0340000000', zoneId: 'z1', courierId: 'c1', status: 'delivered', lines: [{ id: 'ld', variantId: 'va', qty: 1, unitPrice: 15000, qtyKept: 1, qtyReturned: 0 }], deliveryFee: 3000, feeCharged: 3000, discount: 0,
       payments: [{ id: 'pd', at: now, amount: 18000, method: 'cash', receivedBy: 'courier', courierId: 'c1' }], dispatchedAt: now, returnedAt: now, courierSettledAt: now, createdBy: 'u1', createdByName: 'Aina', createdAt: now },
     shop('S3', 'u2', 'Bako', 'vb', 2, 10000, 'cash'),
+    // Vente d'il y a 3 jours sur Intimity style, payée 4 000 sur 10 000 : reste client 6 000
+    { ...shop('R1', 'u2', 'Bako', 'vb', 1, 10000, 'cash'), createdAt: ago(3), payments: [{ id: 'pr1', at: ago(3), amount: 4000, method: 'cash', receivedBy: 'shop' }] },
+    // Livraison payée par MVola à la boutique, frais compris : la boutique doit les 3 000 de frais au livreur
+    { id: 'D2', number: 'D2', kind: 'order', channel: 'facebook', phone: '0340000001', zoneId: 'z1', courierId: 'c1', status: 'delivered', lines: [{ id: 'ld2', variantId: 'va', qty: 1, unitPrice: 15000, qtyKept: 1, qtyReturned: 0 }], deliveryFee: 3000, feeCharged: 3000, discount: 0,
+      payments: [{ id: 'pd2', at: now, amount: 18000, method: 'mvola', receivedBy: 'shop' }], dispatchedAt: now, returnedAt: now, courierSettledAt: now, createdBy: 'u1', createdByName: 'Aina', createdAt: now },
     // Restes des jours précédents payés en espèces aujourd'hui : hier → 1er paiement, il y a 7 jours → 2ème paiement
     { ...shop('Y1', 'u1', 'Aina', 'va', 1, 15000, 'cash'), createdAt: ago(1), payments: [{ id: 'py1', at: ago(1), amount: 5000, method: 'cash', receivedBy: 'shop' }, { id: 'py2', at: now, amount: 10000, method: 'cash', receivedBy: 'shop' }] },
     { ...shop('W1', 'u1', 'Aina', 'va', 1, 15000, 'cash'), createdAt: ago(7), payments: [{ id: 'pw1', at: now, amount: 15000, method: 'cash', receivedBy: 'shop' }] },
@@ -47,18 +53,54 @@ let tx = N(await p.locator('main').innerText());
 ok(/Par page/.test(tx) && /Page par page/i.test(tx), 'vue « Par page » affichée par défaut');
 const row = (name) => p.locator('.handover-table tbody tr', { hasText: name });
 let rA = N(await row('Poignet précieux').innerText()).replace(/\s+/g, ' ');
-ok(/Poignet précieux Aina 45 000 Ar 48 000 Ar 10 000 Ar 15 000 Ar — — — − 3 000 Ar 70 000 Ar/.test(rA), `Poignet précieux : ventes 45 000, espèces du jour 48 000, 1er paiement 10 000, 2ème paiement 15 000, frais − 3 000, à payer 70 000 (${rA})`);
+ok(/Poignet précieux Aina 60 000 Ar 45 000 Ar à recevoir 10 000 Ar 15 000 Ar 18 000 Ar — — 3 000 Ar 70 000 Ar/.test(rA), `Poignet précieux : ventes 60 000, espèces du jour 45 000 (48 000 − 3 000 de frais gardés), 1er 10 000, 2ème 15 000, MVola 18 000, frais MVola 3 000, à payer 70 000 (${rA})`);
 let rB = N(await row('Intimity style').innerText()).replace(/\s+/g, ' ');
-ok(/Intimity style Aina, Bako impayé précédent 5 000 Ar 30 000 Ar 20 000 Ar — — 10 000 Ar — — — 20 000 Ar/.test(rB), `Intimity style : ventes 30 000, espèces 20 000, MVola 10 000, à payer 20 000 (${rB})`);
-ok(/Total\s+75 000 Ar\s+68 000 Ar\s+10 000 Ar\s+15 000 Ar\s+10 000 Ar\s+0 Ar\s+0 Ar\s+3 000 Ar\s+90 000 Ar\s+0 Ar/.test(tx), 'ligne Total : 75 000 ventes, espèces 68 000 + 10 000 + 15 000, 90 000 à payer (comme par vendeur)');
-// Saisie directe des espèces reçues
-await row('Poignet précieux').getByLabel(/Espèces du jour reçues de/).fill('18000');
+ok(/Intimity style Aina, Bako impayé précédent 5 000 Ar 30 000 Ar 20 000 Ar à recevoir — — 10 000 Ar — — — 20 000 Ar/.test(rB), `Intimity style : ventes 30 000, espèces 20 000, MVola 10 000, à payer 20 000 (${rB})`);
+ok(/Total\s+90 000 Ar\s+65 000 Ar\s+10 000 Ar\s+15 000 Ar\s+28 000 Ar\s+0 Ar\s+0 Ar\s+3 000 Ar\s+90 000 Ar/.test(tx), 'ligne Total : espèces 65 000 + 10 000 + 15 000 = 90 000 à payer, frais MVola 3 000');
+ok(!/Espèces du jour reçues/.test(tx) && !/− 3 000 Ar/.test(N(await p.locator('.handover-table').innerText())), 'plus de colonne séparée ni de frais espèces déduits');
+// En haut : restes impayés par page
+const rests = () => p.locator('.card', { hasText: 'Restes impayés par page' });
+let rs = N(await rests().innerText()).replace(/\s+/g, ' ');
+ok(/Restes impayés par page .* 11 000 Ar/.test(rs) && /Intimity style 6 000 Ar 5 000 Ar 11 000 Ar/.test(rs) && !rs.includes('Poignet'), `en haut : Intimity style reste client 6 000 + impayé vendeur 5 000 = 11 000 (${rs})`);
+await rests().locator('tr', { hasText: 'Intimity style' }).first().click(); await p.waitForTimeout(200);
+rs = N(await rests().innerText()).replace(/\s+/g, ' ');
+ok(/Le .{3,6} \d\d\/\d\d · clients 6 000 Ar \(R1\) 6 000 Ar/.test(rs) && /Le .{3,6} \d\d\/\d\d · impayé vendeur 5 000 Ar 5 000 Ar/.test(rs), `détail Intimity style jour par jour : client R1 6 000, impayé vendeur 5 000 (${rs})`);
+await rests().locator('tr', { hasText: 'Intimity style' }).first().click(); await p.waitForTimeout(200);
+ok(!/\(R1\)/.test(await rests().innerText()), 'le détail se referme');
+const firstCard = await p.locator('main .card').nth(1).innerText();
+ok(firstCard.includes('Restes impayés par page'), 'tableau des restes impayés juste sous la date');
+// Argent réellement reçu ce jour (saisi à la main) comparé au calcul
+const mc = () => p.locator('.card', { hasText: 'Argent réellement reçu ce jour' });
+await mc().getByLabel('Espèces réellement reçu').fill('85000'); await mc().getByLabel('Espèces réellement reçu').press('Enter'); await p.waitForTimeout(400);
+await mc().getByLabel('MVola réellement reçu').fill('28000'); await mc().getByLabel('MVola réellement reçu').press('Enter'); await p.waitForTimeout(400);
+let mt = N(await mc().innerText()).replace(/\s+/g, ' ');
+ok(/Espèces total à payer des vendeurs 90 000 Ar − 5 000 Ar/.test(mt) && /MVola 25 000 Ar \+ 3 000 Ar/.test(mt) && /Orange Money 0 Ar —/.test(mt), `argent reçu : espèces 85 000 → écart − 5 000 ; MVola ventes 25 000, reçu 28 000 → écart + 3 000 ; Orange pas saisi (${mt})`);
+ok(/Total frais MVola \/ Orange Money \(livreurs\) .* MVola 3 000 Ar · Orange 0 Ar 3 000 Ar Différence/.test(mt) && /Différence : écart MVola \+ écart Orange − total frais 0 = tout est juste \(reste éventuel : frais de retrait…\) écart MVola \+ 3 000 Ar − frais 3 000 Ar ✓ juste/.test(mt), `écart MVola + 3 000 − frais livreurs 3 000 = 0, juste (${mt})`);
+const rec = await p.evaluate(() => window.__tsena.all('moneyCounts')[0]);
+ok(rec && rec.cash === 85000 && rec.mvola === 28000 && rec.orange == null, 'montants enregistrés pour le jour');
+ok(N(await p.locator('main').innerText()).includes('90 000 Ar'), 'le total à payer ne change pas');
+// La semaine : jour par jour + total
+const wk = p.locator('.card', { hasText: 'Argent réellement reçu : la semaine' });
+const lastRow = N(await wk.locator('tbody tr').last().innerText()).replace(/\s+/g, ' ');
+ok(/90 000 Ar 85 000 Ar − 5 000 Ar 25 000 Ar 28 000 Ar 0 Ar — 3 000 Ar ✓ juste$/.test(lastRow), `semaine, aujourd’hui : espèces 85 000 → écart − 5 000 ; MVola 28 000 (calcul 25 000) + 3 000 − frais 3 000 = juste (${lastRow})`);
+const wt = N(await wk.locator('tfoot').innerText()).replace(/\s+/g, ' ');
+ok(/Total semaine .* 85 000 Ar − 5 000 Ar 25 000 Ar 28 000 Ar 0 Ar 0 Ar 3 000 Ar ✓ juste/.test(wt), `total de la semaine (${wt})`);
+const nDays = await wk.locator('tbody tr').count(); const wd = new Date().getDay();
+ok(nDays === ((wd + 6) % 7) + 1, `du lundi à aujourd’hui : ${nDays} jour(s)`);
+await wk.getByRole('button', { name: 'Semaine précédente' }).click(); await p.waitForTimeout(300);
+ok((await wk.locator('tbody tr').count()) === 7 && /Total semaine 99 000 Ar|Total semaine/.test(N(await wk.innerText())) && !(N(await wk.locator('tfoot').innerText()).includes('85 000')), 'semaine précédente : 7 jours, sans les montants de cette semaine');
+await wk.getByRole('button', { name: 'Cette semaine' }).click(); await p.waitForTimeout(300);
+ok((await wk.locator('tbody tr').count()) === nDays && N(await wk.locator('tfoot').innerText()).includes('85 000'), 'retour à cette semaine');
+// Correction directe dans la case « Espèces du jour »
+await row('Poignet précieux').getByRole('button', { name: /Corriger les espèces du jour/ }).click();
+await row('Poignet précieux').getByLabel(/Espèces du jour reçues de/).fill('15000');
 await row('Poignet précieux').getByLabel(/Espèces du jour reçues de/).press('Enter'); await p.waitForTimeout(500);
 let hs = await p.evaluate(() => window.__tsena.all('handovers').filter((h) => h.userId === 'page:pp'));
-ok(hs.length === 1 && hs[0].amount === 40000 && hs[0].expected === 70000 && hs[0].gap === -30000 && hs[0].userName === 'Poignet précieux', 'page Poignet précieux : 18 000 d’espèces du jour saisi → versement 18 000 + 10 000 + 15 000 − 3 000 = 40 000, écart −30 000');
+ok(hs.length === 1 && hs[0].amount === 40000 && hs[0].expected === 70000 && hs[0].gap === -30000 && hs[0].userName === 'Poignet précieux', 'Poignet précieux : 15 000 d’espèces du jour → versement 15 000 + 10 000 + 15 000 = 40 000, écart −30 000');
 rA = N(await row('Poignet précieux').innerText()).replace(/\s+/g, ' ');
-ok(rA.includes('18 000 Ar') && rA.includes('versement total 40 000 Ar') && rA.includes('écart − 30 000 Ar'), `montant reçu affiché avec l’écart (${rA})`);
-ok(/Poignet précieux Aina 45 000 Ar 18 000 Ar calculé 48 000 Ar 10 000 Ar 15 000 Ar/.test(rA), `espèces du jour suivent le montant reçu : 40 000 − 10 000 − 15 000 + 3 000 = 18 000, calculé 48 000 (${rA})`);
+ok(/Poignet précieux Aina 60 000 Ar 15 000 Ar reçu calculé 45 000 Ar écart − 30 000 Ar 10 000 Ar 15 000 Ar/.test(rA), `la case affiche 15 000, avec calculé 45 000 et l’écart dessous (${rA})`);
+rs = N(await rests().innerText()).replace(/\s+/g, ' ');
+ok(/Poignet précieux — 30 000 Ar 30 000 Ar/.test(rs) && /41 000 Ar/.test(rs), `en haut : Poignet précieux impayé vendeur 30 000, total 41 000 (${rs})`);
 // L'écart devient un impayé vendeur à réclamer
 const gaps = () => p.locator('.card', { hasText: 'Impayés vendeurs (écarts à réclamer)' });
 let g = N(await gaps().innerText()).replace(/\s+/g, ' ');
@@ -73,28 +115,36 @@ ok(N(await row('Intimity style').innerText()).includes('impayé précédent 3 00
 await gaps().locator('tr', { hasText: 'Intimity style' }).getByRole('button', { name: 'Régler' }).click();
 await gaps().getByLabel(/Remboursé par Intimity style/).press('Enter'); await p.waitForTimeout(500);
 ok(!(await row('Intimity style').innerText()).includes('impayé précédent'), 'remboursé en entier : plus d’impayé précédent');
-// Correction
-await row('Poignet précieux').getByRole('button', { name: 'Corriger le montant reçu' }).click();
-await row('Poignet précieux').getByLabel(/Espèces du jour reçues de/).fill('48000');
+// Correction du montant déjà validé
+await row('Poignet précieux').getByRole('button', { name: /Corriger les espèces du jour/ }).click();
+await row('Poignet précieux').getByLabel(/Espèces du jour reçues de/).fill('45000');
 await row('Poignet précieux').getByRole('button', { name: 'Valider le montant reçu' }).click(); await p.waitForTimeout(500);
 hs = await p.evaluate(() => window.__tsena.all('handovers').filter((h) => h.userId === 'page:pp'));
-ok(hs.length === 1 && hs[0].status === 'received' && hs[0].amount === 70000 && hs[0].gap === 0, 'correction : 48 000 d’espèces du jour → versement 70 000, plus d’écart');
+ok(hs.length === 1 && hs[0].status === 'received' && hs[0].amount === 70000 && hs[0].gap === 0, 'correction : 45 000 → versement 70 000, plus d’écart');
 rA = N(await row('Poignet précieux').innerText()).replace(/\s+/g, ' ');
-ok(/Poignet précieux Aina 45 000 Ar 48 000 Ar 10 000 Ar/.test(rA) && !rA.includes('calculé'), `espèces du jour revenues au calcul (${rA})`);
+ok(/Poignet précieux Aina 60 000 Ar 45 000 Ar reçu 10 000 Ar/.test(rA) && !rA.includes('calculé') && !rA.includes('écart'), `espèces du jour revenues au calcul (${rA})`);
 ok(/Aucun écart à réclamer/.test(await gaps().innerText()), 'plus d’écart : plus rien à réclamer');
 const au = await p.evaluate(() => window.__tsena.all('audit').filter((a) => /Versement vendeur/.test(a.action)).map((a) => a.action));
 ok(au.includes('Versement vendeur annulé') && au.filter((a) => a === 'Versement vendeur reçu').length === 2, 'ancien montant tracé dans le journal');
-// Les vendeurs ne sont pas touchés
+// Vue par vendeur
 await p.getByRole('button', { name: 'Par vendeur' }).click(); await p.waitForTimeout(300);
 tx = N(await p.locator('main').innerText());
 const rowS = N(await p.locator('tr.row-link', { hasText: 'Aina' }).innerText()).replace(/\s+/g, ' ');
-ok(/Aina Poignet précieux, Intimity style 55 000 Ar 48 000 Ar 10 000 Ar 15 000 Ar 10 000 Ar — — − 3 000 Ar 2 000 Ar 70 000 Ar À recevoir/.test(rowS), `vue par vendeur : Aina 55 000 ventes, espèces 48 000 + 1er 10 000 + 2ème 15 000, 70 000 à payer, à recevoir (${rowS})`);
-await p.locator('tr.row-link', { hasText: 'Bako' }).getByLabel(/Espèces du jour reçues de/).fill('20000');
-await p.locator('tr.row-link', { hasText: 'Bako' }).getByLabel(/Espèces du jour reçues de/).press('Enter'); await p.waitForTimeout(500);
-ok(!(await p.getByRole('dialog').count()), 'saisir dans le tableau n’ouvre pas la fiche');
+ok(/Aina Poignet précieux, Intimity style 70 000 Ar 45 000 Ar à recevoir 10 000 Ar 15 000 Ar 28 000 Ar — — 3 000 Ar 2 000 Ar 70 000 Ar/.test(rowS), `vue par vendeur : Aina 70 000 ventes, espèces 45 000 + 10 000 + 15 000 = 70 000 à payer (${rowS})`);
+// ✓ : reçu comme calculé
+await p.locator('tr.row-link', { hasText: 'Bako' }).getByRole('button', { name: /Reçu comme calculé/ }).click(); await p.waitForTimeout(500);
+ok(!(await p.getByRole('dialog').count()), 'valider dans le tableau n’ouvre pas la fiche');
 hs = await p.evaluate(() => window.__tsena.all('handovers').filter((h) => h.userId === 'u2'));
-ok(hs.length === 1 && hs[0].amount === 20000 && hs[0].gap === 0, 'vendeur Bako : 20 000 reçu directement dans le tableau');
+ok(hs.length === 1 && hs[0].amount === 20000 && hs[0].gap === 0, 'vendeur Bako : ✓ = 20 000 reçu comme calculé');
 await p.getByRole('button', { name: 'Par page' }).click(); await p.waitForTimeout(300);
+// Calcul comme dans Excel dans la case Orange Money
+await mc().getByLabel('Orange Money réellement reçu').fill('=2000+1500'); await mc().getByLabel('Orange Money réellement reçu').press('Enter'); await p.waitForTimeout(400);
+const rec2 = await p.evaluate(() => window.__tsena.all('moneyCounts')[0]);
+ok(rec2.orange === 3500 && rec2.formulas?.orange === '=2000+1500' && rec2.mvola === 28000, 'calcul « =2000+1500 » → Orange Money 3 500, calcul gardé');
+mt = N(await mc().innerText()).replace(/\s+/g, ' ');
+ok(/Orange Money 0 Ar = 3 500 Ar \+ 3 500 Ar/.test(mt) && (await mc().getByLabel('Orange Money réellement reçu').inputValue()) === '=2000+1500', `la case garde le calcul et affiche le résultat (${mt})`);
+await mc().getByLabel('Orange Money réellement reçu').fill('=2000+'); await mc().getByLabel('Orange Money réellement reçu').press('Enter'); await p.waitForTimeout(400);
+ok((await p.evaluate(() => window.__tsena.all('moneyCounts')[0])).orange === 3500, 'calcul invalide refusé');
 const sw = await p.evaluate(() => document.documentElement.scrollWidth); ok(sw <= W + 1, `pas de débordement (${sw})`);
 await p.waitForTimeout(4500); await p.locator('.card', { hasText: 'Page par page' }).screenshot({ path: process.env.SHOT || '/tmp/versements-page.png' });
 console.log(fail ? `${fail} ÉCHEC(S)` : 'TOUT EST BON'); await b.close(); process.exit(fail ? 1 : 0);
