@@ -423,7 +423,10 @@ function renderDrawer() {
     };
   } else {
     const f = state.form;
-    const byCard = cardOn() && f.pay === 'card';
+    const cardMin = Number(CFG.cardMin) || 3000;
+    const cardOk = cardOn() && items + fee >= cardMin;
+    if (!cardOk && f.pay === 'card') f.pay = 'cod';
+    const byCard = cardOk && f.pay === 'card';
     d.innerHTML = `${head('Vos coordonnées')}<div class="drawer-body"><form class="form" id="orderForm" novalidate>
         <button class="back" type="button" data-back>Modifier le panier (${cartCount(lines)} article${cartCount(lines) > 1 ? 's' : ''})</button>
         <div class="field"><label for="f-name">Nom</label><input id="f-name" name="name" autocomplete="name" required maxlength="80" value="${esc(f.name || '')}"></div>
@@ -432,9 +435,9 @@ function renderDrawer() {
           <label class="zone"><input type="radio" name="zoneId" value="${esc(z.id)}" ${z.id === f.zoneId ? 'checked' : ''} required><span>${esc(z.pickup ? 'Je viens chercher en boutique' : z.name)}</span><span>${z.pickup ? 'Gratuit' : esc(fmtAr(z.fee))}</span></label>`).join('')}</div></fieldset>
         <div class="field" id="placeField" ${zone && zone.pickup ? 'hidden' : ''}><label for="f-place">Lieu de livraison</label><input id="f-place" name="place" autocomplete="street-address" maxlength="200" placeholder="Quartier, repère, porte…" value="${esc(f.place || '')}"></div>
         ${cardOn() ? `<fieldset class="field"><legend class="lab">Paiement</legend><div class="zone-list">
-          <label class="zone"><input type="radio" name="pay" value="card" ${f.pay === 'card' ? 'checked' : ''}><span>${ICON_CARD} Payer maintenant par carte</span><span>Visa, Mastercard</span></label>
-          <label class="zone"><input type="radio" name="pay" value="cod" ${f.pay !== 'card' ? 'checked' : ''}><span>Payer à la réception</span><span>Espèces, Mobile Money</span></label>
-        </div>${f.pay === 'card' ? '<span class="hint">Paiement sécurisé par Stripe. Vos données de carte ne passent jamais par notre site.</span>' : ''}</fieldset>` : ''}
+          <label class="zone" ${cardOk ? '' : 'style="opacity:.55"'}><input type="radio" name="pay" value="card" ${byCard ? 'checked' : ''} ${cardOk ? '' : 'disabled'}><span>${ICON_CARD} Payer maintenant par carte</span><span>${cardOk ? 'Visa, Mastercard' : `dès ${esc(fmtAr(cardMin))}`}</span></label>
+          <label class="zone"><input type="radio" name="pay" value="cod" ${!byCard ? 'checked' : ''}><span>Payer à la réception</span><span>Espèces, Mobile Money</span></label>
+        </div>${byCard ? '<span class="hint">Paiement sécurisé par Stripe. Vos données de carte ne passent jamais par notre site.</span>' : ''}</fieldset>` : ''}
         <div class="field"><label for="f-fb">Nom Facebook (facultatif)</label><input id="f-fb" name="facebook" maxlength="100" value="${esc(f.facebook || '')}"></div>
         <div class="field"><label for="f-notes">Précisions (facultatif)</label><textarea id="f-notes" name="notes" maxlength="500" placeholder="Heure qui vous arrange, autre numéro…">${esc(f.notes || '')}</textarea></div>
         <p class="err" id="formErr" role="alert" hidden></p>
@@ -480,13 +483,14 @@ async function submitOrder(e) {
     return;
   }
   const lines = cartLines(state.cart, state.cards);
+  const payCard = cardOn() && f.pay === 'card' && cartTotal(lines) + (Number(zone.fee) || 0) >= (Number(CFG.cardMin) || 3000);
   state.sending = true; renderDrawer();
   try {
     const r = await rpc('shop_place_order', {
       p_page: state.page.id,
-      p_order: { name: f.name.trim(), phone: f.phone, facebook: f.facebook || '', zoneId: f.zoneId, place: zone.pickup ? '' : f.place, notes: f.notes || '', pay: cardOn() && f.pay === 'card' ? 'card' : 'cod', lines: lines.map((l) => ({ variantId: l.variantId, qty: l.qty })) },
+      p_order: { name: f.name.trim(), phone: f.phone, facebook: f.facebook || '', zoneId: f.zoneId, place: zone.pickup ? '' : f.place, notes: f.notes || '', pay: payCard ? 'card' : 'cod', lines: lines.map((l) => ({ variantId: l.variantId, qty: l.qty })) },
     });
-    if (cardOn() && f.pay === 'card') {
+    if (payCard) {
       // La commande est enregistrée (stock réservé) ; le client part payer chez Stripe puis revient sur le site.
       state.cart = {}; saveCart(); saveForm();
       try { sessionStorage.setItem('boutique-last', JSON.stringify({ ...r, phone: f.phone })); } catch { /* facultatif */ }
