@@ -7,7 +7,7 @@ import { all, save, useTable } from '../lib/db';
 import { fmtAr, matchQuery, parseNum, parseAr } from '../lib/catalog';
 import { compressPhoto } from '../lib/images';
 import {
-  ACCOUNTS, ACCOUNT_IDS, FREQS, RHYTHMS, WEEKDAYS, addMove, atFor, catHabit, confirmRecurring, dayOf, deleteMove, dueRecurring, habitText, nextOccurrence, recurringText, skipRecurring, today, typeForCat,
+  ACCOUNTS, ACCOUNT_IDS, FREQS, RHYTHMS, WEEKDAYS, addMove, atFor, catHabit, confirmRecurring, dayOf, deleteMove, dueRecurring, updateExpense, habitText, nextOccurrence, recurringText, skipRecurring, today, typeForCat,
   type AccountId, type CashMove, type FinanceCategory, type Freq, type Recurring, type Rhythm,
 } from '../lib/money';
 import { closedBy } from '../lib/closed';
@@ -261,6 +261,7 @@ function ExpenseList() {
   const [type, setType] = useKeep('exp.type', '');
   const [q, setQ] = useKeep('exp.q', '');
   const [del, setDel] = useState<CashMove | null>(null);
+  const [fix, setFix] = useState<CashMove | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
   const [allCats, setAllCats] = useState(false);
   const name = (id?: string) => cats.find((c) => c.id === id)?.name ?? '—';
@@ -279,7 +280,7 @@ function ExpenseList() {
     { key: 'a', label: 'Compte', value: (m) => ACCOUNTS[m.account], width: 16 },
     { key: 'u', label: 'Saisi par', value: (m) => m.userName ?? '', width: 16 },
     { key: 'm', label: 'Montant', value: (m) => -m.amount, money: true, total: true, width: 14 },
-    { key: 'x', label: '', value: () => '', render: (m) => <span className="row" style={{ gap: 2, flexWrap: 'nowrap' }}>{m.photo && <IconButton icon="eye" label="Voir le reçu" onClick={() => setPhoto(m.photo!)} />}{can('expenses.manage') && <IconButton icon="trash" label="Supprimer" onClick={() => setDel(m)} />}</span> },
+    { key: 'x', label: '', value: () => '', render: (m) => <span className="row" style={{ gap: 2, flexWrap: 'nowrap' }}>{m.photo && <IconButton icon="eye" label="Voir le reçu" onClick={() => setPhoto(m.photo!)} />}{can('expenses.manage') && !m.refType && !m.refId && !m.transferId && <IconButton icon="edit" label="Modifier le montant" onClick={() => setFix(m)} />}{can('expenses.manage') && <IconButton icon="trash" label="Supprimer" onClick={() => setDel(m)} />}</span> },
   ];
   return (
     <>
@@ -305,8 +306,32 @@ function ExpenseList() {
       </div>
       {del && <Confirm title="Supprimer cette dépense ?" danger confirmLabel="Supprimer" onClose={() => setDel(null)} onConfirm={async () => { await deleteMove(del); toast('Dépense supprimée'); }}
         message={<p>{del.label || name(del.categoryId)} — {fmtAr(-del.amount)} ({ACCOUNTS[del.account]}, {fmtDate(dayOf(del.at))}). Le solde du compte remonte d’autant.</p>} />}
+      {fix && <FixExpense m={fix} catName={name(fix.categoryId)} onClose={() => setFix(null)} />}
       {photo && <Modal title="Reçu" onClose={() => setPhoto(null)}><img src={photo} alt="Reçu" style={{ width: '100%', borderRadius: 12 }} /></Modal>}
     </>
+  );
+}
+
+/** Corriger une dépense saisie avec un mauvais montant (ou une mauvaise description). */
+function FixExpense({ m, catName, onClose }: { m: CashMove; catName: string; onClose: () => void }) {
+  const [amount, setAmount] = useState(String(-m.amount));
+  const [label, setLabel] = useState(m.label ?? '');
+  const [busy, setBusy] = useState(false);
+  const n = parseAr(amount);
+  const submit = async () => {
+    setBusy(true);
+    try { await updateExpense(m, n ?? 0, label); toast('Dépense corrigée'); onClose(); }
+    catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
+  };
+  return (
+    <Modal title="Modifier la dépense" onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button icon="check" busy={busy} disabled={!n || n <= 0} onClick={submit}>Enregistrer</Button></>}>
+      <div className="stack-s">
+        <p className="small muted" style={{ margin: 0 }}>{catName} · {ACCOUNTS[m.account]} · {fmtDateTime(m.at)}. Ancien montant : <strong>{fmtAr(-m.amount)}</strong> (gardé dans le journal).</p>
+        <TextField label="Montant (Ar)" value={amount} onChange={setAmount} inputMode="numeric" required />
+        <TextField label="Description" value={label} onChange={setLabel} />
+      </div>
+    </Modal>
   );
 }
 
