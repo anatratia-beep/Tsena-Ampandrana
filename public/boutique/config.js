@@ -9,6 +9,8 @@ window.BOUTIQUE = {
 
   // Paiement par carte (Stripe) : false = non ; 'test' = seulement avec &test=carte dans l'adresse ; true = pour tous.
   cardPayment: 'test',
+  // Montant minimum pour payer par carte (Stripe refuse les paiements de moins d'environ 0,50 $).
+  cardMin: 3000,
 
   // Page affichée à l'adresse principale (vide = liste de toutes les boutiques).
   defaultPage: '',
