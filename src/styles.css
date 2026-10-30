@@ -1304,3 +1304,11 @@ a.bell { text-decoration: none; }
 .warranty-list { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 0; }
 .warranty-list dt { color: var(--muted); font-weight: 600; }
 .warranty-list dd { margin: 0; font-weight: 700; }
+
+/* Boutique en ligne (réglages du site) */
+.webshop-list { display: grid; gap: 0; }
+.webshop-row { display: grid; grid-template-columns: auto 1fr auto auto; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+.webshop-row:first-child { border-top: 0; }
+.webshop-name { display: grid; gap: 2px; min-width: 0; }
+.webshop-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 720px) { .webshop-row { grid-template-columns: auto 1fr auto; } .webshop-row > .row { grid-column: 1 / -1; } }
