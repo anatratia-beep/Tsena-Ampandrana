@@ -85,10 +85,10 @@ export function synthSections(s: Synthesis): Section[] {
     ...(s.total.diff ? [{ label: `Retours (${s.deliv.returns} livraison(s))`, value: '− ' + fmtAr(s.total.diff) }] : []),
   ] }];
   if (s.couriers.length) out.push({ title: 'Livreurs : livraisons et frais', lines: [
-    ...s.couriers.flatMap((c) => [{ label: `${c.name} : ${c.count} livraison(s)`, value: `frais ${fmtAr(c.fees + (c.feesFund || 0))}${c.feesFund ? ' (→ caisse frais)' : ''}` },
+    ...s.couriers.flatMap((c) => [{ label: `${c.name} : ${c.count} livraison(s)`, value: `frais ${fmtAr(c.feesCash + c.feesMvola)}${c.feesFund ? ' (→ caisse frais)' : ''}` },
       { label: 'en espèces (gardés par le livreur)', value: fmtAr(c.feesCash), sub: true },
       { label: 'par MVola / Orange Money (payés par la caisse)', value: fmtAr(c.feesMvola), sub: true }]),
-    { label: `TOTAL GÉNÉRAL : ${s.deliv.count} livraison(s)`, value: `frais ${fmtAr(s.fees + (s.feesFund || 0))}`, strong: true },
+    { label: `TOTAL GÉNÉRAL : ${s.deliv.count} livraison(s)`, value: `frais ${fmtAr(s.feesCash + s.feesMvola)}`, strong: true },
     { label: 'en espèces (gardés par les livreurs)', value: fmtAr(s.feesCash), sub: true },
     { label: 'par MVola / Orange Money (payés par la caisse)', value: fmtAr(s.feesMvola), sub: true },
   ] });

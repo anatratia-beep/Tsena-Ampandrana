@@ -284,9 +284,9 @@ function SynthesisCard({ date }: { date: string }) {
 
 /** Livreurs en lignes : colis, total des commandes emportées, frais, frais en espèces, frais par MVola, retours, et la ligne TOTAL. */
 export function FeeBoard({ s }: { s: ReturnType<typeof daySynthesis> }) {
-  // Total frais = espèces + MVola / Orange Money, aussi pour un livreur dont les frais vont dans sa caisse frais (ex. Toky).
-  const rows = [...s.couriers.map((c) => ({ key: c.id, name: c.name, count: c.count, value: c.sans, fees: c.fees + c.feesFund, cash: c.feesCash, mvola: c.feesMvola, fund: c.feesFund, returns: c.returns })),
-    { key: '_total', name: 'TOTAL', count: s.deliv.count, value: s.deliv.sans, fees: s.fees + s.feesFund, cash: s.feesCash, mvola: s.feesMvola, fund: 0, returns: s.deliv.returns }];
+  // Total frais = espèces + MVola / Orange Money (sans les refus ni les frais payés en espèces au magasin), aussi pour un livreur dont les frais vont dans sa caisse frais (ex. Toky).
+  const rows = [...s.couriers.map((c) => ({ key: c.id, name: c.name, count: c.count, value: c.sans, fees: c.feesCash + c.feesMvola, cash: c.feesCash, mvola: c.feesMvola, fund: c.feesFund, returns: c.returns })),
+    { key: '_total', name: 'TOTAL', count: s.deliv.count, value: s.deliv.sans, fees: s.feesCash + s.feesMvola, cash: s.feesCash, mvola: s.feesMvola, fund: 0, returns: s.deliv.returns }];
   const withFund = s.feesFund > 0;
   return (
     <div className="card-pad">
