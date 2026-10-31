@@ -31,10 +31,19 @@ await p.evaluate(async () => {
     o('T3', 'c1', 1, 3000, [{ id: 'p3', at: now, amount: 53000, method: 'cash', receivedBy: 'shop' }]),
     // Client qui paie au magasin par MVola, frais compris : 52 000 (50 000 + 2 000 dus au livreur)
     o('T4', 'c1', 1, 2000, [{ id: 'p4', at: now, amount: 52000, method: 'mvola', receivedBy: 'shop' }]),
+    // Vente d'hier sur place, réglée aujourd'hui par MVola (6 000) : pas dans la colonne MVola du jour, seulement en détail
+    { id: 'Y1', number: 'Y1', kind: 'order', channel: 'shop', phone: '', status: 'delivered', lines: [{ id: 'ly1', variantId: 'va', qty: 1, unitPrice: 50000, qtyKept: 1 }], discount: 0, deliveryFee: 0,
+      payments: [{ id: 'py1', at: now, amount: 6000, method: 'mvola', receivedBy: 'shop' }], createdBy: 'u1', createdByName: 'Tsiory', createdAt: new Date(Date.now() - 864e5).toISOString() },
   ]);
 });
 await p.goto('http://localhost:5173/#/versements'); await p.waitForTimeout(900);
 const row = N(await p.locator('.handover-table tbody tr', { hasText: 'Plateforme' }).innerText()).replace(/\s+/g, ' ');
 ok(/Plateforme Tsiory 350 000 Ar 300 000 Ar/.test(row) && / 300 000 Ar$/.test(row), `Plateforme : ventes 350 000, espèces du jour 300 000 sans aucun frais (pas 312 000) (${row})`);
-ok(/ 50 000 Ar — — 2 000 Ar 300 000 Ar$/.test(row), `MVola 50 000 (vidin'entana ihany, pas 52 000), frais livreurs MVola 2 000 à part (${row})`);
+ok(/ 50 000 Ar (règlements 6 000 Ar )?— — 2 000 Ar 300 000 Ar$/.test(row), `MVola 50 000 (vidin'entana ihany, pas 52 000), frais livreurs MVola 2 000 à part (${row})`);
+const y = new Date(Date.now() - 864e5), ydd = `${String(y.getDate()).padStart(2, '0')}/${String(y.getMonth() + 1).padStart(2, '0')}/${String(y.getFullYear()).slice(2)}`;
+const pf = p.locator('.handover-table tbody tr', { hasText: 'Plateforme' });
+await pf.getByRole('button', { name: /règlements 6 000 Ar/ }).click(); await p.waitForTimeout(200);
+const row2 = N(await pf.innerText()).replace(/\s+/g, ' ');
+ok(row2.includes(`Plateforme le ${ydd} : 6 000 Ar (Y1)`), `détail sous MVola : Plateforme le ${ydd} : 6 000 Ar (${row2})`);
+ok(/Total 350 000 Ar 300 000 Ar 0 Ar 0 Ar 50 000 Ar/.test(N(await p.locator('.handover-table tfoot').innerText()).replace(/\s+/g, ' ')), 'Total MVola : ventes du jour seulement (50 000), sans le règlement de 6 000');
 console.log(fail ? `${fail} ÉCHEC(S)` : 'TOUT EST BON'); await b.close(); process.exit(fail ? 1 : 0);
