@@ -35,13 +35,17 @@ await p.evaluate(async () => {
       payments: [{ id: 'pd', at: now, amount: 18000, method: 'cash', receivedBy: 'courier', courierId: 'c1' }], dispatchedAt: now, returnedAt: now, courierSettledAt: now, createdBy: 'u1', createdByName: 'Aina', createdAt: now },
     shop('S3', 'u2', 'Bako', 'vb', 2, 10000, 'cash'),
     // Vente d'il y a 3 jours sur Intimity style, payée 4 000 sur 10 000 : reste client 6 000
+    // Vieux reste d'il y a 30 jours (réglé en vrai mais jamais cliqué) : caché par « Impayés affichés à partir du »
+    { ...shop('R0', 'u2', 'Bako', 'vb', 1, 10000, 'cash'), createdAt: ago(30), payments: [] },
+    // Vieux reste d'avant le 26/10 cliqué payé aujourd'hui (déjà réglé en vrai) : ne compte pas dans le versement
+    { ...shop('W0', 'u1', 'Aina', 'va', 1, 15000, 'cash'), createdAt: ago(30), payments: [{ id: 'pw0', at: now, amount: 15000, method: 'cash', receivedBy: 'shop' }] },
     { ...shop('R1', 'u2', 'Bako', 'vb', 1, 10000, 'cash'), createdAt: ago(3), payments: [{ id: 'pr1', at: ago(3), amount: 4000, method: 'cash', receivedBy: 'shop' }] },
     // Livraison payée par MVola à la boutique, frais compris : la boutique doit les 3 000 de frais au livreur
     { id: 'D2', number: 'D2', kind: 'order', channel: 'facebook', phone: '0340000001', zoneId: 'z1', courierId: 'c1', status: 'delivered', lines: [{ id: 'ld2', variantId: 'va', qty: 1, unitPrice: 15000, qtyKept: 1, qtyReturned: 0 }], deliveryFee: 3000, feeCharged: 3000, discount: 0,
       payments: [{ id: 'pd2', at: now, amount: 18000, method: 'mvola', receivedBy: 'shop' }], dispatchedAt: now, returnedAt: now, courierSettledAt: now, createdBy: 'u1', createdByName: 'Aina', createdAt: now },
-    // Restes des jours précédents payés en espèces aujourd'hui : hier → 1er paiement, il y a 7 jours → 2ème paiement
+    // Restes des jours précédents payés en espèces aujourd'hui : hier → 1er paiement, il y a 3 jours → 2ème paiement
     { ...shop('Y1', 'u1', 'Aina', 'va', 1, 15000, 'cash'), createdAt: ago(1), payments: [{ id: 'py1', at: ago(1), amount: 5000, method: 'cash', receivedBy: 'shop' }, { id: 'py2', at: now, amount: 10000, method: 'cash', receivedBy: 'shop' }] },
-    { ...shop('W1', 'u1', 'Aina', 'va', 1, 15000, 'cash'), createdAt: ago(7), payments: [{ id: 'pw1', at: now, amount: 15000, method: 'cash', receivedBy: 'shop' }] },
+    { ...shop('W1', 'u1', 'Aina', 'va', 1, 15000, 'cash'), createdAt: ago(3), payments: [{ id: 'pw1', at: now, amount: 15000, method: 'cash', receivedBy: 'shop' }] },
   ]);
   // Versement d'hier de la page Intimity style : 5 000 de moins que prévu → impayé vendeur à réclamer
   const y = new Date(Date.now() - 864e5); const yd = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
@@ -67,6 +71,14 @@ rs = N(await rests().innerText()).replace(/\s+/g, ' ');
 ok(/Le .{3,6} \d\d\/\d\d · clients 6 000 Ar \(R1\) 6 000 Ar/.test(rs) && /Le .{3,6} \d\d\/\d\d · impayé vendeur 5 000 Ar 5 000 Ar/.test(rs), `détail Intimity style jour par jour : client R1 6 000, impayé vendeur 5 000 (${rs})`);
 await rests().locator('tr', { hasText: 'Intimity style' }).first().click(); await p.waitForTimeout(200);
 ok(!/\(R1\)/.test(await rests().innerText()), 'le détail se referme');
+// Date de début d'affichage des impayés : par défaut le 26/10/2026, le vieux reste R0 est caché
+const since = rests().getByLabel('Impayés affichés à partir du');
+ok(await since.inputValue() === '2026-10-26' && !rs.includes('R0') && !rs.includes('16 000'), 'vieux reste d’il y a 30 jours caché (affichage à partir du 26/10/2026)');
+const d40 = new Date(Date.now() - 40 * 864e5); await since.fill(`${d40.getFullYear()}-${String(d40.getMonth() + 1).padStart(2, '0')}-${String(d40.getDate()).padStart(2, '0')}`); await p.waitForTimeout(400);
+rs = N(await rests().innerText()).replace(/\s+/g, ' ');
+ok(/Intimity style 16 000 Ar 5 000 Ar 21 000 Ar/.test(rs), `date plus ancienne : le vieux reste 10 000 réapparaît (${rs})`);
+await since.fill('2026-10-26'); await p.waitForTimeout(400);
+ok(/Intimity style 6 000 Ar 5 000 Ar 11 000 Ar/.test(N(await rests().innerText()).replace(/\s+/g, ' ')), 'retour au 26/10 : vieux reste de nouveau caché');
 const firstCard = await p.locator('main .card').nth(1).innerText();
 ok(firstCard.includes('Restes impayés par page'), 'tableau des restes impayés juste sous la date');
 // Argent réellement reçu ce jour (saisi à la main) comparé au calcul
