@@ -11,6 +11,7 @@ import { addDays, today } from '../lib/money';
 import { cancelHandover, changedSince, gapDue, gapsBefore, handoverHistory, openGaps, pagesOfDay, repayGap, receiveHandover, sellerDay, sellersOfDay, type Handover, type PageDay, type PendingSale, type SellerDay } from '../lib/handovers';
 import { printA4, a4Table, arA4, h } from '../lib/a4';
 import { restLedger, type RestRow } from '../lib/situation';
+import { daySynthesis } from '../lib/synthesis';
 import { COUNT_LABELS, moneyCountOf, parseFormula, setMoneyCount, type CountField } from '../lib/moneyCount';
 import { userPages } from '../lib/scope';
 import { Badge, Button, Confirm, Empty, Help, IconButton, Modal, PageHead, TextField, fmtDate, toast } from '../ui/kit';
@@ -124,7 +125,8 @@ function Boards({ date, view }: { date: string; view: 'page' | 'seller' }) {
 function dayCalc(date: string) {
   const rows = pagesOfDay(date);
   const sum = (f: (d: PageDay) => number) => rows.reduce((t, d) => t + f(d), 0);
-  const feeBy = { mvola: sum((d) => d.feeBy.mvola), orange: sum((d) => d.feeBy.orange), airtel: sum((d) => d.feeBy.airtel) };
+  // Frais livreurs payés sur les téléphones : les mêmes que la colonne « Frais MVola / Orange Money » du Récap livraison du jour.
+  const fb = daySynthesis(date).feesBy, feeBy = { mvola: fb.mvola, orange: fb.orange, airtel: fb.airtel };
   const calc: Record<CountField, number> = {
     cash: sum((d) => d.toPay), mvola: sum((d) => d.pay.mvola) - feeBy.mvola,
     orange: sum((d) => d.pay.orange) - feeBy.orange, airtel: sum((d) => d.pay.airtel) - feeBy.airtel,
