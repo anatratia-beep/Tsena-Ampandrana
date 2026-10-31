@@ -43,13 +43,24 @@ const o = await p.evaluate(() => window.__tsena.get('orders', 'H38'));
 const loc = (iso) => ymd(new Date(iso));
 ok(loc(o.dispatchedAt) === yest && loc(o.payments[0].at) === yest, 'gérant : date de validation passée à hier');
 ok(o.events.some((e) => N(e.text).includes('Date de validation modifiée par Mbola')), 'historique : modifiée par Mbola');
-// Mise à jour unique : Anja (Responsable) passe Admin / Gérant au démarrage.
+// Mises à jour uniques : Anja (Responsable) → Admin / Gérant, puis retour à Responsable + Admin / Gérant en plus.
 await p.evaluate(async () => { const t = window.__tsena; const hash = t.get('users', 'user-superadmin').passwordHash;
-  await t.save('users', { id: 'an1', username: 'anja', fullName: 'Anja', roleId: 'role-manager', active: true, passwordHash: hash, mustChangePassword: false });
-  await t.save('roles', { id: 'role-admin', migrations: (t.get('roles', 'role-admin').migrations || []).filter((m) => m !== 'anja-admin') }); });
+  await t.save('users', { id: 'an1', username: 'anja', fullName: 'Anja', roleId: 'role-manager', active: true, passwordHash: hash, mustChangePassword: false, pageIds: [] });
+  await t.save('roles', { id: 'role-admin', migrations: (t.get('roles', 'role-admin').migrations || []).filter((m) => m !== 'anja-admin' && m !== 'anja-two-roles') }); });
+await p.reload(); await p.waitForTimeout(1500);
+let an = await p.evaluate(() => window.__tsena.get('users', 'an1'));
+ok(an.roleId === 'role-manager' && JSON.stringify(an.extraRoleIds) === '["role-admin"]', `Anja : Responsable + Admin / Gérant (${an.roleId} ${an.extraRoleIds})`);
+await p.evaluate(async () => { await window.__tsena.save('users', { id: 'an1', extraRoleIds: [] }); });
 await p.reload(); await p.waitForTimeout(1200);
-ok(await p.evaluate(() => window.__tsena.get('users', 'an1').roleId) === 'role-admin', 'Anja : rôle Admin / Gérant après démarrage');
-await p.evaluate(async () => { await window.__tsena.save('users', { id: 'an1', roleId: 'role-manager' }); });
-await p.reload(); await p.waitForTimeout(1200);
-ok(await p.evaluate(() => window.__tsena.get('users', 'an1').roleId) === 'role-manager', 'une seule fois : rôle changé ensuite pas remis');
+an = await p.evaluate(() => window.__tsena.get('users', 'an1'));
+ok(an.roleId === 'role-manager' && !(an.extraRoleIds || []).length, 'une seule fois : changé ensuite, pas remis');
+// Rôle en plus : droits des deux rôles, et réglable dans Utilisateurs.
+await p.goto('http://localhost:5173/#/utilisateurs'); await p.waitForTimeout(600);
+await p.locator('li.list-item', { hasText: 'Anja' }).getByRole('button', { name: 'Modifier' }).click(); await p.waitForTimeout(300);
+await p.getByRole('dialog').getByLabel('Rôle en plus (facultatif)').selectOption('role-admin');
+await p.getByRole('dialog').getByRole('button', { name: 'Enregistrer' }).click(); await p.waitForTimeout(500);
+ok(N(await p.locator('li.list-item', { hasText: 'Anja' }).innerText()).includes('Responsable + Admin / Gérant'), 'liste : « Responsable + Admin / Gérant »');
+await logout(); await login('anja');
+await p.goto('http://localhost:5173/#/commandes/H38'); await p.waitForTimeout(600);
+ok(await p.getByRole('button', { name: 'Modifier la date de validation' }).count() === 1, 'Anja (Responsable + Admin) : bouton « Modifier la date de validation »');
 console.log(fail ? `${fail} ÉCHEC(S)` : 'TOUT EST BON'); await b.close(); process.exit(fail ? 1 : 0);

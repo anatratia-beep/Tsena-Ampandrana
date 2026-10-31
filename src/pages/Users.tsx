@@ -71,7 +71,7 @@ export function UsersPage() {
                     {!u.active && <Badge tone="danger">Désactivé</Badge>}
                     {u.mustChangePassword && u.active && u.roleId === SUPERADMIN_ROLE && <Badge tone="warn">Mot de passe d'origine</Badge>}
                   </div>
-                  <p className="small muted">{u.username} · {roleOf(u)?.name ?? 'Rôle inconnu'}{u.phone ? ` · ${u.phone}` : ''}{userPages(u).length ? ` · Pages : ${pageNames(userPages(u))}` : ''}</p>
+                  <p className="small muted">{u.username} · {roleOf(u)?.name ?? 'Rôle inconnu'}{(u.extraRoleIds ?? []).map((id) => ` + ${roles.find((r) => r.id === id)?.name ?? '?'}`).join('')}{u.phone ? ` · ${u.phone}` : ''}{userPages(u).length ? ` · Pages : ${pageNames(userPages(u))}` : ''}</p>
                 </div>
                 {canTouch(u) && (
                   <div className="row" style={{ gap: 0 }}>
@@ -140,6 +140,7 @@ function UserForm({ user, me, roles, users, onClose, onCreated }: { user: User |
   const [fullName, setFullName] = useState(user?.fullName ?? '');
   const [username, setUsername] = useState(user?.username ?? '');
   const [roleId, setRoleId] = useState(user?.roleId ?? 'role-seller');
+  const [extraRole, setExtraRole] = useState(user?.extraRoleIds?.[0] ?? '');
   const [phone, setPhone] = useState(user?.phone ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
   const [active, setActive] = useState(user?.active ?? true);
@@ -176,7 +177,7 @@ function UserForm({ user, me, roles, users, onClose, onCreated }: { user: User |
         if (courierId === '__new' || !couriers.some((c) => c.id === courierId)) { const [c] = await save('couriers', { name: fullName.trim(), phone: phone.trim() || undefined, active: true }); linked = c.id; await audit('Livreur ajouté', `${fullName.trim()} (utilisateur)`); }
         else linked = courierId;
       }
-      const data = { fullName: fullName.trim(), username: uname, roleId, phone: phone.trim(), email: email.trim(), active, pageIds: isCourier ? [] : pageIds, courierId: linked ?? null as unknown as undefined };
+      const data = { fullName: fullName.trim(), username: uname, roleId, extraRoleIds: extraRole && extraRole !== roleId ? [extraRole] : [], phone: phone.trim(), email: email.trim(), active, pageIds: isCourier ? [] : pageIds, courierId: linked ?? null as unknown as undefined };
       if (user) {
         await save('users', { id: user.id, ...data });
         if (canSetPwd && pwd) {
@@ -202,6 +203,9 @@ function UserForm({ user, me, roles, users, onClose, onCreated }: { user: User |
         <TextField label="Nom complet" required value={fullName} onChange={setFullName} autoFocus />
         <TextField label="Nom d'utilisateur (identifiant)" required value={username} onChange={setUsername} autoCapitalize="none" disabled={isSuper} hint="Sert à se connecter. Exemple : hery, vendeuse.tiana" />
         <SelectField label="Rôle" value={roleId} onChange={setRoleId} options={roleOptions} hint={roles.find((r) => r.id === roleId)?.description} />
+        <SelectField label="Rôle en plus (facultatif)" value={extraRole} onChange={setExtraRole}
+          options={[{ value: '', label: 'Aucun' }, ...roleOptions.filter((o) => o.value !== roleId && o.value !== SUPERADMIN_ROLE)]}
+          hint="Garde son rôle et lui donne aussi tous les droits de ce rôle (ex. Responsable + Admin / Gérant)." />
         <TextField label="Téléphone" value={phone} onChange={setPhone} type="tel" inputMode="tel" />
         <TextField label="E-mail (facultatif)" value={email} onChange={setEmail} type="email" autoCapitalize="none" />
         {isCourier && (
