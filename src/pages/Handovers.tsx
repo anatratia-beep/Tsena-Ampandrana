@@ -11,7 +11,7 @@ import { addDays, today } from '../lib/money';
 import { cancelHandover, changedSince, gapDue, gapsBefore, handoverHistory, openGaps, pagesOfDay, repayGap, receiveHandover, sellerDay, sellersOfDay, type Handover, type PageDay, type PendingSale, type SellerDay } from '../lib/handovers';
 import { printA4, a4Table, arA4, h } from '../lib/a4';
 import { restLedger, type RestRow } from '../lib/situation';
-import { COUNT_LABELS, moneyCountOf, parseFormula, setMoneyCount, type CountField } from '../lib/moneyCount';
+import { COUNT_LABELS, moneyCountOf, parseFormula, setMoneyCount, setPhoneSolde, type CountField } from '../lib/moneyCount';
 import { userPages } from '../lib/scope';
 import { Badge, Button, Confirm, Empty, Help, IconButton, Modal, PageHead, TextField, fmtDate, toast } from '../ui/kit';
 import { Icon } from '../ui/icons';
@@ -132,6 +132,20 @@ function dayCalc(date: string) {
   return { calc, feeBy, feeMobile: feeBy.mvola + feeBy.orange + feeBy.airtel };
 }
 
+/** Solde lu sur le téléphone (MVola / Orange / Airtel), à noter par exemple en fin de compte. Contrôle seulement. */
+function SoldeInput({ date, f, value }: { date: string; f: 'mvola' | 'orange' | 'airtel'; value?: number }) {
+  const [v, setV] = useState<string | null>(null);
+  const commit = async () => {
+    if (v == null) return;
+    const n = v.trim() === '' ? null : parseFormula(v);
+    if (v.trim() !== '' && (n == null || n < 0)) { toast('Montant invalide.', 'error'); return; }
+    if ((n ?? undefined) === value) { setV(null); return; }
+    try { await setPhoneSolde(date, f, n); setV(null); toast(`Solde ${COUNT_LABELS[f]} enregistré`); } catch (e: any) { toast(e.message, 'error'); }
+  };
+  return <input className="cell-input num-input" style={{ width: 150, textAlign: 'right' }} inputMode="numeric" aria-label={`Solde ${COUNT_LABELS[f]} sur le téléphone`} placeholder="solde"
+    value={v ?? (value == null ? '' : String(value))} onChange={(e) => setV(e.target.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />;
+}
+
 function MoneyCountCard({ date }: { date: string }) {
   const { calc, feeBy, feeMobile } = dayCalc(date);
   const mc = moneyCountOf(date);
@@ -160,7 +174,7 @@ function MoneyCountCard({ date }: { date: string }) {
         <p className="small muted" style={{ margin: 0 }}>Écrivez à la main ce que vous avez vraiment : espèces comptées, MVola et Orange Money vus sur les téléphones de la boutique (chacun à part). Le calcul MVola / Orange compte les ventes seulement ; les frais livreurs payés sur ces téléphones sont à part, dessous. Comme dans Excel, vous pouvez écrire un calcul : =20000+15000+3500. L’écart avec le calcul de l’application s’affiche tout seul. Contrôle seulement : aucun calcul ne change.</p>
       </div>
       <div className="table-wrap"><table className="table table-grid money-count">
-        <thead><tr><th></th><th className="t-num">Calculé par l’application</th><th className="t-num">Réellement reçu</th><th className="t-num">Écart</th></tr></thead>
+        <thead><tr><th></th><th className="t-num">Calculé par l’application</th><th className="t-num">Réellement reçu</th><th className="t-num">Écart</th><th className="t-num">Solde sur le téléphone</th></tr></thead>
         <tbody>{fields.map((f) => {
           const real = mc?.[f]; const gap = real == null ? undefined : real - calc[f];
           return (
@@ -172,6 +186,7 @@ function MoneyCountCard({ date }: { date: string }) {
                 onBlur={() => commit(f)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
                 {(() => { const x = draft[f] ?? mc?.formulas?.[f]; if (!x || !/[+\-*/x×÷()]/i.test(x.replace(/^=/, '').trim().slice(1))) return null; const n = parseFormula(x); return <div className={`small ${n == null ? 'neg' : 'muted'}`}>{n == null ? 'calcul invalide' : `= ${fmtAr(n)}`}</div>; })()}</td>
               <td className="t-num">{gapCell(gap)}</td>
+              <td className="t-num">{f !== 'cash' && <SoldeInput date={date} f={f} value={mc?.soldes?.[f]} />}</td>
             </tr>
           );
         })}
@@ -180,11 +195,13 @@ function MoneyCountCard({ date }: { date: string }) {
             <td className="t-num">{fmtAr(feeMobile)}</td>
             <td></td>
             <td></td>
+            <td></td>
           </tr>
           <tr className="t-total">
             <td><strong>Différence : écart MVola + écart Orange − total frais</strong><div className="small muted">0 = tout est juste (reste éventuel : frais de retrait…)</div></td>
             <td className="t-num small" colSpan={2}>{mobGap == null ? <span className="muted">—</span> : <>{entered.map((f) => `écart ${COUNT_LABELS[f]} ${signed(mc![f]! - calc[f])}`).join(' + ')} − frais {fmtAr(feeEntered)}</>}</td>
             <td className="t-num">{gapCell(mobGap == null ? undefined : mobGap - feeEntered)}</td>
+            <td></td>
           </tr>
         </tbody>
       </table></div>

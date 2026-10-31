@@ -10,6 +10,8 @@ export interface MoneyCount extends BaseRecord {
   date: string; cash?: number; mvola?: number; orange?: number; airtel?: number; byName?: string; at?: string;
   /** Calcul saisi (ex. « =20000+15000+3500 »), gardé pour pouvoir le relire. */
   formulas?: Partial<Record<CountField, string>>;
+  /** Solde réellement affiché sur chaque téléphone (MVola / Orange / Airtel), noté à la main (ex. en fin de compte). */
+  soldes?: Partial<Record<'mvola' | 'orange' | 'airtel', number>>;
 }
 
 /**
@@ -42,4 +44,13 @@ export async function setMoneyCount(date: string, field: CountField, amount: num
   const formulas = { ...(moneyCountOf(date)?.formulas || {}), [field]: formula && /[+\-*/x×÷()]/i.test(formula.replace(/^=/, '').trim().slice(1)) ? formula.trim() : undefined };
   await save('moneyCounts', { id: moneyCountId(date), date, [field]: amount ?? undefined, formulas, byName: me?.fullName, at: new Date().toISOString() } as Partial<MoneyCount>);
   await audit('Argent reçu (contrôle)', `${date} : ${COUNT_LABELS[field]} ${amount == null ? 'effacé' : `${Math.round(amount).toLocaleString('fr-FR')} Ar`}`, 'moneyCounts', moneyCountId(date), 'medium');
+}
+
+/** Enregistre (ou efface avec `null`) le solde lu sur le téléphone ce jour-là. Contrôle seulement : ne change aucun calcul. */
+export async function setPhoneSolde(date: string, field: 'mvola' | 'orange' | 'airtel', amount: number | null) {
+  if (amount != null && (!(amount >= 0) || !isFinite(amount))) throw new Error('Montant invalide.');
+  const me = currentUser();
+  const soldes = { ...(moneyCountOf(date)?.soldes || {}), [field]: amount ?? undefined };
+  await save('moneyCounts', { id: moneyCountId(date), date, soldes, byName: me?.fullName, at: new Date().toISOString() } as Partial<MoneyCount>);
+  await audit('Solde téléphone (contrôle)', `${date} : solde ${COUNT_LABELS[field]} ${amount == null ? 'effacé' : `${Math.round(amount).toLocaleString('fr-FR')} Ar`}`, 'moneyCounts', moneyCountId(date), 'medium');
 }
