@@ -7,6 +7,8 @@ export interface User extends BaseRecord {
   username: string;
   fullName: string;
   roleId: string;
+  /** Rôle(s) en plus du rôle principal : la personne a aussi tous leurs droits (ex. Responsable + Admin / Gérant). */
+  extraRoleIds?: string[];
   phone?: string;
   email?: string;
   active: boolean;
@@ -49,6 +51,9 @@ export const SECRET_QUESTIONS = [
 ];
 
 /** Crée le super-admin et les rôles de départ s'ils n'existent pas encore sur cet appareil. */
+/** Rôle d'Anja avant le passage à Admin / Gérant (31/10/2026). */
+const ANJA_ROLE_BEFORE = 'role-manager';
+
 export async function seedAccounts() {
   const roles = DEFAULT_ROLES.map((r) => ({
     tbl: 'roles', id: r.id,
@@ -99,6 +104,15 @@ export async function seedAccounts() {
       await save('roles', { id: adm.id, migrations: [...(adm.migrations ?? []), 'anja-admin'] });
     }
   }
+  // Mise à jour unique (31/10/2026) : Anja retrouve son rôle d'avant (Responsable) et garde en plus Admin / Gérant.
+  const adm2 = get<Role>('roles', 'role-admin');
+  if (adm2 && (adm2.migrations ?? []).includes('anja-admin') && !(adm2.migrations ?? []).includes('anja-two-roles')) {
+    const anja = all<User>('users').filter((u) => !u.deleted && (u.username.trim().toLowerCase() === 'anja' || u.fullName.trim().toLowerCase() === 'anja'));
+    if (anja.length === 1) {
+      if (anja[0].roleId === 'role-admin') await save('users', { id: anja[0].id, roleId: ANJA_ROLE_BEFORE, extraRoleIds: ['role-admin'] });
+      await save('roles', { id: adm2.id, migrations: [...(adm2.migrations ?? []), 'anja-two-roles'] });
+    }
+  }
   // Mise à jour unique : seul le responsable remet les commandes au livreur ; le vendeur ne le peut plus.
   const sel = get<Role>('roles', 'role-seller');
   if (sel && !(sel.migrations ?? []).includes('dispatch-manager-only')) await save('roles', { id: sel.id, permissions: sel.permissions.filter((p) => p !== 'orders.dispatch'), migrations: [...(sel.migrations ?? []), 'dispatch-manager-only'] });
@@ -137,7 +151,8 @@ export function managesOwnPassword(user?: User): boolean {
 export function can(user: User | undefined, perm: string): boolean {
   if (!user) return false;
   if (user.roleId === SUPERADMIN_ROLE) return true;
-  return !!roleOf(user)?.permissions.includes(perm);
+  if (roleOf(user)?.permissions.includes(perm)) return true;
+  return (user.extraRoleIds ?? []).some((id) => id !== SUPERADMIN_ROLE && !!get<Role>('roles', id)?.permissions.includes(perm));
 }
 export function useCan() {
   const user = useCurrentUser();
