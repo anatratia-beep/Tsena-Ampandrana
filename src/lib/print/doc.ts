@@ -238,7 +238,7 @@ export function deliveryTicketDoc(o: Order, company: Company): PrintDoc {
   b.push(P('Frais de livraison', ar(fee)));
   b.push(P('TOTAL', ar(due), { bold: true }));
   b.push(L('='));
-  b.push(T(thanks(c, false), { align: 'center' }));
+  b.push(T('Merci pour votre commande', { align: 'center' }));
   return { title: `Ticket livraison ${o.number}`, blocks: b };
 }
 

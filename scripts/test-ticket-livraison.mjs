@@ -10,7 +10,9 @@ await p.getByLabel("Nom d'utilisateur").fill('super-adm'); await p.locator('inpu
 await p.getByRole('button', { name: 'Plus tard' }).click(); await p.waitForTimeout(400);
 await p.evaluate(async () => {
   const t = window.__tsena; const now = new Date().toISOString();
-  const logo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDK+mmyAAAAABJRU5ErkJggg==';
+  const cv = document.createElement('canvas'); cv.width = 160; cv.height = 160; const g = cv.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, 160, 160); g.fillStyle = '#000'; g.beginPath(); g.arc(80, 80, 70, 0, 7); g.fill();
+  g.fillStyle = '#fff'; g.font = 'bold 40px sans-serif'; g.textAlign = 'center'; g.fillText('BN', 80, 95); const logo = cv.toDataURL('image/png');
   await t.save('settings', { id: 'company', name: 'TSENA SOCIETE', phone: '0320000000' });
   await t.save('categories', [{ id: 'bn', name: 'Bonnet', code: 'BN', logo, phone: '0341112233' }]);
   await t.save('products', [{ id: 'a', code: 'A', name: 'Bonnet laine', categoryId: 'bn', priceRetail: 15000, active: true }]);
@@ -26,6 +28,7 @@ const t = N(await p.locator('.ticket-preview').innerText()).replace(/\s+/g, ' ')
 ok(t.includes('Bonnet') && t.includes('0341112233') && (await p.locator('.ticket-preview img').count()) === 1, `en-tête de la page avec logo (${t})`);
 ok(/Client : Rasoa Contact : 034 ?12 ?345 ?67 Lieu : Analakely - Pharmacie/.test(t), 'client, contact, lieu');
 ok(/Total articles 30 000 Ar Frais de livraison 4 000 Ar TOTAL 34 000 Ar/.test(t), 'total articles, frais, total');
+ok(t.includes('Merci pour votre commande') && !t.includes('Misaotra'), 'message : Merci pour votre commande');
 ok(!t.includes('Bonnet laine') && !t.includes('Livreur'), 'pas de détail des articles');
 if (process.env.SHOT) await p.locator('.ticket-preview').screenshot({ path: process.env.SHOT });
 console.log(fail ? `${fail} ÉCHEC(S)` : 'TOUT EST BON'); await b.close(); process.exit(fail ? 1 : 0);
