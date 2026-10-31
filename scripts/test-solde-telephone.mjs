@@ -1,0 +1,23 @@
+// Argent réellement reçu : solde lu sur chaque téléphone (MVola / Orange), noté à la main ; contrôle seulement.
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const p = await (await b.newContext({ viewport: { width: 1280, height: 900 }, timezoneId: 'Indian/Antananarivo' })).newPage();
+const N = (t) => t.replace(/[  ]/g, ' ');
+let fail = 0; const ok = (c, m) => { console.log((c ? 'OK   ' : 'FAIL ') + m); if (!c) fail++; };
+p.on('pageerror', (e) => { console.log('ERR', e.message); fail++; });
+await p.goto('http://localhost:5173/'); await p.waitForTimeout(600);
+await p.getByLabel("Nom d'utilisateur").fill('super-adm'); await p.locator('input[type=password]').fill('anosy'); await p.keyboard.press('Enter');
+await p.getByRole('button', { name: 'Plus tard' }).click(); await p.waitForTimeout(400);
+await p.goto('http://localhost:5173/#/versements'); await p.waitForTimeout(900);
+const card = p.locator('.card', { hasText: 'Argent réellement reçu ce jour' });
+ok(N(await card.innerText()).includes('Solde sur le téléphone'), 'colonne « Solde sur le téléphone »');
+await card.getByLabel('MVola réellement reçu').fill('9300+264700'); await card.getByLabel('MVola réellement reçu').press('Enter'); await p.waitForTimeout(300);
+await card.getByLabel('Solde MVola sur le téléphone').fill('1250000'); await card.getByLabel('Solde MVola sur le téléphone').press('Enter'); await p.waitForTimeout(400);
+await card.getByLabel('Solde Orange Money sur le téléphone').fill('380000'); await card.getByLabel('Solde Orange Money sur le téléphone').press('Enter'); await p.waitForTimeout(400);
+await p.reload(); await p.waitForTimeout(900);
+const c2 = p.locator('.card', { hasText: 'Argent réellement reçu ce jour' });
+ok(await c2.getByLabel('Solde MVola sur le téléphone').inputValue() === '1250000' && await c2.getByLabel('Solde Orange Money sur le téléphone').inputValue() === '380000', 'soldes gardés après rechargement');
+ok(await c2.getByLabel('MVola réellement reçu').inputValue() === '9300+264700', 'MVola reçu inchangé');
+ok(await c2.getByLabel('Solde Espèces sur le téléphone').count() === 0, 'pas de solde pour les espèces');
+if (process.env.SHOT) await c2.locator('.table-wrap').evaluate((e) => { e.scrollLeft = e.scrollWidth; }), await p.waitForTimeout(200), await c2.screenshot({ path: process.env.SHOT });
+console.log(fail ? `${fail} ÉCHEC(S)` : 'TOUT EST BON'); await b.close(); process.exit(fail ? 1 : 0);
