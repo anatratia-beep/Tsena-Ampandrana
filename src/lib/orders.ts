@@ -1,6 +1,6 @@
 // Commandes clients, livraisons, livreurs, zones : règles de calcul et actions.
 import { all, applyRemote, bizNow, get, newId, save, type BaseRecord } from './db';
-import { audit, currentUser } from './auth';
+import { audit, can, currentUser } from './auth';
 import { addMoves, nextNumber, stockOf, variantLabel, type Product, type StockMove, type Variant } from './catalog';
 import { DEFAULT_COMPANY, type Company } from './settings';
 import { assertOpenNow, closedBy } from './closed';
@@ -320,7 +320,9 @@ async function noteBackdate(id: string, back: { day: string; closed?: string } |
 }
 
 /** Commande déjà validée (partie avec le livreur ou remise en boutique) dont le super-admin peut changer le jour. */
-export const canMoveValidation = (o: Order) => isSuperUser() && !isWalkIn(o) && !!o.dispatchedAt && o.status !== 'cancelled' && o.kind === 'order';
+/** Super-admin, ou rôle avec le droit « Modifier la date de validation » (Admin / Gérant par défaut). */
+export const canMoveDay = () => isSuperUser() || can(currentUser(), 'orders.moveDay');
+export const canMoveValidation = (o: Order) => canMoveDay() && !isWalkIn(o) && !!o.dispatchedAt && o.status !== 'cancelled' && o.kind === 'order';
 /**
  * Super-admin : change le jour de validation d'une commande déjà validée (ex. validée ce matin, à compter hier).
  * Tout ce qui, pour cette commande, est daté du jour de validation actuel (départ, retour, statuts, paiements, mouvements
@@ -328,7 +330,7 @@ export const canMoveValidation = (o: Order) => isSuperUser() && !isWalkIn(o) && 
  * (les enregistrements sont déplacés, jamais recopiés). Le versement du livreur n'est pas touché. Même semaine clôturée.
  */
 export async function moveValidationDay(o: Order, day: string) {
-  if (!isSuperUser()) throw new Error('Seul le super-admin peut modifier la date de validation.');
+  if (!canMoveDay()) throw new Error('Seuls le super-admin et le gérant peuvent modifier la date de validation.');
   const f = get<Order>('orders', o.id);
   if (!f || !canMoveValidation(f)) throw new Error('Cette commande n’est pas validée (ou c’est une vente sur place).');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day > ymdLocal(new Date().toISOString())) throw new Error('Date invalide.');
@@ -344,7 +346,7 @@ export async function moveValidationDay(o: Order, day: string) {
   const closed = [...new Set([pc, pn].filter(Boolean).map((p) => `${p!.weekStart} → ${p!.weekEnd}`))].join(', ') || undefined;
   const u = currentUser(); const real = new Date().toISOString();
   const fr = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const text = `Date de validation modifiée par le super-admin : ${fr(from)} → ${fr(day)} (vente, ${moved} paiement(s), ${moves.length} mouvement(s) de stock)${closed ? ` — après clôture (semaine ${closed})` : ''}`;
+  const text = `Date de validation modifiée par ${u?.fullName || 'le super-admin'} : ${fr(from)} → ${fr(day)} (vente, ${moved} paiement(s), ${moves.length} mouvement(s) de stock)${closed ? ` — après clôture (semaine ${closed})` : ''}`;
   await save('orders', {
     id: f.id, dispatchedAt: shift(f.dispatchedAt), returnedAt: shift(f.returnedAt), statusDates, payments,
     backdated: [...(f.backdated || []), { what: `Date de validation modifiée (avant : ${fr(from)})`, day, at: real, by: u?.fullName, closed }],
