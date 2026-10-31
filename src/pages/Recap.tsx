@@ -10,7 +10,7 @@ import { fmtPhone, normPhone, orderLabel, ORDER_STATUS, PAY_METHODS, keptTotal, 
 import { ACCOUNTS, MOVE_TYPES, addDays, mondayOf, report, today, type AccountId, type Report } from '../lib/money';
 import { dayText, daySections, longDate, sectionsDoc, totals, weekDays, weekSections, weekText, type Section } from '../lib/recap';
 import { get } from '../lib/db';
-import { daySynthesis, type SynthCourier } from '../lib/synthesis';
+import { daySynthesis } from '../lib/synthesis';
 import { Help, Badge, Button, Empty, IconButton, PageHead, fmtDate, toast } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { PrintDialog } from '../ui/print';
@@ -284,37 +284,23 @@ function SynthesisCard({ date }: { date: string }) {
 
 /** Livreurs en lignes : colis, total des commandes emportées, frais, frais en espèces, frais par MVola, retours, et la ligne TOTAL. */
 export function FeeBoard({ s }: { s: ReturnType<typeof daySynthesis> }) {
-  // Total frais = espèces + MVola / Orange Money (+ autres frais dus), aussi pour un livreur dont les frais vont dans sa caisse frais (ex. Toky).
-  const rows = [...s.couriers.map((c) => ({ key: c.id, name: c.name, count: c.count, value: c.sans, fees: c.fees + c.feesFund, cash: c.feesCash, mvola: c.feesMvola, other: c.feesOther, fund: c.feesFund, returns: c.returns, owed: c.owed })),
-    { key: '_total', name: 'TOTAL', count: s.deliv.count, value: s.deliv.sans, fees: s.fees + s.feesFund, cash: s.feesCash, mvola: s.feesMvola, other: s.feesOther, fund: 0, returns: s.deliv.returns, owed: [] as SynthCourier['owed'] }];
-  const withFund = s.feesFund > 0, withOther = s.feesOther > 0.5;
-  const [open, setOpen] = useState<string | null>(null);
-  const cols = withOther ? 8 : 7;
+  // Total frais = espèces + MVola / Orange Money, aussi pour un livreur dont les frais vont dans sa caisse frais (ex. Toky).
+  const rows = [...s.couriers.map((c) => ({ key: c.id, name: c.name, count: c.count, value: c.sans, fees: c.fees + c.feesFund, cash: c.feesCash, mvola: c.feesMvola, fund: c.feesFund, returns: c.returns })),
+    { key: '_total', name: 'TOTAL', count: s.deliv.count, value: s.deliv.sans, fees: s.fees + s.feesFund, cash: s.feesCash, mvola: s.feesMvola, fund: 0, returns: s.deliv.returns }];
+  const withFund = s.feesFund > 0;
   return (
     <div className="card-pad">
       <div className="table-wrap fee-board"><table className="table">
         <thead><tr><th>Livreur</th><th className="t-num">Colis</th><th className="t-num">Total commandes<div className="fee-sub">emportées, sans frais</div></th><th className="t-num">Total frais</th>
           <th className="t-num">Frais en espèces<div className="fee-sub">gardés par le livreur</div></th>
-          <th className="t-num">Frais MVola / Orange Money<div className="fee-sub">payés par la caisse</div></th>
-          {withOther && <th className="t-num">Autres frais dus<div className="fee-sub">espèces au magasin, refus / retour</div></th>}<th className="t-num">Retours</th></tr></thead>
+          <th className="t-num">Frais MVola / Orange Money<div className="fee-sub">payés par la caisse</div></th><th className="t-num">Retours</th></tr></thead>
         <tbody>
-          {rows.map((r) => {
-            const can = r.owed.length > 0, isOpen = open === r.key;
-            return [
-              <tr key={r.key} className={`${r.key === '_total' ? 'fee-total' : ''}${can ? ' row-link' : ''}`} aria-expanded={can ? isOpen : undefined} onClick={can ? () => setOpen(isOpen ? null : r.key) : undefined}>
-                <th scope="row">{r.name}{can && <> <Icon name={isOpen ? 'chevronUp' : 'chevronDown'} size={14} /></>}{r.fund > 0 && <div className="fee-sub">→ caisse frais {r.name}</div>}</th><td className="t-num num">{r.count}</td><td className="t-num num">{fmtAr(r.value)}</td><td className="t-num num fee-main">{fmtAr(r.fees)}</td>
-                <td className="t-num num">{fmtAr(r.cash)}</td><td className="t-num num fee-mvola">{fmtAr(r.mvola)}</td>{withOther && <td className="t-num num">{fmtAr(r.other)}</td>}<td className="t-num num">{r.returns}</td></tr>,
-              isOpen && <tr key={`${r.key}-d`} className="fee-detail"><td colSpan={cols} style={{ whiteSpace: 'normal' }}>
-                {r.owed.map((x) => <div key={x.orderId} className="row-between small" style={{ padding: '3px 0', borderBottom: '1px dashed var(--line)' }}>
-                  <span><strong>{x.number || '—'}</strong> · {x.why}</span>
-                  <span className="num">{x.mobile > 0.5 && <>MVola / Orange {fmtAr(x.mobile)}</>}{x.mobile > 0.5 && x.other > 0.5 && ' · '}{x.other > 0.5 && <>autres {fmtAr(x.other)}</>}</span>
-                </div>)}
-              </td></tr>,
-            ];
-          })}
+          {rows.map((r) => <tr key={r.key} className={r.key === '_total' ? 'fee-total' : ''}>
+            <th scope="row">{r.name}{r.fund > 0 && <div className="fee-sub">→ caisse frais {r.name}</div>}</th><td className="t-num num">{r.count}</td><td className="t-num num">{fmtAr(r.value)}</td><td className="t-num num fee-main">{fmtAr(r.fees)}</td>
+            <td className="t-num num">{fmtAr(r.cash)}</td><td className="t-num num fee-mvola">{fmtAr(r.mvola)}</td><td className="t-num num">{r.returns}</td></tr>)}
         </tbody>
       </table></div>
-      <p className="small muted" style={{ marginTop: 8 }}>Espèces : frais encaissés par le livreur auprès du client, il les garde. MVola / Orange Money : frais payés à la boutique sur les téléphones, c’est la caisse qui les paie au livreur (sortie de caisse).{withOther ? ' Autres frais dus : frais que le livreur n’a pas encaissés auprès du client (payés en espèces au magasin, refus, retour, pas encore encaissés).' : ''} Touchez un livreur pour voir les commandes.{withFund ? ' « → caisse frais » : ce livreur ne garde pas ses frais, ils vont en entier dans sa caisse frais (Livraisons → Caisse frais).' : ''}</p>
+      <p className="small muted" style={{ marginTop: 8 }}>Espèces : frais encaissés par le livreur auprès du client, il les garde. MVola / Orange Money : frais payés à la boutique par Mobile Money, c’est la caisse qui les paie au livreur (sortie de caisse).{withFund ? ' « → caisse frais » : ce livreur ne garde pas ses frais, ils vont en entier dans sa caisse frais (Livraisons → Caisse frais).' : ''}</p>
     </div>
   );
 }
