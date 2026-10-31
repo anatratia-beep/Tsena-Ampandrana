@@ -224,6 +224,24 @@ export function ticketDoc(o: Order, company: Company, opts: { cashGiven?: number
   return { title: `Ticket ${o.number}`, blocks: b };
 }
 
+// ---------- Ticket livraison (court : logo et nom de la page, client, lieu, montants) ----------
+export function deliveryTicketDoc(o: Order, company: Company): PrintDoc {
+  const c = brandOf(o, company);
+  const zone = get<Zone>('zones', o.zoneId || '');
+  const b: Block[] = [...header(c), L('=')];
+  b.push(T(`Client : ${o.name || '-'}`, { bold: true }));
+  if (o.phone) b.push(T(`Contact : ${fmtPhone(o.phone)}`, { bold: true }));
+  b.push(T(`Lieu : ${zone?.name || '-'}${o.place ? ' - ' + o.place : ''}`));
+  b.push(L());
+  const fee = o.deliveryFee || 0, due = Math.max(0, orderTotal(o));
+  b.push(P('Total articles', ar(Math.max(0, due - fee))));
+  b.push(P('Frais de livraison', ar(fee)));
+  b.push(P('TOTAL', ar(due), { bold: true }));
+  b.push(L('='));
+  b.push(T(thanks(c, false), { align: 'center' }));
+  return { title: `Ticket livraison ${o.number}`, blocks: b };
+}
+
 // ---------- Bon de livraison (remis au livreur avec le colis) ----------
 export function deliveryNoteDoc(o: Order, company: Company): PrintDoc {
   const c = brandOf(o, company);

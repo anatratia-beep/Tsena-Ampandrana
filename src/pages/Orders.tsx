@@ -23,7 +23,7 @@ import { PayLines, payLinesSum, splitInTwo, type PayLine } from '../ui/payments'
 import { ListDates, PeriodPicker, defaultPeriod, inPeriod, type ListOrder, type Period } from '../ui/period';
 import { Thumb, categoryOptions } from './Products';
 import { siblingsOf } from '../lib/attrs';
-import { deliveryNoteDoc, parcelLabelDoc, ticketDoc } from '../lib/print';
+import { deliveryNoteDoc, deliveryTicketDoc, parcelLabelDoc, ticketDoc } from '../lib/print';
 import { PrintButton, type DocChoice } from '../ui/print';
 import { ProspectForm, ProspectList } from './Prospects';
 import { Zones } from './Deliveries';
@@ -601,6 +601,7 @@ export function ItemPicker({ excludeOrderId, onClose, onAdd, onAddLines, noChoic
 function printDocs(o: Order, company: ReturnType<typeof useCompany>): DocChoice[] {
   // « Ticket client » en premier (choisi par défaut), puis bon de livraison, puis étiquette du colis.
   const d: DocChoice[] = [{ key: 'ticket', label: isWalkIn(o) ? 'Ticket de caisse' : 'Ticket client', build: () => ticketDoc(o, company) }];
+  if (!isWalkIn(o) && !isPickupZone(o.zoneId)) d.push({ key: 'tlivr', label: 'Ticket livraison', build: () => deliveryTicketDoc(o, company) });
   if (!isWalkIn(o) && !isPickupZone(o.zoneId)) d.push({ key: 'bon', label: 'Bon de livraison', build: () => deliveryNoteDoc(o, company) });
   if (!isWalkIn(o) && !['delivered', 'partial', 'refused', 'cancelled'].includes(o.status)) d.push({ key: 'etiquette', label: 'Étiquette du colis (58 mm)', build: () => parcelLabelDoc(o, company) });
   return d;
