@@ -15,7 +15,7 @@ import { audit, currentUser, roleOf, type User } from './auth';
 import { salesLedger } from './analytics';
 import { rootOf, variantPage } from './scope';
 import { addDays, dayOf, type CashMove } from './money';
-import { courierSplit, isPickupZone, isWalkIn, unpaidOf, type Order, type PayMethod } from './orders';
+import { courierSplit, exchangeBalance, isPickupZone, isWalkIn, orderTotal, unpaidOf, type Order, type PayMethod } from './orders';
 import type { Category } from './catalog';
 import { COURIER_ROLE, SUPERADMIN_ROLE } from './permissions';
 import { firstPayDay } from './situation';
@@ -72,13 +72,29 @@ export interface PendingSale { o: Order; day: string; amount: number; why: 'out'
 /** Jour de la vente : départ avec le livreur, ou date de la vente sur place. */
 export const saleDay = (o: Order) => dayOf((isWalkIn(o) || !o.dispatchedAt ? o.createdAt : o.dispatchedAt) || o.createdAt);
 
-/** Frais dus au livreur (payés par le client à la boutique) : la part reçue sur chaque téléphone mobile money,
- *  au prorata des paiements reçus par la boutique (le reste a été payé en espèces au magasin). */
-function mobileFee(o: Order, owed: number) {
-  const by = { mvola: 0, orange: 0, airtel: 0 }; let shop = 0;
-  for (const p of o.payments || []) { if (p.receivedBy !== 'shop') continue; shop += p.amount; if (p.method === 'mvola' || p.method === 'orange' || p.method === 'airtel') by[p.method] += p.amount; }
-  if (!(owed > 0) || !(shop > 0)) return { mvola: 0, orange: 0, airtel: 0 };
-  return { mvola: owed * by.mvola / shop, orange: owed * by.orange / shop, airtel: owed * by.airtel / shop };
+
+/**
+ * Frais de livraison compris dans l'argent : le versement ne compte que les articles, jamais les frais du livreur.
+ * - feeInCourierCash : frais compris dans les espèces encaissées par le livreur (qu'il les garde, qu'ils soient payés à part,
+ *   différés ou pour la caisse frais d'un livreur salarié) ;
+ * - feeInShopPay : part des frais dus au livreur comprise dans un paiement reçu au magasin (espèces, MVola, Orange…),
+ *   comptée le jour de ce paiement.
+ */
+function feeInCourierCash(o: Order) {
+  if (!o.courierId || isPickupZone(o.zoneId)) return 0;
+  const sp = courierSplit(o), charged = sp.fee + sp.shopFee;
+  if (!(charged > 0)) return 0;
+  if (!sp.shopFee) return sp.feeKept;
+  // Livreur salarié (frais pour la caisse frais) : même règle, le client paie d'abord les articles, puis les frais.
+  const shopPaid = (o.payments || []).filter((p) => p.receivedBy === 'shop').reduce((t, p) => t + p.amount, 0);
+  const itemsDue = Math.max(0, (o.kind === 'exchange' ? exchangeBalance(o) : orderTotal(o)) - charged);
+  return Math.min(sp.clientPays, Math.max(0, charged - Math.max(0, shopPaid - itemsDue)));
+}
+function feeInShopPay(o: Order, amount: number) {
+  if (!o.courierId || isPickupZone(o.zoneId) || !o.dispatchedAt) return 0;
+  const owed = courierSplit(o).feeOwed; if (!(owed > 0)) return 0;
+  const shop = (o.payments || []).filter((p) => p.receivedBy === 'shop').reduce((t, p) => t + p.amount, 0);
+  return shop > 0 ? (owed * amount) / shop : 0;
 }
 
 const pageLabel = (id: string) => (id === '_' ? 'Sans page' : get<Category>('categories', id)?.name ?? 'Page supprimée');
@@ -107,13 +123,15 @@ export function sellerDay(u: User, date: string): SellerDay {
       if (p.method === 'cash' && p.receivedBy === 'courier') continue;
       if (dayOf(p.at) !== date) continue;
       pay[p.method] += p.amount;
-      if (p.method === 'cash') { shopCash += p.amount; if (old) cashOld += p.amount; oldCash(p.amount); }
+      if (p.method === 'cash') { shopCash += p.amount; if (old) cashOld += p.amount; oldCash(p.amount); const f = feeInShopPay(o, p.amount); if (f) { fees += f; if (old) cashOld -= f; oldFee(f); } }
+      else if (p.method === 'mvola' || p.method === 'orange' || p.method === 'airtel') feeBy[p.method] += feeInShopPay(o, p.amount);
     }
     if (o.courierSettledAt && dayOf(o.courierSettledAt) === date) {
       const got = (o.payments || []).filter((p) => p.method === 'cash' && p.receivedBy === 'courier').reduce((t, p) => t + p.amount, 0);
       pay.cash += got; courierCash += got; if (old) cashOld += got; oldCash(got);
       // Le livreur garde ses frais sur l'argent encaissé : ce que le vendeur reçoit est diminué d'autant.
-      if (!isPickupZone(o.zoneId) && o.feeStatus !== 'paid') { const sp = courierSplit(o), f = sp.feeKept; fees += f; if (old) cashOld -= f; oldFee(f); const mf = mobileFee(o, sp.feeOwed); feeBy.mvola += mf.mvola; feeBy.orange += mf.orange; feeBy.airtel += mf.airtel; }
+      // Frais compris dans ces espèces : jamais dans le versement (gardés, payés à part, différés ou caisse frais).
+      { const f = feeInCourierCash(o); fees += f; if (old) cashOld -= f; oldFee(f); }
     }
     if (o.status === 'out') outParcels++;
     // Ventes pas encore encaissées, jusqu'à ce jour
@@ -213,12 +231,14 @@ export function pagesOfDay(date: string): PageDay[] {
     for (const p of o.payments || []) {
       if (p.method === 'cash' && p.receivedBy === 'courier') continue;
       if (dayOf(p.at) !== date) continue;
-      add((r, k) => { r.pay[p.method] += p.amount * k; if (p.method === 'cash') { r.shopCash += p.amount * k; if (old) r.cashOld += p.amount * k; oldCash(r, p.amount * k); } });
+      const fs = feeInShopPay(o, p.amount), m = p.method;
+      add((r, k) => { r.pay[m] += p.amount * k; if (m === 'cash') { r.shopCash += p.amount * k; if (old) r.cashOld += (p.amount - fs) * k; oldCash(r, p.amount * k); r.fees += fs * k; oldFee(r, fs * k); }
+        else if (m === 'mvola' || m === 'orange' || m === 'airtel') { r.feeBy[m] += fs * k; r.feeMobile += fs * k; } });
     }
     if (o.courierSettledAt && dayOf(o.courierSettledAt) === date) {
       const got = (o.payments || []).filter((p) => p.method === 'cash' && p.receivedBy === 'courier').reduce((t, p) => t + p.amount, 0);
-      const sp = !isPickupZone(o.zoneId) && o.feeStatus !== 'paid' ? courierSplit(o) : null, f = sp ? sp.feeKept : 0, fm = mobileFee(o, sp ? sp.feeOwed : 0);
-      add((r, k) => { r.pay.cash += got * k; r.courierCash += got * k; r.fees += f * k; r.feeBy.mvola += fm.mvola * k; r.feeBy.orange += fm.orange * k; r.feeBy.airtel += fm.airtel * k; r.feeMobile += (fm.mvola + fm.orange + fm.airtel) * k; if (old) r.cashOld += (got - f) * k; oldCash(r, got * k); oldFee(r, f * k); });
+      const f = feeInCourierCash(o);
+      add((r, k) => { r.pay.cash += got * k; r.courierCash += got * k; r.fees += f * k; if (old) r.cashOld += (got - f) * k; oldCash(r, got * k); oldFee(r, f * k); });
     }
   }
   const list = [...rows.values()].map(({ ids, names, ...r }) => {

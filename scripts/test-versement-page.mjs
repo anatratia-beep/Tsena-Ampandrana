@@ -53,10 +53,10 @@ let tx = N(await p.locator('main').innerText());
 ok(/Par page/.test(tx) && /Page par page/i.test(tx), 'vue « Par page » affichée par défaut');
 const row = (name) => p.locator('.handover-table tbody tr', { hasText: name });
 let rA = N(await row('Poignet précieux').innerText()).replace(/\s+/g, ' ');
-ok(/Poignet précieux Aina 60 000 Ar 45 000 Ar à recevoir 10 000 Ar 15 000 Ar 18 000 Ar — — 3 000 Ar 70 000 Ar/.test(rA), `Poignet précieux : ventes 60 000, espèces du jour 45 000 (48 000 − 3 000 de frais gardés), 1er 10 000, 2ème 15 000, MVola 18 000, frais MVola 3 000, à payer 70 000 (${rA})`);
+ok(/Poignet précieux Aina 60 000 Ar 45 000 Ar à recevoir 10 000 Ar 15 000 Ar 15 000 Ar — — 3 000 Ar 70 000 Ar/.test(rA), `Poignet précieux : ventes 60 000, espèces du jour 45 000 (48 000 − 3 000 de frais gardés), 1er 10 000, 2ème 15 000, MVola 15 000 (18 000 reçus − 3 000 de frais : articles seulement), frais MVola 3 000, à payer 70 000 (${rA})`);
 let rB = N(await row('Intimity style').innerText()).replace(/\s+/g, ' ');
 ok(/Intimity style Aina, Bako impayé précédent 5 000 Ar 30 000 Ar 20 000 Ar à recevoir — — 10 000 Ar — — — 20 000 Ar/.test(rB), `Intimity style : ventes 30 000, espèces 20 000, MVola 10 000, à payer 20 000 (${rB})`);
-ok(/Total\s+90 000 Ar\s+65 000 Ar\s+10 000 Ar\s+15 000 Ar\s+28 000 Ar\s+0 Ar\s+0 Ar\s+3 000 Ar\s+90 000 Ar/.test(tx), 'ligne Total : espèces 65 000 + 10 000 + 15 000 = 90 000 à payer, frais MVola 3 000');
+ok(/Total\s+90 000 Ar\s+65 000 Ar\s+10 000 Ar\s+15 000 Ar\s+25 000 Ar\s+0 Ar\s+0 Ar\s+3 000 Ar\s+90 000 Ar/.test(tx), 'ligne Total : espèces 65 000 + 10 000 + 15 000 = 90 000 à payer, MVola articles 25 000, frais MVola 3 000');
 ok(!/Espèces du jour reçues/.test(tx) && !/− 3 000 Ar/.test(N(await p.locator('.handover-table').innerText())), 'plus de colonne séparée ni de frais espèces déduits');
 // En haut : restes impayés par page
 const rests = () => p.locator('.card', { hasText: 'Restes impayés par page' });
@@ -130,7 +130,7 @@ ok(au.includes('Versement vendeur annulé') && au.filter((a) => a === 'Versement
 await p.getByRole('button', { name: 'Par vendeur' }).click(); await p.waitForTimeout(300);
 tx = N(await p.locator('main').innerText());
 const rowS = N(await p.locator('tr.row-link', { hasText: 'Aina' }).innerText()).replace(/\s+/g, ' ');
-ok(/Aina Poignet précieux, Intimity style 70 000 Ar 45 000 Ar à recevoir 10 000 Ar 15 000 Ar 28 000 Ar — — 3 000 Ar 2 000 Ar 70 000 Ar/.test(rowS), `vue par vendeur : Aina 70 000 ventes, espèces 45 000 + 10 000 + 15 000 = 70 000 à payer (${rowS})`);
+ok(/Aina Poignet précieux, Intimity style 70 000 Ar 45 000 Ar à recevoir 10 000 Ar 15 000 Ar 25 000 Ar — — 3 000 Ar 2 000 Ar 70 000 Ar/.test(rowS), `vue par vendeur : Aina 70 000 ventes, espèces 45 000 + 10 000 + 15 000 = 70 000 à payer (${rowS})`);
 // ✓ : reçu comme calculé
 await p.locator('tr.row-link', { hasText: 'Bako' }).getByRole('button', { name: /Reçu comme calculé/ }).click(); await p.waitForTimeout(500);
 ok(!(await p.getByRole('dialog').count()), 'valider dans le tableau n’ouvre pas la fiche');
