@@ -95,10 +95,19 @@ function feeInCourierCash(o: Order) {
   return Math.min(sp.clientPays, Math.max(0, charged - Math.max(0, shopPaid - itemsDue)));
 }
 function feeInShopPay(o: Order, amount: number) {
-  if (!o.courierId || isPickupZone(o.zoneId) || !o.dispatchedAt) return 0;
-  const owed = courierSplit(o).feeOwed; if (!(owed > 0)) return 0;
+  if (isPickupZone(o.zoneId)) return 0;
   const shop = (o.payments || []).filter((p) => p.receivedBy === 'shop').reduce((t, p) => t + p.amount, 0);
-  return shop > 0 ? (owed * amount) / shop : 0;
+  if (!(shop > 0)) return 0;
+  // Frais compris dans les paiements reçus au magasin : le client paie d'abord les articles, le surplus est des frais.
+  // Utilisé quand les frais ne sont pas « dus au livreur » : livreur salarié (frais pour la caisse frais) ou commande
+  // sans livreur / pas encore partie avec des frais facturés.
+  const inShop = (charged: number) => { if (!(charged > 0)) return 0; const itemsDue = Math.max(0, (o.kind === 'exchange' ? exchangeBalance(o) : orderTotal(o)) - charged); return Math.min(charged, Math.max(0, shop - itemsDue)); };
+  if (!o.courierId || !o.dispatchedAt) {
+    const closed = ['delivered', 'partial', 'refused'].includes(o.status);
+    return (inShop(closed ? (o.feeCharged ?? o.deliveryFee ?? 0) : (o.deliveryFee || 0)) * amount) / shop;
+  }
+  const sp = courierSplit(o);
+  return ((Math.max(0, sp.feeOwed) + inShop(sp.shopFee)) * amount) / shop;
 }
 
 const pageLabel = (id: string) => (id === '_' ? 'Sans page' : get<Category>('categories', id)?.name ?? 'Page supprimée');
