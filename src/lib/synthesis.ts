@@ -52,6 +52,16 @@ function fundSplit(o: Order, charged: number) {
   return { cash, mvola: charged - cash };
 }
 
+const MOBILE = ['mvola', 'orange', 'airtel'];
+/** Part des frais dus au livreur reçue sur les téléphones (MVola / Orange / Airtel), au prorata des paiements reçus par la
+ *  boutique. Les frais payés en espèces au magasin, ou pas payés (refus), n'en font pas partie. */
+function mobileFee(o: Order, owed: number) {
+  if (!(owed > 0)) return 0;
+  let shop = 0, mobile = 0;
+  for (const p of o.payments || []) { if (p.receivedBy !== 'shop') continue; shop += p.amount; if (MOBILE.includes(p.method)) mobile += p.amount; }
+  return shop > 0 ? (owed * mobile) / shop : 0;
+}
+
 /** Valeurs d'une commande, ligne par ligne (remise répartie), sans retour et avec retour. */
 function orderLines(o: Order) {
   const closed = CLOSED.includes(o.status) || isWalkIn(o);
@@ -106,7 +116,8 @@ export function daySynthesis(date: string): Synthesis {
     const c = couriers.get(id)!;
     const sp = o.status === 'cancelled' ? null : courierSplit(o);
     const feeFund = sp ? sp.shopFee : 0, fs = sp ? fundSplit(o, feeFund) : { cash: 0, mvola: 0 };
-    const fee = sp ? sp.fee : 0, feeCash = (sp ? sp.feeKept : 0) + fs.cash, feeMvola = (sp ? sp.feeOwed : 0) + fs.mvola;
+    // Frais MVola / Orange Money : seulement la part des frais du jour payée sur les téléphones.
+    const fee = sp ? sp.fee : 0, feeCash = (sp ? sp.feeKept : 0) + fs.cash, feeMvola = sp ? mobileFee(o, sp.feeOwed + fs.mvola) : 0;
     c.count++; c.fees += fee; c.feesCash += feeCash; c.feesMvola += feeMvola; c.feesFund += feeFund; c.sans += sans; c.avec += avec;
     if (x.pending) c.pending++;
     if (hadReturn) c.returns++;
