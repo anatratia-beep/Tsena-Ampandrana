@@ -33,5 +33,13 @@ const tx = N(await p.locator('.fee-board').innerText());
 if (process.env.DBG) console.log(tx);
 ok(/Mbola\s+5\s+475 000 Ar\s+12 000 Ar\s+0 Ar\s+12 000 Ar\s+1/i.test(tx), `Mbola : 5 colis du jour, total frais = espèces 0 + MVola / Orange = 5 000 + 4 000 + 3 000 = 12 000 (sans espèces magasin ni refus) (${tx})`);
 ok(/TOTAL\s+5\s+475 000 Ar\s+12 000 Ar\s+0 Ar\s+12 000 Ar\s+1/i.test(tx), 'TOTAL : MVola / Orange 12 000');
+// Versements → Argent réellement reçu : les mêmes frais MVola / Orange que le Récap livraison du jour
+await p.goto('http://localhost:5173/#/versements'); await p.waitForTimeout(900);
+const mc = N(await p.locator('.card', { hasText: 'Argent réellement reçu ce jour' }).innerText()).replace(/\s+/g, ' ');
+ok(/Total frais MVola \/ Orange Money \(livreurs\).*MVola 8 000 Ar · Orange 4 000 Ar 12 000 Ar/.test(mc), `argent reçu ce jour : frais MVola 8 000 + Orange 4 000 = 12 000, comme le Récap livraison (${mc})`);
+const wk = N(await p.locator('.card', { hasText: 'Argent réellement reçu : la semaine' }).innerText()).replace(/\s+/g, ' ');
+const dm = (d) => `${String(d.getDate()).padStart(2, '0')}\\/${String(d.getMonth() + 1).padStart(2, '0')}`;
+ok(new RegExp(`${dm(new Date())} [^.]*12 000 Ar`).test(wk) && (new Date().getDay() === 1 || new RegExp(`${dm(new Date(Date.now() - 864e5))} [^.]* 6 000 Ar`).test(wk)), `semaine : frais MVola / Orange par jour comme le Récap livraison, aujourd’hui 12 000, hier 6 000 (m6) (${wk.slice(-300)})`);
+await p.goto('http://localhost:5173/#/livraisons/recap'); await p.waitForTimeout(900);
 await p.waitForTimeout(1500); await p.locator('.fee-board').screenshot({ path: process.env.SHOT || '/tmp/fee-board-jour.png' });
 console.log(fail ? `${fail} ÉCHEC(S)` : 'TOUT EST BON'); await b.close(); process.exit(fail ? 1 : 0);

@@ -22,6 +22,8 @@ export interface Synthesis {
   categories: SynthCategory[];
   fees: number;
   feesCash: number; feesMvola: number;
+  /** feesMvola téléphone par téléphone (comme le Récap livraison). */
+  feesBy: { mvola: number; orange: number; airtel: number };
   /** Frais des livreurs « frais pour la caisse » (ex. Toky) : vont dans leur caisse frais, pas au livreur. Ils sont aussi
    *  comptés dans feesCash / feesMvola (comme pour les autres livreurs), mais pas dans fees. */
   feesFund: number;
@@ -55,11 +57,13 @@ function fundSplit(o: Order, charged: number) {
 const MOBILE = ['mvola', 'orange', 'airtel'];
 /** Part des frais dus au livreur reçue sur les téléphones (MVola / Orange / Airtel), au prorata des paiements reçus par la
  *  boutique. Les frais payés en espèces au magasin, ou pas payés (refus), n'en font pas partie. */
-function mobileFee(o: Order, owed: number) {
-  if (!(owed > 0)) return 0;
-  let shop = 0, mobile = 0;
-  for (const p of o.payments || []) { if (p.receivedBy !== 'shop') continue; shop += p.amount; if (MOBILE.includes(p.method)) mobile += p.amount; }
-  return shop > 0 ? (owed * mobile) / shop : 0;
+function mobileFee(o: Order, owed: number) { const b = mobileFeeBy(o, owed); return b.mvola + b.orange + b.airtel; }
+/** Même part, téléphone par téléphone. */
+function mobileFeeBy(o: Order, owed: number) {
+  const by = { mvola: 0, orange: 0, airtel: 0 }; let shop = 0;
+  for (const p of o.payments || []) { if (p.receivedBy !== 'shop') continue; shop += p.amount; if (MOBILE.includes(p.method)) by[p.method as keyof typeof by] += p.amount; }
+  if (!(owed > 0) || !(shop > 0)) return { mvola: 0, orange: 0, airtel: 0 };
+  return { mvola: (owed * by.mvola) / shop, orange: (owed * by.orange) / shop, airtel: (owed * by.airtel) / shop };
 }
 
 /** Valeurs d'une commande, ligne par ligne (remise répartie), sans retour et avec retour. */
@@ -84,7 +88,7 @@ function orderLines(o: Order) {
 export function daySynthesis(date: string): Synthesis {
   const s: Synthesis = {
     date, walk: { count: 0, sans: 0, avec: 0 }, internal: { count: 0, amount: 0 }, deliv: { count: 0, sans: 0, avec: 0, pending: 0, returns: 0 }, pickup: { count: 0, sans: 0, avec: 0 },
-    total: { sans: 0, avec: 0, diff: 0 }, couriers: [], categories: [], fees: 0, feesCash: 0, feesMvola: 0, feesFund: 0, corrected: false,
+    total: { sans: 0, avec: 0, diff: 0 }, couriers: [], categories: [], fees: 0, feesCash: 0, feesMvola: 0, feesBy: { mvola: 0, orange: 0, airtel: 0 }, feesFund: 0, corrected: false,
   };
   const couriers = new Map<string, SynthCourier>();
   const cats = new Map<string, SynthCategory & { sellerSet: Set<string> }>();
@@ -122,6 +126,7 @@ export function daySynthesis(date: string): Synthesis {
     if (x.pending) c.pending++;
     if (hadReturn) c.returns++;
     s.fees += fee; s.feesCash += feeCash; s.feesMvola += feeMvola; s.feesFund += feeFund;
+    if (feeMvola > 0 && sp) { const b = mobileFeeBy(o, sp.feeOwed + fs.mvola); s.feesBy.mvola += b.mvola; s.feesBy.orange += b.orange; s.feesBy.airtel += b.airtel; }
   }
   s.total.sans = s.walk.sans + s.deliv.sans + s.pickup.sans;
   s.total.avec = s.walk.avec + s.deliv.avec + s.pickup.avec;
