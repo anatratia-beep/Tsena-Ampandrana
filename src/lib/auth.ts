@@ -89,6 +89,16 @@ export async function seedAccounts() {
     const r = get<Role>('roles', id);
     if (r && !(r.migrations ?? []).includes('deliveries-menu-back')) await save('roles', { id, permissions: [...new Set([...r.permissions, ...add])], migrations: [...(r.migrations ?? []), 'deliveries-menu-back'] });
   }
+  // Mise à jour unique (demande du propriétaire, 31/10/2026) : Anja passe au rôle Admin / Gérant. Marquée faite seulement
+  // quand le compte est trouvé (sinon réessayée au prochain démarrage) ; si on change ensuite son rôle, il n'est pas remis.
+  const adm = get<Role>('roles', 'role-admin');
+  if (adm && !(adm.migrations ?? []).includes('anja-admin')) {
+    const anja = all<User>('users').filter((u) => !u.deleted && (u.username.trim().toLowerCase() === 'anja' || u.fullName.trim().toLowerCase() === 'anja'));
+    if (anja.length === 1) {
+      if (anja[0].roleId !== 'role-admin' && anja[0].roleId !== SUPERADMIN_ROLE) await save('users', { id: anja[0].id, roleId: 'role-admin' });
+      await save('roles', { id: adm.id, migrations: [...(adm.migrations ?? []), 'anja-admin'] });
+    }
+  }
   // Mise à jour unique : seul le responsable remet les commandes au livreur ; le vendeur ne le peut plus.
   const sel = get<Role>('roles', 'role-seller');
   if (sel && !(sel.migrations ?? []).includes('dispatch-manager-only')) await save('roles', { id: sel.id, permissions: sel.permissions.filter((p) => p !== 'orders.dispatch'), migrations: [...(sel.migrations ?? []), 'dispatch-manager-only'] });

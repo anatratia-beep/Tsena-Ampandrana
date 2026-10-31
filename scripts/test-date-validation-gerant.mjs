@@ -43,4 +43,13 @@ const o = await p.evaluate(() => window.__tsena.get('orders', 'H38'));
 const loc = (iso) => ymd(new Date(iso));
 ok(loc(o.dispatchedAt) === yest && loc(o.payments[0].at) === yest, 'gérant : date de validation passée à hier');
 ok(o.events.some((e) => N(e.text).includes('Date de validation modifiée par Mbola')), 'historique : modifiée par Mbola');
+// Mise à jour unique : Anja (Responsable) passe Admin / Gérant au démarrage.
+await p.evaluate(async () => { const t = window.__tsena; const hash = t.get('users', 'user-superadmin').passwordHash;
+  await t.save('users', { id: 'an1', username: 'anja', fullName: 'Anja', roleId: 'role-manager', active: true, passwordHash: hash, mustChangePassword: false });
+  await t.save('roles', { id: 'role-admin', migrations: (t.get('roles', 'role-admin').migrations || []).filter((m) => m !== 'anja-admin') }); });
+await p.reload(); await p.waitForTimeout(1200);
+ok(await p.evaluate(() => window.__tsena.get('users', 'an1').roleId) === 'role-admin', 'Anja : rôle Admin / Gérant après démarrage');
+await p.evaluate(async () => { await window.__tsena.save('users', { id: 'an1', roleId: 'role-manager' }); });
+await p.reload(); await p.waitForTimeout(1200);
+ok(await p.evaluate(() => window.__tsena.get('users', 'an1').roleId) === 'role-manager', 'une seule fois : rôle changé ensuite pas remis');
 console.log(fail ? `${fail} ÉCHEC(S)` : 'TOUT EST BON'); await b.close(); process.exit(fail ? 1 : 0);
