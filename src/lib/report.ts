@@ -136,7 +136,8 @@ function restLikeAccueil(from: string, to: string): WeekUnpaid {
  * 1re case : Total à verser = espèces du jour de la vente + 1er paiement espèces + 2ème paiement espèces des ventes de la
  * période (sans dépenses ni anciens impayés : ce qui est payé pour une vente d'une semaine déjà comptée va dans
  * « Impayé précédent à verser »).
- * 2e case : Total à verser − dépenses espèces + anciens impayés encaissés pendant la période (« Impayé précédent à verser »).
+ * 2e case : Total à verser − toutes les dépenses de la période (tous comptes, le même total que la page Dépenses)
+ * + anciens impayés encaissés pendant la période (« Impayé précédent à verser »).
  * MVola / Orange Money − dépenses payées avec ce compte.
  */
 export function bossMoney(from: string, to: string): BossMoney {
@@ -144,9 +145,12 @@ export function bossMoney(from: string, to: string): BossMoney {
   const sit = situation(from, to).total, pay = sit.pay;
   const paid = { mvola: pay.mvola, orange: pay.orange, airtel: pay.airtel };
   const exp = { cash: 0, mvola: 0, orange: 0 };
+  let expAll = 0;
   for (const m of all<CashMove>('cashMoves')) {
-    if (m.type !== 'expense' || !(m.account in exp)) continue;
-    const d = dayOf(m.at); if (d >= from && d <= to) exp[m.account as keyof typeof exp] -= m.amount;
+    if (m.type !== 'expense') continue;
+    const d = dayOf(m.at); if (d < from || d > to) continue;
+    expAll -= m.amount;
+    if (m.account in exp) exp[m.account as keyof typeof exp] -= m.amount;
   }
   const mobile = paid.mvola + paid.orange + paid.airtel;
   const end = to < today() ? to : today(), mon = mondayOf(end);
@@ -154,7 +158,7 @@ export function bossMoney(from: string, to: string): BossMoney {
   const prev = prevUnpaidPaid(from, end);
   return {
     sales: s.sales, mobile, unpaid: s.unpaid, unpaidN: s.n,
-    cash: { expenses: exp.cash, total, prevPaid: prev.amount, prevPaidN: prev.n, toPay: total - exp.cash + prev.amount },
+    cash: { expenses: expAll, total, prevPaid: prev.amount, prevPaidN: prev.n, toPay: total - expAll + prev.amount },
     mvola: { sales: paid.mvola, expenses: exp.mvola, toPay: paid.mvola - exp.mvola },
     orange: { sales: paid.orange, expenses: exp.orange, toPay: paid.orange - exp.orange },
     card: pay.card || 0,
@@ -227,7 +231,7 @@ export function reportText(kind: PKind, label: string, r: Report, company: strin
   if (kind === 'day') out.push(`Bénéfice net (sans boost) : ${ar(r.netNoBoost)}`);
   else out.push(`Boost Facebook : ${ar(r.boost)}`, `Coût des articles vendus : ${ar(r.cost)}`, `*Bénéfice net : ${ar(r.net)}*`);
   const m = r.money;
-  out.push('', '*À verser au patron*', `Total à verser : ${ar(m.cash.total)}`, `Dépenses espèces : ${ar(m.cash.expenses)}`, `Impayé précédent à verser : ${ar(m.cash.prevPaid)}`,
+  out.push('', '*À verser au patron*', `Total à verser : ${ar(m.cash.total)}`, `Dépenses (toutes) : ${ar(m.cash.expenses)}`, `Impayé précédent à verser : ${ar(m.cash.prevPaid)}`,
     `*Total à verser après dépenses et anciens impayés encaissés : ${ar(m.cash.toPay)}*`,
     `Total MVola : ${ar(m.mvola.sales)}`, `Total MVola − dépenses MVola : ${ar(m.mvola.toPay)}`, `Total Orange Money : ${ar(m.orange.sales)}`, `Total Orange Money − dépenses Orange Money : ${ar(m.orange.toPay)}`,
     ...(Math.round(m.card || 0) ? [`Total carte bancaire (site web, Stripe) : ${ar(m.card)}`] : []),
