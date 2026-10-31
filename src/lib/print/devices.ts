@@ -431,7 +431,7 @@ export function docHtml(doc: PrintDoc, paper: Paper, logo?: string | null): stri
 export function systemPrint(doc: PrintDoc, paper: Paper, logo?: string | null, copies = 1): Promise<void> {
   return new Promise((resolve) => {
     const lay = layout(doc, paper === '58' ? 32 : 48);
-    const rows = lay.length + lay.filter((r) => r.qr).length * 7;
+    const rows = lay.length + lay.filter((r) => r.qr).length * 7 + lay.filter((r) => r.logo).length * 6; // logo ≈ 7 lignes de haut
     const area = document.createElement('div');
     area.className = `print-area ticket paper-${paper}`;
     const one = `<div class="tk-page">${docHtml(doc, paper, logo)}</div>`;

@@ -229,9 +229,9 @@ export function deliveryTicketDoc(o: Order, company: Company): PrintDoc {
   const c = brandOf(o, company);
   const zone = get<Zone>('zones', o.zoneId || '');
   const b: Block[] = [...header(c), L('=')];
-  b.push(T(`Client : ${o.name || '-'}`, { bold: true }));
-  if (o.phone) b.push(T(`Contact : ${fmtPhone(o.phone)}`, { bold: true }));
-  b.push(T(`Lieu : ${zone?.name || '-'}${o.place ? ' - ' + o.place : ''}`));
+  b.push(T(`Client : ${o.name || '-'}`, { bold: true, align: 'center' }));
+  if (o.phone) b.push(T(`Contact : ${fmtPhone(o.phone)}`, { bold: true, align: 'center' }));
+  b.push(T(`Lieu : ${zone?.name || '-'}${o.place ? ' - ' + o.place : ''}`, { align: 'center' }));
   b.push(L());
   const fee = o.deliveryFee || 0, due = Math.max(0, orderTotal(o));
   b.push(P('Total articles', ar(Math.max(0, due - fee))));
