@@ -9,7 +9,10 @@ import { dayOf } from './money';
 
 /** fees = feesCash + feesMvola : frais gardés par le livreur sur ce que le client lui a payé (espèces) et frais payés à la
  *  boutique (MVola…), que l'entreprise doit lui payer. */
-export interface SynthCourier { id: string; name: string; count: number; fees: number; feesCash: number; feesMvola: number; feesFund: number; returns: number; pending: number; sans: number; avec: number }
+export interface SynthCourier { id: string; name: string; count: number; fees: number; feesCash: number; feesMvola: number; feesOther: number; feesFund: number; returns: number; pending: number; sans: number; avec: number; owed: OwedFee[] }
+/** Frais pas gardés par le livreur sur une commande : la part reçue sur les téléphones (MVola / Orange / Airtel) et le reste
+ *  (payé en espèces au magasin, ou pas payé par le client : refus, retour, pas encore encaissé). */
+export interface OwedFee { orderId: string; number: string; fee: number; mobile: number; other: number; why: string }
 export interface SynthCategory { id: string; name: string; sellers: string[]; sans: number; avec: number }
 export interface Synthesis {
   date: string;
@@ -21,7 +24,8 @@ export interface Synthesis {
   couriers: SynthCourier[];
   categories: SynthCategory[];
   fees: number;
-  feesCash: number; feesMvola: number;
+  /** feesMvola : frais payés à la boutique sur MVola / Orange / Airtel ; feesOther : le reste des frais pas gardés par le livreur. */
+  feesCash: number; feesMvola: number; feesOther: number;
   /** Frais des livreurs « frais pour la caisse » (ex. Toky) : vont dans leur caisse frais, pas au livreur. Ils sont aussi
    *  comptés dans feesCash / feesMvola (comme pour les autres livreurs), mais pas dans fees. */
   feesFund: number;
@@ -52,6 +56,15 @@ function fundSplit(o: Order, charged: number) {
   return { cash, mvola: charged - cash };
 }
 
+/** Sépare des frais « dus au livreur » en part mobile money (au prorata des paiements reçus par la boutique) et le reste. */
+function owedSplit(o: Order, owed: number) {
+  let shop = 0, mobile = 0;
+  for (const p of o.payments || []) { if (p.receivedBy !== 'shop') continue; shop += p.amount; if (p.method === 'mvola' || p.method === 'orange' || p.method === 'airtel') mobile += p.amount; }
+  const m = owed > 0 && shop > 0 ? (owed * mobile) / shop : 0;
+  const why = m >= owed - 0.5 ? 'payés par MVola / Orange Money' : shop > mobile ? 'payés en espèces au magasin' : o.status === 'refused' || o.status === 'partial' ? 'client n’a pas payé les frais (refus / retour)' : CLOSED.includes(o.status) ? 'pas encaissés par le livreur' : 'colis pas encore revenu';
+  return { mobile: m, other: owed - m, why };
+}
+
 /** Valeurs d'une commande, ligne par ligne (remise répartie), sans retour et avec retour. */
 function orderLines(o: Order) {
   const closed = CLOSED.includes(o.status) || isWalkIn(o);
@@ -74,7 +87,7 @@ function orderLines(o: Order) {
 export function daySynthesis(date: string): Synthesis {
   const s: Synthesis = {
     date, walk: { count: 0, sans: 0, avec: 0 }, internal: { count: 0, amount: 0 }, deliv: { count: 0, sans: 0, avec: 0, pending: 0, returns: 0 }, pickup: { count: 0, sans: 0, avec: 0 },
-    total: { sans: 0, avec: 0, diff: 0 }, couriers: [], categories: [], fees: 0, feesCash: 0, feesMvola: 0, feesFund: 0, corrected: false,
+    total: { sans: 0, avec: 0, diff: 0 }, couriers: [], categories: [], fees: 0, feesCash: 0, feesMvola: 0, feesOther: 0, feesFund: 0, corrected: false,
   };
   const couriers = new Map<string, SynthCourier>();
   const cats = new Map<string, SynthCategory & { sellerSet: Set<string> }>();
@@ -102,15 +115,17 @@ export function daySynthesis(date: string): Synthesis {
     if (x.pending) s.deliv.pending++;
     if (hadReturn) s.deliv.returns++;
     const id = o.courierId || '';
-    if (!couriers.has(id)) couriers.set(id, { id, name: get<Courier>('couriers', id)?.name ?? 'Sans livreur', count: 0, fees: 0, feesCash: 0, feesMvola: 0, feesFund: 0, returns: 0, pending: 0, sans: 0, avec: 0 });
+    if (!couriers.has(id)) couriers.set(id, { id, name: get<Courier>('couriers', id)?.name ?? 'Sans livreur', count: 0, fees: 0, feesCash: 0, feesMvola: 0, feesOther: 0, feesFund: 0, returns: 0, pending: 0, sans: 0, avec: 0, owed: [] });
     const c = couriers.get(id)!;
     const sp = o.status === 'cancelled' ? null : courierSplit(o);
     const feeFund = sp ? sp.shopFee : 0, fs = sp ? fundSplit(o, feeFund) : { cash: 0, mvola: 0 };
-    const fee = sp ? sp.fee : 0, feeCash = (sp ? sp.feeKept : 0) + fs.cash, feeMvola = (sp ? sp.feeOwed : 0) + fs.mvola;
-    c.count++; c.fees += fee; c.feesCash += feeCash; c.feesMvola += feeMvola; c.feesFund += feeFund; c.sans += sans; c.avec += avec;
+    const fee = sp ? sp.fee : 0, feeCash = (sp ? sp.feeKept : 0) + fs.cash, owed = (sp ? sp.feeOwed : 0) + fs.mvola;
+    const ow = owedSplit(o, owed), feeMvola = ow.mobile, feeOther = ow.other;
+    if (owed > 0.5) c.owed.push({ orderId: o.id, number: o.number || '', fee: owed, mobile: ow.mobile, other: ow.other, why: ow.why });
+    c.count++; c.fees += fee; c.feesCash += feeCash; c.feesMvola += feeMvola; c.feesOther += feeOther; c.feesFund += feeFund; c.sans += sans; c.avec += avec;
     if (x.pending) c.pending++;
     if (hadReturn) c.returns++;
-    s.fees += fee; s.feesCash += feeCash; s.feesMvola += feeMvola; s.feesFund += feeFund;
+    s.fees += fee; s.feesCash += feeCash; s.feesMvola += feeMvola; s.feesOther += feeOther; s.feesFund += feeFund;
   }
   s.total.sans = s.walk.sans + s.deliv.sans + s.pickup.sans;
   s.total.avec = s.walk.avec + s.deliv.avec + s.pickup.avec;
