@@ -3,12 +3,12 @@
 //   saisit ce qu'il a reçu et valide.
 // - Le vendeur voit sa propre feuille : ce qu'il doit remettre, et si le responsable l'a reçu.
 import { useState } from 'react';
-import { useCan, useCurrentUser } from '../lib/auth';
-import { get, useTable } from '../lib/db';
+import { audit, useCan, useCurrentUser } from '../lib/auth';
+import { get, save, useTable } from '../lib/db';
 import type { Courier } from '../lib/orders';
 import { fmtAr, parseNum, parseAr } from '../lib/catalog';
 import { addDays, today } from '../lib/money';
-import { cancelHandover, changedSince, gapDue, gapsBefore, handoverHistory, openGaps, pagesOfDay, repayGap, receiveHandover, sellerDay, sellersOfDay, type Handover, type PageDay, type PendingSale, type SellerDay } from '../lib/handovers';
+import { cancelHandover, changedSince, gapDue, handoverHistory, impayesFrom, openGaps, pagesOfDay, repayGap, receiveHandover, sellerDay, sellersOfDay, type Handover, type PageDay, type PendingSale, type SellerDay } from '../lib/handovers';
 import { printA4, a4Table, arA4, h } from '../lib/a4';
 import { restLedger, type RestRow } from '../lib/situation';
 import { COUNT_LABELS, moneyCountOf, parseFormula, setMoneyCount, setPhoneSolde, type CountField } from '../lib/moneyCount';
@@ -20,10 +20,19 @@ import { exportTables, type Col } from '../ui/table';
 const longDate = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 const money = (n: number) => (n ? fmtAr(n) : <span className="muted">—</span>);
 
+/**
+ * Impayés à partir d'une date (voir impayesFrom) : les anciens restes déjà réglés mais jamais cliqués ne s'affichent
+ * plus (restes par page, impayés vendeurs, « impayé précédent ») et ne comptent plus dans le versement. Aucune donnée effacée.
+ */
+async function setImpayesFrom(date: string) {
+  await save('settings', { id: 'impayesFrom', date });
+  await audit('Impayés affichés à partir du', date, 'settings', 'impayesFrom', 'medium');
+}
+
 export function HandoversPage() {
   const can = useCan();
   const me = useCurrentUser();
-  useTable('orders'); useTable('cashMoves'); useTable('handovers'); useTable('moneyCounts'); useTable('users'); useTable('roles'); useTable('categories'); useTable('products'); useTable('variants');
+  useTable('orders'); useTable('cashMoves'); useTable('handovers'); useTable('moneyCounts'); useTable('settings'); useTable('users'); useTable('roles'); useTable('categories'); useTable('products'); useTable('variants');
   const [date, setDate] = useState(today());
   const [view, setView] = useState<'page' | 'seller'>('page');
   const boss = can('handover.receive');
@@ -272,12 +281,14 @@ function PageRests({ date }: { date: string }) {
   const at = (k: string, name: string) => { let r = m.get(k); if (!r) { r = { key: k, name, client: 0, seller: 0, items: [] }; m.set(k, r); } return r; };
   const pageName = (id: string) => get<{ name: string }>('categories', id)?.name ?? 'Sans page';
   const [open, setOpen] = useState<string | null>(null);
+  const since = impayesFrom();
   for (const r of restLedger('2000-01-01', date)) {
-    if (r.rest <= 0.5) continue;
+    if (r.rest <= 0.5 || r.day < since) continue;
     const pages = r.pages.length ? r.pages : ['_'];
     for (const pg of pages) { const x = at(pg, pageName(pg)), a = r.rest / pages.length; x.client += a; x.items.push({ day: r.day, amount: a, kind: 'client', ref: r.o.number || '' }); }
   }
   for (const h of openGaps(date)) {
+    if (h.date < since) continue;
     const pg = h.userId.startsWith('page:') ? h.userId.slice(5) : '';
     const x = pg ? at(pg, h.userName) : at(`u:${h.userId}`, `${h.userName} (vendeur)`), a = gapDue(h);
     x.seller += a; x.items.push({ day: h.date, amount: a, kind: 'seller', ref: '' });
@@ -301,7 +312,8 @@ function PageRests({ date }: { date: string }) {
   return (
     <div className="card card-flush">
       <div className="card-pad row-between">
-        <div><h2>Restes impayés par page</h2><p className="small muted" style={{ margin: 0 }}>Tout ce qui reste à encaisser à ce jour : clients qui doivent encore et écarts de versement pas remboursés. Touchez une page pour voir le détail jour par jour.</p></div>
+        <div><h2>Restes impayés par page</h2><p className="small muted" style={{ margin: 0 }}>Tout ce qui reste à encaisser à ce jour : clients qui doivent encore et écarts de versement pas remboursés. Touchez une page pour voir le détail jour par jour.</p>
+          <SinceField /></div>
         <strong className={`num ${t.client + t.seller > 0.5 ? 'neg' : ''}`}>{fmtAr(t.client + t.seller)}</strong>
       </div>
       {rows.length === 0 ? <p className="card-pad small muted" style={{ paddingTop: 0 }}>Aucun impayé.</p> : (
@@ -317,6 +329,18 @@ function PageRests({ date }: { date: string }) {
         </table></div>
       )}
     </div>
+  );
+}
+
+/** Date à partir de laquelle les impayés s'affichent (modifiable). */
+function SinceField() {
+  const since = impayesFrom();
+  return (
+    <label className="row small" style={{ gap: 6, marginTop: 6 }}>
+      <span className="muted">Impayés affichés à partir du</span>
+      <input type="date" className="cell-input" style={{ width: 'auto' }} aria-label="Impayés affichés à partir du" max={today()} value={since}
+        onChange={(e) => e.target.value && setImpayesFrom(e.target.value).catch((err) => toast(err.message, 'error'))} />
+    </label>
   );
 }
 
@@ -338,13 +362,15 @@ function MobCell({ d, m }: { d: SellerDay; m: 'mvola' | 'orange' | 'airtel' }) {
 
 /** Impayé vendeur des jours précédents (écart en moins pas encore remboursé). */
 function PrevGap({ k, date }: { k: string; date: string }) {
-  const n = gapsBefore(k, date);
+  const since = impayesFrom();
+  const n = openGaps(addDays(date, -1), k).filter((h) => h.date >= since).reduce((t, h) => t + gapDue(h), 0);
   return n > 0.5 ? <div className="small neg">impayé précédent {fmtAr(n)}</div> : null;
 }
 
 /** Impayés vendeurs : écarts en moins à réclamer (vendeur ou page), jusqu'au jour affiché, avec remboursement. */
 function SellerGaps({ date }: { date: string }) {
-  const list = openGaps(date);
+  const since = impayesFrom();
+  const list = openGaps(date).filter((h) => h.date >= since);
   const [pay, setPay] = useState<{ id: string; val: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const total = list.reduce((t, h) => t + gapDue(h), 0);
