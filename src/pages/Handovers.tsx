@@ -36,7 +36,10 @@ export function HandoversPage() {
         <IconButton icon="chevronLeft" label="Jour précédent" onClick={() => setDate(addDays(date, -1))} />
         <strong style={{ textTransform: 'capitalize' }}>{longDate(date)}</strong>
         <IconButton icon="chevronRight" label="Jour suivant" disabled={isToday} onClick={() => setDate(addDays(date, 1))} />
+        {/* Calendrier : revoir le versement enregistré d'un jour passé. */}
+        <input type="date" className="cell-input" style={{ width: 'auto' }} aria-label="Choisir le jour" max={today()} value={date} onChange={(e) => e.target.value && setDate(e.target.value > today() ? today() : e.target.value)} />
         {!isToday && <Button variant="quiet" onClick={() => setDate(today())}>Aujourd’hui</Button>}
+        {date !== addDays(today(), -1) && <Button variant="quiet" onClick={() => setDate(addDays(today(), -1))}>Hier</Button>}
         {boss && <div className="segmented" role="group" aria-label="Affichage" style={{ marginLeft: 'auto' }}>
           <button type="button" aria-pressed={view === 'page'} onClick={() => setView('page')}><Icon name="store" size={16} />Par page</button>
           <button type="button" aria-pressed={view === 'seller'} onClick={() => setView('seller')}><Icon name="users" size={16} />Par vendeur</button>
