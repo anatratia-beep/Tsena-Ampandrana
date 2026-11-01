@@ -2,7 +2,7 @@
 // livreurs, chiffres d'une journée et clôture (« Z de caisse »).
 import { all, applyRemote, bizNow, dataVersion, get, newId, nowIso, remove, save, workDate, type BaseRecord } from './db';
 import { audit, currentUser, type User } from './auth';
-import { assertOpenAt } from './closed';
+import { assertExpenseOpen, assertOpenAt } from './closed';
 import { variantCost, type Variant } from './catalog';
 import { adjustsKeptTotal, adjustsTotal } from './lots';
 import { courierSplit, isPickupZone, isWalkIn, itemsTotal, keptTotal, recordReturn, remaining, sellingLines, type Courier, type Order, type PayMethod } from './orders';
@@ -161,6 +161,7 @@ export async function deleteMove(m: CashMove) {
   if (m.type === 'courier_settlement') throw new Error('Ce mouvement est un versement de livreur : il ne se supprime pas depuis la trésorerie.');
   if (m.refType === 'payouts') throw new Error('Ce mouvement est un versement de la semaine : annulez-le depuis Récapitulatif → Semaine → Historique des versements.');
   if (m.type === 'expense' || m.type === 'income') assertOpenAt(m.at, 'Suppression');
+  if (m.type === 'expense') assertExpenseOpen(m, 'Suppression');
   const linked = m.transferId ? all<CashMove>('cashMoves').filter((x) => x.transferId === m.transferId) : [m];
   for (const x of linked) await remove('cashMoves', x.id);
   await audit('Opération supprimée', `${MOVE_TYPES[m.type]} ${m.amount} Ar (${ACCOUNTS[m.account]})${m.label ? ' — ' + m.label : ''}`, 'cashMoves', m.id);
@@ -172,6 +173,7 @@ export async function updateExpense(m: CashMove, amount: number, label?: string)
   if (m.refType || m.refId || m.transferId) throw new Error('Cette dépense est liée à une autre opération (commande, virement…) : modifiez-la depuis son origine.');
   if (!(amount > 0) || !isFinite(amount)) throw new Error('Montant invalide.');
   assertOpenAt(m.at, 'Modification');
+  assertExpenseOpen(m, 'Modification');
   const old = -m.amount;
   await save('cashMoves', { id: m.id, amount: -Math.round(amount), ...(label != null ? { label: label.trim() || undefined } : {}) } as Partial<CashMove>);
   await audit('Dépense corrigée', `${m.label || 'Dépense'} (${ACCOUNTS[m.account]}) : ${old} Ar → ${Math.round(amount)} Ar${label != null && label.trim() !== (m.label ?? '') ? ` · « ${m.label ?? ''} » → « ${label.trim()} »` : ''}`, 'cashMoves', m.id);

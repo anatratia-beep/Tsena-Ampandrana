@@ -13,7 +13,7 @@ import { addDays, dayOf, type AccountId, type CashMove, type FinanceCategory } f
 import { variantLabel, type Category, type Product, type Variant } from './catalog';
 import { hasPendingChoice, orderLabel, type Order } from './orders';
 import { allDeltas } from './boosts';
-import { payoutId, type Payout } from './closed';
+import { expenseWeek, payoutId, type Payout } from './closed';
 import { DEFAULT_COMPANY, type Company } from './settings';
 
 export const weekOf = (monday: string) => ({ start: monday, end: addDays(monday, 5), days: Array.from({ length: 6 }, (_, i) => addDays(monday, i)) });
@@ -28,13 +28,19 @@ export interface Grid {
   boostUsd: Record<string, number>;                       // page → dépense boost ($)
   expensesByDay: Record<string, number>;
   expenseMoves: CashMove[];
+  /** Semaine de versement : dépenses espèces du lundi suivant (sauf frais de livraison), comptées dans cette semaine. */
+  lateDay?: string; lateExpenses: number;
   salesTotal: number; expensesTotal: number; rest: number;
   pageTotals: Record<string, number>;
   dayTotals: Record<string, number>;
 }
 
-/** Ventes par page et par jour, dépenses, boost, sur une période (jours inclus). */
-export function grid(from: string, to: string): Grid {
+/**
+ * Ventes par page et par jour, dépenses, boost, sur une période (jours inclus).
+ * week : semaine de versement au patron (lundi → samedi) — les dépenses espèces du lundi suivant (sauf frais de
+ * livraison) y sont ajoutées, et celles de son propre lundi passent à la semaine précédente (voir expenseWeek).
+ */
+export function grid(from: string, to: string, opts: { week?: boolean } = {}): Grid {
   const days: string[] = []; for (let d = from; d <= to; d = addDays(d, 1)) days.push(d);
   const sales: Grid['sales'] = Object.fromEntries(days.map((d) => [d, {}]));
   const cost: Record<string, number> = {};
@@ -48,17 +54,19 @@ export function grid(from: string, to: string): Grid {
   const boostUsd: Record<string, number> = {};
   // Dépense cumulée : la dépense du jour = saisie du jour − saisie précédente (voir readingDelta).
   for (const x of allDeltas()) if (x.r.date >= from && x.r.date <= to) { boostUsd[x.r.pageId] = (boostUsd[x.r.pageId] ?? 0) + x.spend; seen.add(x.r.pageId); }
-  const expenseMoves = all<CashMove>('cashMoves').filter((m) => m.type === 'expense' && m.account === 'cash' && dayOf(m.at) >= from && dayOf(m.at) <= to).sort((a, b) => a.at.localeCompare(b.at));
+  const lateDay = opts.week ? addDays(to, 2) : undefined;
+  const expenseMoves = all<CashMove>('cashMoves').filter((m) => m.type === 'expense' && m.account === 'cash' && dayOf(m.at) >= from && dayOf(m.at) <= (lateDay ?? to) && (!opts.week || expenseWeek(m) === from)).sort((a, b) => a.at.localeCompare(b.at));
   const expensesByDay: Record<string, number> = Object.fromEntries(days.map((d) => [d, 0]));
-  for (const m of expenseMoves) expensesByDay[dayOf(m.at)] = (expensesByDay[dayOf(m.at)] ?? 0) - m.amount;
+  let lateExpenses = 0;
+  for (const m of expenseMoves) { if (dayOf(m.at) > to) lateExpenses -= m.amount; else expensesByDay[dayOf(m.at)] = (expensesByDay[dayOf(m.at)] ?? 0) - m.amount; }
   // Colonnes : toutes les pages (catégories principales), dans l'ordre alphabétique ; « Sans page » à la fin si besoin.
   const pages: PageCol[] = all<Category>('categories').filter((c) => !c.parentId && (!c.removed || seen.has(c.id))).sort((a, b) => a.name.localeCompare(b.name, 'fr')).map((c) => ({ id: c.id, name: c.name }));
   if (seen.has('_')) pages.push({ id: '_', name: 'Sans page' });
   const pageTotals = Object.fromEntries(pages.map((p) => [p.id, days.reduce((t, d) => t + (sales[d][p.id] ?? 0), 0)]));
   const dayTotals = Object.fromEntries(days.map((d) => [d, Object.values(sales[d]).reduce((t, v) => t + v, 0)]));
   const salesTotal = Object.values(dayTotals).reduce((t, v) => t + v, 0);
-  const expensesTotal = Object.values(expensesByDay).reduce((t, v) => t + v, 0);
-  return { from, to, days, pages, sales, cost, boostUsd, expensesByDay, expenseMoves, salesTotal, expensesTotal, rest: salesTotal - expensesTotal, pageTotals, dayTotals };
+  const expensesTotal = Object.values(expensesByDay).reduce((t, v) => t + v, 0) + lateExpenses;
+  return { from, to, days, pages, sales, cost, boostUsd, expensesByDay, expenseMoves, lateDay, lateExpenses, salesTotal, expensesTotal, rest: salesTotal - expensesTotal, pageTotals, dayTotals };
 }
 
 export const payoutOf = (monday: string) => get<Payout>('payouts', payoutId(monday));
@@ -72,7 +80,7 @@ export async function validatePayout(monday: string, amount: number, account: Ac
   const todayYmd = dayOf(new Date().toISOString());
   if (w.end > todayYmd) throw new Error('La semaine n’est pas terminée : le versement se fait à partir du samedi soir.');
   if (!(amount >= 0)) throw new Error('Montant versé invalide.');
-  const g = grid(w.start, w.end);
+  const g = grid(w.start, w.end, { week: true });
   const u = currentUser();
   const expected = g.salesTotal - g.expensesTotal;
   const at = new Date().toISOString();
@@ -105,7 +113,7 @@ export function unpaidWeeks(todayYmd: string, mondayOf: (d: string) => string): 
   if (addDays(mon, 5) > todayYmd) mon = addDays(mon, -7);
   for (let i = 0; i < 12; i++, mon = addDays(mon, -7)) {
     if (payoutOf(mon)?.status === 'paid') continue;
-    const g = grid(mon, addDays(mon, 5));
+    const g = grid(mon, addDays(mon, 5), { week: true });
     if (g.salesTotal || g.expensesTotal) out.push({ monday: mon, expected: g.rest });
   }
   return out;
