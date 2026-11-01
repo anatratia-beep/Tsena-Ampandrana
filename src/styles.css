@@ -1315,3 +1315,11 @@ a.bell { text-decoration: none; }
 .webshop-name { display: grid; gap: 2px; min-width: 0; }
 .webshop-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 720px) { .webshop-row { grid-template-columns: auto 1fr auto; } .webshop-row > .row { grid-column: 1 / -1; } }
+
+/* Versements : en-tête des tableaux dans une bande colorée, textes de même taille, centrés. */
+.table.handover-table thead th, .table.handover-table thead th.t-num,
+.table.money-count thead th, .table.money-count thead th.t-num,
+.table.money-week thead th, .table.money-week thead th.t-num { background: var(--p-violet-soft); color: var(--nav-bg); font-size: .8rem; font-weight: 700; line-height: 1.25; text-align: center !important; vertical-align: middle; padding: 10px 10px; border-bottom: 0; white-space: normal; }
+.table.handover-table thead th:first-child, .table.money-count thead th:first-child, .table.money-week thead th:first-child { border-radius: 14px 0 0 14px; text-align: left !important; }
+.handover-table thead th:last-child, .money-count thead th:last-child, .money-week thead th:last-child { border-radius: 0 14px 14px 0; }
+[data-theme='dark'] .handover-table thead th, [data-theme='dark'] .money-count thead th, [data-theme='dark'] .money-week thead th { color: var(--ink); }
