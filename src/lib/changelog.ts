@@ -2,6 +2,10 @@
 // La plus récente en premier. `date` : AAAA-MM-JJ.
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
+  { date: '2026-11-02', items: [
+    'Synchronisation beaucoup plus légère : chaque appareil ne retélécharge plus les 50 dernières fiches toutes les 15 secondes (seulement ce qui est nouveau). C’est ce qui avait épuisé le quota gratuit de Supabase.',
+    'Si Supabase bloque le cloud (erreur 402, quota dépassé), un message clair l’indique (ce n’est pas un problème de mot de passe) ; les ventes restent sur l’appareil et partent au déblocage. Pendant le blocage, l’appareil ne réessaie que toutes les 10 minutes.',
+  ] },
   { date: '2026-10-30', items: [
     'Nouveau menu « Boutique en ligne » : modifier le site des clients comme sur Shopify — titre, phrase et photo d’accueil, couleur, Facebook, Messenger, Pixel, bandeau, page masquée ou visible, paiement par carte (désactivé, essai, activé), mentions légales, conditions de vente, livraison et « À propos ». Copier l’adresse de chaque page pour Facebook.',
   ] },

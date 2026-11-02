@@ -247,7 +247,7 @@ function CloudTab() {
             {status.error && status.state === 'error' && <div className="notice notice-danger"><Icon name="alert" /><span><strong>Erreur de synchronisation :</strong> {status.error}</span></div>}
             {status.auth && <Relogin email={cloud.email} />}
             <div className="row">
-              <Button icon="refresh" onClick={() => syncNow()}>Synchroniser maintenant</Button>
+              <Button icon="refresh" onClick={() => syncNow(true)}>Synchroniser maintenant</Button>
               <Button variant="ghost" onClick={() => setConfirmOff(true)}>Délier cet appareil</Button>
             </div>
           </>
@@ -589,7 +589,7 @@ function BlockedCard() {
           {(b.tbl === 'printJobs' || b.tbl === 'printStations') && <Button variant="ghost" className="btn-sm" onClick={() => drop(b)}>Retirer</Button>}
         </li>
       ))}</ul>
-      <div><Button variant="ghost" icon="refresh" onClick={() => syncNow()}>Réessayer maintenant</Button></div>
+      <div><Button variant="ghost" icon="refresh" onClick={() => syncNow(true)}>Réessayer maintenant</Button></div>
     </div>
   );
 }

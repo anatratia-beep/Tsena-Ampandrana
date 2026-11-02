@@ -34,6 +34,7 @@ async function authRequest(cfg: CloudConfig, grant: 'password' | 'refresh_token'
     headers: { apikey: cfg.anonKey, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  if (res.status === 402) throw new CloudQuotaError();
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error_description || json.msg || json.message || `Erreur ${res.status}`);
   return { accessToken: json.access_token, refreshToken: json.refresh_token, expiresAt: Date.now() + (json.expires_in - 60) * 1000 };
@@ -60,6 +61,19 @@ function headers(cfg: CloudConfig) {
   return { apikey: cfg.anonKey, Authorization: `Bearer ${cfg.accessToken}`, 'Content-Type': 'application/json' };
 }
 
+/**
+ * Cloud bloqué par Supabase (erreur 402) : le quota gratuit du mois est dépassé. Ce n'est pas un problème de mot de
+ * passe ; rien n'est perdu, les modifications restent sur l'appareil jusqu'au déblocage.
+ */
+export class CloudQuotaError extends Error {
+  constructor() { super('Le cloud Supabase est bloqué par Supabase : le quota gratuit du mois est dépassé (erreur 402). Les ventes restent enregistrées sur cet appareil et partiront dès que le cloud sera débloqué : rien n’est perdu. Ne déliez pas l’appareil.'); this.name = 'CloudQuotaError'; }
+}
+const check402 = (res: Response) => { if (res.status === 402) throw new CloudQuotaError(); return res; };
+/** Après un blocage 402, on ne réessaie tout seul que toutes les 10 minutes (un clic sur « Synchroniser » réessaie tout de suite). */
+let quotaUntil = 0;
+/** Numéros du cloud déjà reçus (marge de sécurité de 50 numéros sans tout retélécharger à chaque fois). */
+const seenRevs = new Set<number>();
+
 /** Connexion au cloud de cet appareil expirée (ex. mot de passe du compte cloud changé) : il faut le mot de passe. */
 export class CloudAuthError extends Error {
   constructor(detail: string) { super(`La connexion de cet appareil au cloud a expiré (le mot de passe du compte cloud a peut-être été changé). Entrez le mot de passe du compte cloud dans Paramètres → Cloud et synchronisation : rien n’est perdu, les ventes en attente partiront ensuite. (${detail})`); this.name = 'CloudAuthError'; }
@@ -70,7 +84,7 @@ async function freshConfig(force = false): Promise<CloudConfig | null> {
   if (!force && cfg.expiresAt && cfg.expiresAt > Date.now()) return cfg;
   let tokens;
   try { tokens = await authRequest(cfg, 'refresh_token', { refresh_token: cfg.refreshToken }); }
-  catch (e: any) { if (!navigator.onLine || /fetch|network/i.test(String(e?.message))) throw e; throw new CloudAuthError(e?.message ?? String(e)); }
+  catch (e: any) { if (e?.name === 'CloudQuotaError' || !navigator.onLine || /fetch|network/i.test(String(e?.message))) throw e; throw new CloudAuthError(e?.message ?? String(e)); }
   const next = { ...cfg, ...tokens };
   await setMeta('cloud', next);
   return next;
@@ -83,13 +97,14 @@ export async function reloginCloud(password: string) {
   const tokens = await authRequest(cfg, 'password', { email: cfg.email, password });
   await setMeta('cloud', { ...cfg, ...tokens });
   setStatus({ auth: false, error: undefined });
-  await syncNow();
+  await syncNow(true);
 }
 
 let running = false;
 let again = false;
 
-export async function syncNow(): Promise<void> {
+export async function syncNow(manual?: unknown): Promise<void> {
+  if (!manual && Date.now() < quotaUntil) return;
   if (running) { again = true; return; }
   running = true;
   try {
@@ -101,7 +116,7 @@ export async function syncNow(): Promise<void> {
     let cfg = await freshConfig();
     if (!cfg) return;
     // Jeton refusé (401) : on le renouvelle une fois avant de conclure.
-    { const t = await fetch(`${cfg.url}/rest/v1/records?select=rev&limit=1`, { headers: headers(cfg) }).catch(() => null); if (t && t.status === 401) cfg = (await freshConfig(true))!; }
+    { const t = await fetch(`${cfg.url}/rest/v1/records?select=rev&limit=1`, { headers: headers(cfg) }).catch(() => null); if (t) check402(t); if (t && t.status === 401) cfg = (await freshConfig(true))!; }
     const device = getMeta('deviceId', '');
     const conflicts: SyncConflictLog[] = [];
     let sent = 0, received = 0, fixedSkew = 0;
@@ -112,22 +127,36 @@ export async function syncNow(): Promise<void> {
       // Cloud vidé ou recréé (la numérotation repart de 1) : cet appareil ne recevrait plus rien. On le détecte
       // en comparant avec le dernier numéro du cloud, et on reprend tout depuis le début (la fusion évite les doublons).
       if (lastRev > 0) {
-        const top = await fetch(`${cfg.url}/rest/v1/records?select=rev&order=rev.desc&limit=1`, { headers: headers(cfg) });
+        const top = check402(await fetch(`${cfg.url}/rest/v1/records?select=rev&order=rev.desc&limit=1`, { headers: headers(cfg) }));
         if (top.ok) { const [t] = await top.json(); if (!t || t.rev < lastRev) { lastRev = 0; await setMeta('lastRev', 0); } }
       }
       for (;;) {
-        const from = Math.max(0, lastRev - 50); // petite marge de sécurité : une fusion déjà faite ne change rien
-        const res = await fetch(`${cfg.url}/rest/v1/records?select=tbl,id,data,rev&rev=gt.${from}&order=rev.asc&limit=1000`, { headers: headers(cfg) });
-        if (!res.ok) throw new Error(`Réception refusée (${res.status})`);
-        const rows: { tbl: string; id: string; data: any; rev: number }[] = await res.json();
-        const r = await applyRemote(rows, 'sync');
-        received += r.applied;
-        conflicts.push(...r.conflicts);
-        const maxRev = rows.reduce((m, x) => Math.max(m, x.rev), lastRev);
+        // Marge de sécurité de 50 numéros (une écriture plus lente peut arriver avec un numéro plus petit), mais on
+        // ne télécharge que les fiches pas encore reçues : avant, les 50 dernières fiches étaient retéléchargées
+        // toutes les 15 s par chaque appareil, ce qui a épuisé le quota gratuit de Supabase (blocage 402 du 31/10).
+        const from = Math.max(0, lastRev - 50);
+        const idx = check402(await fetch(`${cfg.url}/rest/v1/records?select=rev&rev=gt.${from}&order=rev.asc&limit=1000`, { headers: headers(cfg) }));
+        if (!idx.ok) throw new Error(`Réception refusée (${idx.status})`);
+        const revs: number[] = (await idx.json()).map((x: { rev: number }) => x.rev);
+        const need = revs.filter((v) => !seenRevs.has(v));
+        const rows: { tbl: string; id: string; data: any; rev: number }[] = [];
+        for (let i = 0; i < need.length; i += 200) {
+          const res = check402(await fetch(`${cfg.url}/rest/v1/records?select=tbl,id,data,rev&rev=in.(${need.slice(i, i + 200).join(',')})&order=rev.asc`, { headers: headers(cfg) }));
+          if (!res.ok) throw new Error(`Réception refusée (${res.status})`);
+          rows.push(...(await res.json()));
+        }
+        if (rows.length) {
+          const r = await applyRemote(rows, 'sync');
+          received += r.applied;
+          conflicts.push(...r.conflicts);
+        }
+        for (const x of rows) seenRevs.add(x.rev);
+        const maxRev = revs.reduce((m, x) => Math.max(m, x), lastRev);
         const progressed = maxRev > lastRev;
         lastRev = maxRev;
+        for (const v of seenRevs) if (v < lastRev - 200) seenRevs.delete(v);
         await setMeta('lastRev', lastRev);
-        if (rows.length < 1000 || !progressed) break;
+        if (revs.length < 1000 || !progressed) break;
       }
     };
 
@@ -139,11 +168,12 @@ export async function syncNow(): Promise<void> {
     // refusée ne bloque plus tout l'appareil (les autres ventes partent quand même), elle est signalée à part.
     const send = async (rows: { tbl: string; id: string; data: unknown; updated_at?: string; device: string }[]): Promise<void> => {
       if (!rows.length) return;
-      const res = await fetch(`${cfg.url}/rest/v1/records?on_conflict=tbl,id&select=tbl,id,updated_at`, {
+      const res = await fetch(`${cfg.url}/rest/v1/records?on_conflict=tbl,id&select=tbl,id,updated_at,rev`, {
         method: 'POST',
         headers: { ...headers(cfg), Prefer: 'resolution=merge-duplicates,return=representation' },
         body: JSON.stringify(rows),
       });
+      check402(res);
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         if ([401, 403, 502, 503, 504].includes(res.status)) throw new Error(`Envoi refusé (${res.status}) ${text}`);
@@ -159,6 +189,7 @@ export async function syncNow(): Promise<void> {
       try { back = await res.json(); } catch { back = null; }
       if (Array.isArray(back)) {
         const ok = new Set(back.filter((b: any) => b && b.tbl).map((b: any) => b.tbl + ':' + b.id));
+        for (const b of back as any[]) if (b && typeof b.rev === 'number') seenRevs.add(b.rev); // déjà ici : inutile de les retélécharger
         for (const r of rows) if (!ok.has(r.tbl + ':' + r.id)) rejected.push({ tbl: r.tbl, id: r.id });
       }
     };
@@ -231,6 +262,7 @@ export async function syncNow(): Promise<void> {
     } else setStatus({ state: 'ok', pending: await outboxCount(), lastSync: new Date().toISOString(), error: undefined });
   } catch (e: any) {
     if (navigator.onLine) await logSync({ sent: 0, received: 0, conflicts: 0, error: e?.message ?? String(e) }).catch(() => {});
+    if (e?.name === 'CloudQuotaError') quotaUntil = Date.now() + 10 * 60_000;
     setStatus({ state: navigator.onLine ? 'error' : 'offline', error: e?.message ?? String(e), auth: e?.name === 'CloudAuthError', pending: await outboxCount() });
   } finally {
     running = false;

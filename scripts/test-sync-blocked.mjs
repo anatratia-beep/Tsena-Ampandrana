@@ -11,7 +11,7 @@ await p.route('https://mock.supabase.co/**', async (route) => {
   const req = route.request(); const url = new URL(req.url()); const m = req.method(); const q = url.searchParams;
   if (m === 'GET') {
     let rows = [...cloud.values()];
-    if (q.get('rev')) { const g = Number(q.get('rev').replace('gt.', '')); rows = rows.filter((r) => r.rev > g); }
+    if (q.get('rev')?.startsWith('in.(')) { const set = new Set(q.get('rev').slice(4, -1).split(',').map(Number)); rows = rows.filter((r) => set.has(r.rev)); } else if (q.get('rev')) { const g = Number(q.get('rev').replace('gt.', '')); rows = rows.filter((r) => r.rev > g); }
     if (q.get('select') === 'rev') return route.fulfill({ json: rows.sort((a, c) => c.rev - a.rev).slice(0, 1).map((r) => ({ rev: r.rev })) });
     return route.fulfill({ json: rows.sort((a, c) => a.rev - c.rev).map((r) => ({ tbl: r.tbl, id: r.id, data: r.data, rev: r.rev })) });
   }

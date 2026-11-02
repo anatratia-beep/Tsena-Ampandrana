@@ -22,7 +22,7 @@ await p.route('https://mock.supabase.co/**', async (route) => {
     let rows = [...cloud.values()];
     if (q.get('tbl')?.startsWith('eq.')) rows = rows.filter((r) => r.tbl === q.get('tbl').slice(3));
     if (q.get('id')) { const ids = q.get('id').replace(/^in\.\(/, '').replace(/\)$/, '').split(',').map((s) => s.replace(/"/g, '')); rows = rows.filter((r) => ids.includes(r.id)); }
-    if (q.get('rev')) { const g = Number(q.get('rev').replace('gt.', '')); rows = rows.filter((r) => r.rev > g); }
+    if (q.get('rev')?.startsWith('in.(')) { const set = new Set(q.get('rev').slice(4, -1).split(',').map(Number)); rows = rows.filter((r) => set.has(r.rev)); } else if (q.get('rev')) { const g = Number(q.get('rev').replace('gt.', '')); rows = rows.filter((r) => r.rev > g); }
     if (sel === 'rev') { rows.sort((a, c) => c.rev - a.rev); return route.fulfill({ json: rows.slice(0, 1).map((r) => ({ rev: r.rev })) }); }
     if (sel === 'id') return route.fulfill({ json: [], headers: { 'content-range': `0-0/${cloud.size}`, 'access-control-expose-headers': 'content-range' } });
     rows.sort((a, c) => a.rev - c.rev);
