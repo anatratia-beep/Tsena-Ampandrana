@@ -6,6 +6,7 @@ import { moneyOut, salesLedger } from './analytics';
 import { rootOf } from './scope';
 import { addDays, dayOf, mondayOf, today, type CashMove } from './money';
 import { grid, usdRate } from './payouts';
+import { expenseDay } from './closed';
 import { isWalkIn, unpaidOf, type Order } from './orders';
 import { saleDay } from './handovers';
 import { situation } from './situation';
@@ -146,7 +147,8 @@ export function bossMoney(from: string, to: string): BossMoney {
   const exp = { cash: 0, mvola: 0, orange: 0 };
   for (const m of all<CashMove>('cashMoves')) {
     if (m.type !== 'expense' || !(m.account in exp)) continue;
-    const d = dayOf(m.at); if (d >= from && d <= to) exp[m.account as keyof typeof exp] -= m.amount;
+    // Dépense espèces du lundi (sauf frais de livraison) : comptée avec le samedi d'avant (versé au patron le mardi).
+    const d = m.account === 'cash' ? expenseDay(m) : dayOf(m.at); if (d >= from && d <= to) exp[m.account as keyof typeof exp] -= m.amount;
   }
   const mobile = paid.mvola + paid.orange + paid.airtel;
   const end = to < today() ? to : today(), mon = mondayOf(end);

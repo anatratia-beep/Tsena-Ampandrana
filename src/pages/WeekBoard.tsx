@@ -18,7 +18,7 @@ const useWatch = () => { useTable('orders'); useTable('cashMoves'); useTable('pa
 export function WeekGrid({ monday, withProfit }: { monday: string; withProfit: boolean }) {
   useWatch();
   const w = weekOf(monday);
-  const g = grid(w.start, w.end);
+  const g = grid(w.start, w.end, { week: true });
   const rate = usdRate();
   const pages = g.pages.filter((p) => g.pageTotals[p.id] || g.boostUsd[p.id]);
   const boostAr = (id: string) => (g.boostUsd[id] ?? 0) * rate;
@@ -28,6 +28,7 @@ export function WeekGrid({ monday, withProfit }: { monday: string; withProfit: b
     type R = { label: string; vals: Record<string, number>; exp: number; rest: number; total: number };
     const rows: R[] = [
       ...w.days.map((d) => ({ label: dayName(d), vals: g.sales[d], total: g.dayTotals[d], exp: g.expensesByDay[d], rest: g.dayTotals[d] - g.expensesByDay[d] })),
+      ...(g.lateDay && g.lateExpenses ? [{ label: `${dayName(g.lateDay)} : dépenses espèces (avant versement)`, vals: {}, total: 0, exp: g.lateExpenses, rest: -g.lateExpenses }] : []),
       { label: 'TOTAL', vals: g.pageTotals, total: g.salesTotal, exp: g.expensesTotal, rest: g.rest },
       { label: 'Boost (Ar)', vals: Object.fromEntries(pages.map((p) => [p.id, boostAr(p.id)])), total: totalBoost, exp: 0, rest: 0 },
       ...(withProfit ? [{ label: 'Bénéfice (ventes − coût − boost)', vals: Object.fromEntries(pages.map((p) => [p.id, (g.pageTotals[p.id] ?? 0) - (g.cost[p.id] ?? 0) - boostAr(p.id)])), total: g.salesTotal - totalCost - totalBoost, exp: 0, rest: 0 }] : []),
@@ -66,6 +67,9 @@ export function WeekGrid({ monday, withProfit }: { monday: string; withProfit: b
                 <td className="t-num neg">{cell(g.expensesByDay[d])}</td>
                 <td className="t-num">{cell(g.dayTotals[d] - g.expensesByDay[d])}</td></tr>
             ))}
+            {g.lateDay && g.lateExpenses > 0 && <tr><td><strong>{dayName(g.lateDay)}</strong><div className="small muted">dépenses espèces avant le versement du mardi (sauf frais de livraison)</div></td>
+              {pages.map((p) => <td key={p.id} className="t-num">—</td>)}<td className="t-num">—</td>
+              <td className="t-num neg">{cell(g.lateExpenses)}</td><td className="t-num">{cell(-g.lateExpenses)}</td></tr>}
             <tr className="t-total"><td>Total</td>{pages.map((p) => <td key={p.id} className="t-num">{fmtAr(g.pageTotals[p.id] ?? 0)}</td>)}<td className="t-num">{fmtAr(g.salesTotal)}</td><td className="t-num neg">{fmtAr(g.expensesTotal)}</td><td className="t-num"><strong>{fmtAr(g.rest)}</strong></td></tr>
             {totalBoost > 0 && <tr><td className="muted">Boost <span className="small">({rate.toLocaleString('fr-FR')} Ar/$)</span></td>{pages.map((p) => <td key={p.id} className="t-num muted">{cell(Math.round(boostAr(p.id)))}</td>)}<td className="t-num muted">{fmtAr(Math.round(totalBoost))}</td><td /><td /></tr>}
             {withProfit && <tr><td>Bénéfice <span className="small muted">(ventes − coût − boost)</span></td>{pages.map((p) => { const v = (g.pageTotals[p.id] ?? 0) - (g.cost[p.id] ?? 0) - boostAr(p.id); return <td key={p.id} className={`t-num ${v < 0 ? 'neg' : 'pos'}`}>{fmtAr(Math.round(v))}</td>; })}<td className="t-num"><strong>{fmtAr(Math.round(g.salesTotal - totalCost - totalBoost))}</strong></td><td /><td className="t-num"><strong>{fmtAr(Math.round(g.salesTotal - totalCost - totalBoost - g.expensesTotal))}</strong></td></tr>}
@@ -84,7 +88,7 @@ export function PayoutCard({ monday }: { monday: string }) {
   const [cancel, setCancel] = useState<Payout | null>(null);
   const w = weekOf(monday);
   const p = payoutOf(monday);
-  const g = grid(w.start, w.end);
+  const g = grid(w.start, w.end, { week: true });
   const finished = w.end <= today();
   const allowed = can('payout.validate');
   return (
