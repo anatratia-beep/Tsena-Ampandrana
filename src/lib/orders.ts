@@ -124,6 +124,9 @@ export const CHANNELS = { facebook: 'Facebook', phone: 'Téléphone', shop: 'Ven
 export const isWeb = (o: Pick<Order, 'channel'>) => o.channel === 'web';
 export const isWalkIn = (o: Pick<Order, 'channel'>) => o.channel === 'shop';
 export const isInternal = (o: Pick<Order, 'internal'>) => !!o.internal;
+/** Vente interne comptée à part (« Prix d'achat ») : seulement à partir du 03/11/2026 (00h Madagascar) — avant, les comptes de semaine sont déjà clôturés et restent inchangés. */
+export const STAFF_BUY_FROM = '2026-11-02T21:00:00.000Z';
+export const isStaffBuy = (o: Pick<Order, 'internal' | 'createdAt'>) => !!o.internal && (o.createdAt || '') >= STAFF_BUY_FROM;
 /** Nom affiché : client, sinon téléphone, sinon « Vente sur place ». */
 export const orderLabel = (o: Pick<Order, 'name' | 'phone' | 'channel'> & Partial<Pick<Order, 'internal' | 'employeeName' | 'facebook'>>) =>
   o.internal ? `Vente interne · ${o.employeeName || '?'}` : o.name || o.facebook || (o.phone ? fmtPhone(o.phone) : o.channel === 'shop' ? 'Vente sur place' : '—');

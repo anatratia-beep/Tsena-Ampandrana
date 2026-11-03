@@ -15,7 +15,7 @@ import { audit, currentUser, roleOf, type User } from './auth';
 import { salesLedger } from './analytics';
 import { rootOf, variantPage } from './scope';
 import { addDays, dayOf, type CashMove } from './money';
-import { courierSplit, exchangeBalance, isPickupZone, isWalkIn, orderTotal, unpaidOf, type Order, type PayMethod } from './orders';
+import { isStaffBuy, courierSplit, exchangeBalance, isPickupZone, isWalkIn, orderTotal, unpaidOf, type Order, type PayMethod } from './orders';
 import type { Category } from './catalog';
 import { COURIER_ROLE, SUPERADMIN_ROLE } from './permissions';
 import { firstPayDay } from './situation';
@@ -128,6 +128,7 @@ export function sellerDay(u: User, date: string): SellerDay {
   const mobOld: MobOld[] = [];
   const pending: PendingSale[] = [];
   for (const o of all<Order>('orders')) {
+    if (isStaffBuy(o)) continue; // vente interne (employé, prix d'achat) : hors versement (case « Prix d'achat » du rapport patron)
     if (!isMine(o, u)) continue;
     const old = saleDay(o) < date;
     const oldCash = (n: number) => { if (!old) return; if (date <= firstPayDay(saleDay(o))) cash1 += n; else cash2 += n; };
@@ -239,6 +240,7 @@ export function pagesOfDay(date: string): PageDay[] {
     if (l.kind === 'sale') r.ids.add(l.order.id);
   }
   for (const o of all<Order>('orders')) {
+    if (isStaffBuy(o)) continue; // vente interne (employé, prix d'achat) : hors versement (case « Prix d'achat » du rapport patron)
     const u = ownerOf(o); if (!u) continue;
     const old = saleDay(o) < date, first = old && date <= firstPayDay(saleDay(o));
     const oldCash = (r: PageDay, n: number) => { if (!old) return; if (first) r.cash1 += n; else r.cash2 += n; };

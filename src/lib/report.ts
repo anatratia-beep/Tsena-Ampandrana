@@ -7,7 +7,7 @@ import { rootOf } from './scope';
 import { addDays, dayOf, mondayOf, today, type CashMove } from './money';
 import { grid, usdRate } from './payouts';
 import { expenseDay } from './closed';
-import { isWalkIn, unpaidOf, type Order } from './orders';
+import { isStaffBuy, isWalkIn, unpaidOf, type Order } from './orders';
 import { saleDay } from './handovers';
 import { situation } from './situation';
 
@@ -67,6 +67,8 @@ export interface BossMoney {
   orange: { sales: number; expenses: number; toPay: number };
   /** Payé par carte sur le site web (Stripe, versé ensuite sur le compte bancaire). */
   card: number;
+  /** Ventes internes (employés, au prix d'achat), hors ventes et hors « Total à verser » : case à part. */
+  staffBuy: { amount: number; n: number };
   /** Reste impayé des ventes de la semaine en cours et de la semaine précédente (lundi → dimanche), par rapport à la fin
    *  de la période ; les ventes annulées ou reportées ne comptent pas. Celui de la semaine en cours = « Reste à payer » de
    *  l'accueil ; celui de la semaine précédente (sans frais, l'argent remis au livreur compte comme payé) est figé au comptage
@@ -107,12 +109,23 @@ function frozenUnpaid(from: string, to: string, count: string): WeekUnpaid {
   return { from, to, amount, n };
 }
 
+/** Ventes internes (employés, au prix d'achat) de la période (valeur des articles). */
+function staffBuys(from: string, to: string) {
+  let amount = 0, n = 0;
+  for (const o of all<Order>('orders')) {
+    if (!isStaffBuy(o) || o.status === 'cancelled') continue;
+    const d = saleDay(o); if (d < from || d > to) continue;
+    amount += Math.max(0, itemsValue(o)); n++;
+  }
+  return { amount, n };
+}
+
 /** Anciens impayés encaissés pendant la période : ventes d'une semaine déjà comptée (et d'avant la période), payées
  *  entre `from` et `to`, sans dépasser ce qui restait dû sur les articles. Ils s'ajoutent à la 2e case « À verser au patron ». */
 function prevUnpaidPaid(from: string, to: string) {
   let amount = 0; const ids = new Set<string>();
   for (const o of all<Order>('orders')) {
-    if (o.status === 'cancelled' || (!isWalkIn(o) && !o.dispatchedAt)) continue;
+    if (isStaffBuy(o) || o.status === 'cancelled' || (!isWalkIn(o) && !o.dispatchedAt)) continue;
     const sd = saleDay(o);
     if (sd >= from) continue;
     const ins = cashIns(o);
@@ -160,7 +173,7 @@ export function bossMoney(from: string, to: string): BossMoney {
     mvola: { sales: paid.mvola, expenses: exp.mvola, toPay: paid.mvola - exp.mvola },
     orange: { sales: paid.orange, expenses: exp.orange, toPay: paid.orange - exp.orange },
     card: pay.card || 0,
-    weekCur: restLikeAccueil(mon, end), weekPrev,
+    weekCur: restLikeAccueil(mon, end), weekPrev, staffBuy: staffBuys(from, to),
   };
 }
 
@@ -233,6 +246,7 @@ export function reportText(kind: PKind, label: string, r: Report, company: strin
     `*Total à verser après dépenses et anciens impayés encaissés : ${ar(m.cash.toPay)}*`,
     `Total MVola : ${ar(m.mvola.sales)}`, `Total MVola − dépenses MVola : ${ar(m.mvola.toPay)}`, `Total Orange Money : ${ar(m.orange.sales)}`, `Total Orange Money − dépenses Orange Money : ${ar(m.orange.toPay)}`,
     ...(Math.round(m.card || 0) ? [`Total carte bancaire (site web, Stripe) : ${ar(m.card)}`] : []),
+    ...(Math.round(m.staffBuy?.amount || 0) ? [`Prix d'achat (ventes internes, employés) : ${ar(m.staffBuy.amount)} (${m.staffBuy.n} vente(s))`] : []),
     `Reste impayé semaine précédente : ${ar(m.weekPrev.amount)} (${m.weekPrev.n} vente(s))`, `Reste impayé semaine en cours : ${ar(m.weekCur.amount)} (${m.weekCur.n} vente(s))`);
   if (r.pages.length) { out.push('', '*CA par page*'); for (const p of r.pages) out.push(`• ${p.name} : ${ar(p.revenue)} (${p.qty} pcs)`); }
   if (kind !== 'day' && r.stockPages.length) {
