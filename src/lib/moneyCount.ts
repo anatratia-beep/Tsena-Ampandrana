@@ -12,6 +12,8 @@ export interface MoneyCount extends BaseRecord {
   formulas?: Partial<Record<CountField, string>>;
   /** Solde réellement affiché sur chaque téléphone (MVola / Orange / Airtel), noté à la main (ex. en fin de compte). */
   soldes?: Partial<Record<'mvola' | 'orange' | 'airtel', number>>;
+  /** Versements : MVola / Orange / Airtel corrigés à la main pour une page ou un vendeur (clé = identifiant de la ligne). */
+  mobFix?: Record<string, Partial<Record<'mvola' | 'orange' | 'airtel', number>>>;
 }
 
 /**
@@ -54,3 +56,14 @@ export async function setPhoneSolde(date: string, field: 'mvola' | 'orange' | 'a
   await save('moneyCounts', { id: moneyCountId(date), date, soldes, byName: me?.fullName, at: new Date().toISOString() } as Partial<MoneyCount>);
   await audit('Solde téléphone (contrôle)', `${date} : solde ${COUNT_LABELS[field]} ${amount == null ? 'effacé' : `${Math.round(amount).toLocaleString('fr-FR')} Ar`}`, 'moneyCounts', moneyCountId(date), 'medium');
 }
+
+/** Corrige (ou remet au calcul avec `null`) le MVola / Orange / Airtel d'une ligne du versement ce jour-là. */
+export async function setMobFix(date: string, key: string, name: string, field: 'mvola' | 'orange' | 'airtel', amount: number | null, calc: number) {
+  if (amount != null && !isFinite(amount)) throw new Error('Montant invalide.');
+  const me = currentUser();
+  const cur = moneyCountOf(date)?.mobFix || {};
+  const mobFix = { ...cur, [key]: { ...(cur[key] || {}), [field]: amount ?? undefined } };
+  await save('moneyCounts', { id: moneyCountId(date), date, mobFix, byName: me?.fullName, at: new Date().toISOString() } as Partial<MoneyCount>);
+  await audit('Versement corrigé', `${date}, ${name} : ${COUNT_LABELS[field]} ${amount == null ? `remis au calcul (${Math.round(calc).toLocaleString('fr-FR')} Ar)` : `${Math.round(calc).toLocaleString('fr-FR')} Ar → ${Math.round(amount).toLocaleString('fr-FR')} Ar`}`, 'moneyCounts', moneyCountId(date), 'medium');
+}
+export const mobFixOf = (date: string, key: string, field: 'mvola' | 'orange' | 'airtel') => moneyCountOf(date)?.mobFix?.[key]?.[field];
