@@ -11,7 +11,7 @@ import { addDays, today } from '../lib/money';
 import { cancelHandover, changedSince, gapDue, gapsBefore, handoverHistory, openGaps, pagesOfDay, repayGap, receiveHandover, sellerDay, sellersOfDay, type Handover, type PageDay, type PendingSale, type SellerDay } from '../lib/handovers';
 import { printA4, a4Table, arA4, h } from '../lib/a4';
 import { restLedger, type RestRow } from '../lib/situation';
-import { COUNT_LABELS, moneyCountOf, parseFormula, setMoneyCount, setPhoneSolde, type CountField } from '../lib/moneyCount';
+import { COUNT_LABELS, mobFixOf, moneyCountOf, parseFormula, setMobFix, setMoneyCount, setPhoneSolde, type CountField } from '../lib/moneyCount';
 import { userPages } from '../lib/scope';
 import { Badge, Button, Confirm, Empty, Help, IconButton, Modal, PageHead, TextField, fmtDate, toast } from '../ui/kit';
 import { Icon } from '../ui/icons';
@@ -322,14 +322,38 @@ function PageRests({ date }: { date: string }) {
 
 /** MVola / Orange / Airtel des ventes du jour seulement (sans frais livreurs) : les règlements de ventes des jours
  *  précédents reçus ce jour-là ne sont pas comptés, ils s'affichent en détail sous le chiffre. */
-const mobDay = (d: SellerDay, m: 'mvola' | 'orange' | 'airtel') => d.pay[m] - d.feeBy[m] - d.mobOld.filter((x) => x.method === m).reduce((t, x) => t + x.amount, 0);
+const mobCalc = (d: SellerDay, m: 'mvola' | 'orange' | 'airtel') => d.pay[m] - d.feeBy[m] - d.mobOld.filter((x) => x.method === m).reduce((t, x) => t + x.amount, 0);
+/** Montant affiché et totalisé : la correction saisie à la main (✏️) si elle existe, sinon le calcul. */
+const mobDay = (d: SellerDay, m: 'mvola' | 'orange' | 'airtel') => mobFixOf(d.date, d.user.id, m) ?? mobCalc(d, m);
 const ddmmyy = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(2, 4)}`;
 function MobCell({ d, m }: { d: SellerDay; m: 'mvola' | 'orange' | 'airtel' }) {
   const [open, setOpen] = useState(false);
   const old = d.mobOld.filter((x) => x.method === m), n = old.reduce((t, x) => t + x.amount, 0);
+  const can = useCan(); useTable('moneyCounts');
+  const [edit, setEdit] = useState(false), [val, setVal] = useState(''), [busy, setBusy] = useState(false);
+  const calc = mobCalc(d, m), fix = mobFixOf(d.date, d.user.id, m);
+  const save = async (v: number | null) => {
+    setBusy(true);
+    try { await setMobFix(d.date, d.user.id, d.user.fullName, m, v, calc); setEdit(false); toast(v == null ? 'Remis au montant calculé' : `${COUNT_LABELS[m]} corrigé : ${fmtAr(v)}`); }
+    catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
+  };
+  const submit = () => { const v = parseAr(val); if (v == null) { toast('Montant invalide.', 'error'); return; } save(v === Math.round(calc) ? null : v); };
+  if (edit) return (
+    <td className="t-num" onClick={(e) => e.stopPropagation()}>
+      <div className="row" style={{ gap: 4, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
+        <input className="cell-input num-input" style={{ width: 100 }} inputMode="numeric" autoFocus aria-label={`${COUNT_LABELS[m]} de ${d.user.fullName}`}
+          value={val} disabled={busy} onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') setEdit(false); }} />
+        <IconButton icon="check" label={`Valider ${COUNT_LABELS[m]}`} disabled={busy || !val.trim()} onClick={submit} />
+      </div>
+    </td>
+  );
   return (
-    <td className="t-num">
-      {money(mobDay(d, m))}
+    <td className="t-num" onClick={(e) => e.stopPropagation()}>
+      <div className="row" style={{ gap: 2, flexWrap: 'nowrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+        {fix != null ? <strong>{fmtAr(fix)}</strong> : money(calc)}
+        {can('handover.receive') && <IconButton icon="edit" label={`Corriger ${COUNT_LABELS[m]} (${d.user.fullName})`} onClick={() => { setVal(String(Math.round(fix ?? calc))); setEdit(true); }} />}
+      </div>
+      {fix != null && <div className="small muted">calculé {fmtAr(calc)} · <button type="button" className="link-btn small" disabled={busy} onClick={() => save(null)}>remettre</button></div>}
       {old.length > 0 && <div><button type="button" className="link-btn small" aria-expanded={open} onClick={() => setOpen(!open)}>règlements {fmtAr(n)}</button></div>}
       {open && <div className="small muted" style={{ whiteSpace: 'nowrap' }}>{old.map((x, i) => <div key={i}>{x.page} le {ddmmyy(x.day)} : {fmtAr(x.amount)}{x.number ? ` (${x.number})` : ''}</div>)}</div>}
     </td>
