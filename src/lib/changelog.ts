@@ -2,6 +2,11 @@
 // La plus récente en premier. `date` : AAAA-MM-JJ.
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
+  { date: '2026-11-03', items: [
+    'Achats : « Ajouter un article » devient « Ajouter des articles », en un seul écran. Onglet « Par modèle / taille » : cochez les modèles et les tailles (ou couleurs) de la page, tapez les quantités (ou « Pour toutes ») ; les combinaisons qui n’existent pas encore sont créées automatiquement avec leur prix de vente.',
+    'Achats : quantité tapée directement sur la ligne de l’article dans la recherche, plusieurs articles d’un coup, un seul prix d’achat pour toutes les lignes.',
+    'Achats : nouveau filtre « Nouveaux articles » (créés ces 7, 30 ou 90 derniers jours, les plus récents en premier) pour les mettre vite dans la commande.',
+  ] },
   { date: '2026-11-02', items: [
     'Synchronisation beaucoup plus légère : chaque appareil ne retélécharge plus les 50 dernières fiches toutes les 15 secondes (seulement ce qui est nouveau). C’est ce qui avait épuisé le quota gratuit de Supabase.',
     'Si Supabase bloque le cloud (erreur 402, quota dépassé), un message clair l’indique (ce n’est pas un problème de mot de passe) ; les ventes restent sur l’appareil et partent au déblocage. Pendant le blocage, l’appareil ne réessaie que toutes les 10 minutes.',

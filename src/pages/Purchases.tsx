@@ -4,7 +4,7 @@ import { audit, useCan } from '../lib/auth';
 import { get, newId, remove, save, useTable } from '../lib/db';
 import {
   categoryPath, fmtAr, fmtNum, nextNumber, parseNum, productVariants, PURCHASE_STATUS, todayYmd, useCatalog, variantLabel,
-  type Product, type Purchase, type PurchaseLine, type PurchaseStatus, type Variant, matchQuery, productText, stockOf, searchItems } from '../lib/catalog';
+  type Category, type Product, type Purchase, type PurchaseLine, type PurchaseStatus, type Variant, matchQuery, productText, stockOf, searchItems } from '../lib/catalog';
 import { lastRate, lineTotal, purchaseGoods, purchasePaid, purchaseQty, purchaseReceivedQty, purchaseTotal, purchaseTotalAr, toAr, type Supplier } from '../lib/purchases';
 import { PurchasingTabs } from './ImportExport';
 import { Badge, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, fmtDate, navigate, toast, useRoute, useKeep } from '../ui/kit';
@@ -13,6 +13,7 @@ import { Icon } from '../ui/icons';
 import { voidPurchase } from '../lib/corrections';
 import { ACCOUNTS, ACCOUNT_IDS, addMove, atFor, type AccountId } from '../lib/money';
 import { ProductForm, Thumb } from './Products';
+import { activeAttrs, activeValues, articleId, articleParts, combinations, findArticle, saveArticles } from '../lib/attrs';
 
 const money = (n: number, cur: 'RMB' | 'MGA') => cur === 'RMB' ? `${n.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} ¥` : fmtAr(n);
 const FLOW: PurchaseStatus[] = ['ordered', 'shipped', 'arrived', 'received'];
@@ -416,53 +417,185 @@ export function PurchaseForm({ purchase, onClose, onSaved }: { purchase?: Purcha
   );
 }
 
-/** Choisir un article (ou en créer un) puis saisir les quantités par variante. */
+/**
+ * Ajouter des articles à la commande, en un seul écran :
+ * - « Rechercher » : quantité saisie directement sur la ligne (articles à une seule version) ;
+ * - « Par modèle / taille » : on coche les valeurs de la page (modèle, taille, couleur…), une ligne par combinaison ;
+ *   les combinaisons qui n'existent pas encore sont créées en même temps (plus besoin de créer l'article avant) ;
+ * - « Nouveaux articles » : les articles créés récemment, pour les mettre dans la commande.
+ */
+type PickTab = 'search' | 'grid' | 'new';
+const NEW_DAYS = [7, 30, 90];
 function LinePicker({ currency, onClose, onAdd }: { currency: 'RMB' | 'MGA'; onClose: () => void; onAdd: (l: PurchaseLine[]) => void }) {
   const { products } = useCatalog();
+  const cats = useTable<Category>('categories');
+  const keep = (k: string, d: string) => { try { return localStorage.getItem('tsena.picker.' + k) ?? d; } catch { return d; } };
+  const remember = (k: string, v: string) => { try { localStorage.setItem('tsena.picker.' + k, v); } catch { /* rien */ } };
+  const [tab, setTabRaw] = useState<PickTab>(keep('tab', 'search') as PickTab);
+  const setTab = (t: PickTab) => { setTabRaw(t); remember('tab', t); };
   const [q, setQ] = useState('');
   const [prod, setProd] = useState<Product | null>(null);
-  const [qty, setQty] = useState<Record<string, string>>({});
+  const [qty, setQty] = useState<Record<string, string>>({});       // id variante → quantité
   const [price, setPrice] = useState('');
   const [creating, setCreating] = useState(false);
+  const [days, setDaysRaw] = useState(Number(keep('days', '30')) || 30);
+  const setDays = (d: number) => { setDaysRaw(d); remember('days', String(d)); };
+  // Par modèle / taille
+  const pages = cats.filter((c) => !c.removed && activeAttrs(c).length > 0);
+  const [catId, setCatIdRaw] = useState(() => { const k = keep('cat', ''); return pages.some((c) => c.id === k) ? k : pages[0]?.id ?? ''; });
+  const setCatId = (v: string) => { setCatIdRaw(v); setPicked({}); remember('cat', v); };
+  const cat = cats.find((c) => c.id === catId);
+  const attrs = activeAttrs(cat);
+  const [picked, setPicked] = useState<Record<string, string[]>>({});
+  const [gridQty, setGridQty] = useState<Record<string, string>>({});   // id article (fixe) → quantité
+  const [gridPv, setGridPv] = useState<Record<string, string>>({});     // id article → PV détail (articles à créer)
+  const [allQty, setAllQty] = useState('');
+  const [allPv, setAllPv] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const n = q.trim().toLowerCase();
-  const found = searchItems(products.filter((p) => p.active !== false && p.kind !== 'lot'), productText, n, true).list.slice(0, 30);
-  const variants = prod ? productVariants(prod.id) : [];
-  const chosen = variants.filter((v) => parseNum(qty[v.id] ?? '')! > 0);
+  const pool = products.filter((p) => p.active !== false && p.kind !== 'lot');
+  const since = Date.now() - days * 86400e3;
+  const fresh = pool.filter((p) => p.createdAt && Date.parse(p.createdAt) >= since).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  const list = tab === 'new' ? (n ? fresh.filter((p) => matchQuery(productText(p), n)) : fresh).slice(0, 200) : searchItems(pool, productText, n, true).list.slice(0, 40);
+  const toggle = (aid: string, vid: string) => { const cur = picked[aid] ?? []; setPicked({ ...picked, [aid]: cur.includes(vid) ? cur.filter((x) => x !== vid) : [...cur, vid] }); };
+  const combos = cat ? combinations(cat, picked).map((sel) => {
+    const ex = findArticle(cat.id, sel);
+    const id = ex?.id ?? articleId(cat.id, sel);
+    return { sel, id, ex, parts: articleParts(cat, sel), variant: ex ? productVariants(ex.id)[0] : undefined };
+  }) : [];
+  const missingAttr = attrs.filter((a) => a.required !== false && !(picked[a.id] ?? []).length);
+
+  // Tout ce qui sera ajouté : quantités saisies (recherche / nouveaux / variantes) + lignes du tableau par modèle.
+  const direct = Object.entries(qty).map(([vid, v]) => ({ vid, n: parseNum(v) || 0 })).filter((x) => x.n > 0 && get<Variant>('variants', x.vid));
+  const gridRows = combos.map((c) => ({ ...c, n: parseNum(gridQty[c.id] ?? '') || 0, pv: parseNum(gridPv[c.id] ?? '') })).filter((c) => c.n > 0);
+  const toCreate = gridRows.filter((c) => !c.ex);
+  const noPv = toCreate.filter((c) => !c.pv);
+  const pieces = direct.reduce((t, x) => t + x.n, 0) + gridRows.reduce((t, c) => t + c.n, 0);
+
+  async function add() {
+    setError(null);
+    if (noPv.length) return setError(`Prix de vente détail à indiquer pour ${noPv.length} nouvel(s) article(s) (case « PV détail » ou « Pour toutes »).`);
+    setBusy(true);
+    try {
+      if (toCreate.length) await saveArticles(cat!, toCreate.map((c) => ({ sel: c.sel, retail: c.pv, wholesale: c.pv })), 'Création (achat)');
+      const unit = parseNum(price) || 0;
+      const lines: PurchaseLine[] = direct.map((x) => ({ id: newId(), variantId: x.vid, qtyOrdered: x.n, qtyReceived: 0, unitPrice: unit }));
+      for (const c of gridRows) {
+        const vid = c.variant?.id ?? productVariants(c.id)[0]?.id ?? `v_${c.id}`;
+        lines.push({ id: newId(), variantId: vid, qtyOrdered: c.n, qtyReceived: 0, unitPrice: unit });
+      }
+      onAdd(lines);
+      if (toCreate.length) toast(`${toCreate.length} nouvel(s) article(s) créé(s) et ajouté(s) à la commande`);
+      onClose();
+    } catch (e: any) { setError(e?.message ?? String(e)); setBusy(false); }
+  }
+
+  const qtyInput = (v: Variant, label?: string) => (
+    <input className="cell-input num-input" inputMode="numeric" placeholder="0" aria-label={`Quantité ${label ?? variantLabel(v)}`} value={qty[v.id] ?? ''}
+      onChange={(e) => setQty({ ...qty, [v.id]: e.target.value })} onClick={(e) => e.stopPropagation()} style={{ width: 80 }} />
+  );
+  const productRow = (p: Product) => {
+    const vs = productVariants(p.id);
+    const one = vs.length === 1 ? vs[0] : undefined;
+    const inCart = vs.reduce((t, v) => t + (parseNum(qty[v.id] ?? '') || 0), 0);
+    return (
+      <li key={p.id} className="list-item" style={{ gap: 10 }}>
+        <Thumb src={p.photo} size={40} />
+        <div className="list-item-main">
+          <span className="list-item-title">{p.code} — {p.name}</span>
+          <p className="small muted">{categoryPath(p.categoryId)}{one ? ` · en stock : ${stockOf(one.id)}` : ` · ${vs.length} variante(s)`}{tab === 'new' && p.createdAt ? ` · créé le ${fmtDate(p.createdAt)}` : ''}</p>
+        </div>
+        {one ? qtyInput(one, `${p.code} ${p.name}`) : <Button variant="ghost" onClick={() => setProd(p)}>{inCart ? `${inCart} pièce(s)` : 'Quantités'} ›</Button>}
+      </li>
+    );
+  };
+  const priceField = <TextField label={`Prix d’achat unitaire (${currency === 'RMB' ? '¥' : 'Ar'})`} value={price} onChange={setPrice} inputMode="decimal" hint="Le même pour toutes les lignes ajoutées. Modifiable ensuite ligne par ligne." />;
+
   return (
-    <Modal title={prod ? `${prod.code} — quantités` : 'Ajouter un article'} onClose={onClose} wide
-      footer={prod ? <><Button variant="ghost" onClick={() => setProd(null)}>Autre article</Button><Button disabled={!chosen.length} onClick={() => {
-        onAdd(chosen.map((v) => ({ id: newId(), variantId: v.id, qtyOrdered: parseNum(qty[v.id])!, qtyReceived: 0, unitPrice: parseNum(price) || 0 })));
-        onClose();
-      }}>Ajouter {chosen.reduce((s, v) => s + parseNum(qty[v.id])!, 0) || ''} pièce(s)</Button></> : undefined}>
-      {!prod ? (
-        <div className="stack">
-          <div className="row">
-            <div className="field" style={{ flex: 1 }}><input autoFocus aria-label="Rechercher un article" placeholder="Rechercher un code ou un nom" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-            <Button variant="ghost" icon="plus" onClick={() => setCreating(true)}>Nouvel article</Button>
-          </div>
-          <ul className="list card" style={{ padding: 0 }}>
-            {found.map((p) => (
-              <li key={p.id}><button className="list-item list-link" style={{ width: '100%', textAlign: 'left', background: 'none', border: 0, font: 'inherit', color: 'inherit' }} onClick={() => setProd(p)}>
-                <Thumb src={p.photo} size={40} /><div className="list-item-main"><span className="list-item-title">{p.code} — {p.name}</span><p className="small muted">{categoryPath(p.categoryId)} · {productVariants(p.id).length} variante(s)</p></div><Icon name="chevronRight" />
-              </button></li>
-            ))}
-            {!found.length && <Empty icon="search" title="Aucun article trouvé"><Button onClick={() => setCreating(true)}>Créer « {q || 'un nouvel article'} »</Button></Empty>}
-          </ul>
+    <Modal title={prod ? `${prod.code} — quantités` : 'Ajouter des articles'} onClose={onClose} wide
+      footer={prod ? <Button onClick={() => setProd(null)}>OK, retour à la liste</Button>
+        : <><span className="muted small" style={{ marginRight: 'auto' }}>{pieces ? `${fmtNum(pieces)} pièce(s)${toCreate.length ? ` · ${toCreate.length} article(s) à créer` : ''}` : 'Saisissez les quantités'}</span>
+          <Button variant="ghost" onClick={onClose}>Annuler</Button>
+          <Button busy={busy} disabled={!pieces} onClick={add}>Ajouter {pieces ? `${fmtNum(pieces)} pièce(s)` : ''}</Button></>}>
+      {prod ? (
+        <div className="variant-grid">
+          {productVariants(prod.id).map((v) => (
+            <label key={v.id} className="variant-cell">
+              <span className="small"><strong>{variantLabel(v)}</strong> · <span className="muted">en stock : {stockOf(v.id)}</span></span>
+              {qtyInput(v)}
+            </label>
+          ))}
         </div>
       ) : (
         <div className="stack">
-          <TextField label={`Prix unitaire (${currency === 'RMB' ? '¥' : 'Ar'})`} value={price} onChange={setPrice} inputMode="decimal" autoFocus hint="Le même pour toutes les variantes. Modifiable ensuite ligne par ligne." />
-          <div className="variant-grid">
-            {variants.map((v) => (
-              <label key={v.id} className="variant-cell">
-                <span className="small"><strong>{variantLabel(v)}</strong> · <span className="muted">en stock : {stockOf(v.id)}</span></span>
-                <input className="cell-input" inputMode="numeric" placeholder="0" value={qty[v.id] ?? ''} onChange={(e) => setQty({ ...qty, [v.id]: e.target.value })} />
-              </label>
-            ))}
+          <div className="segmented" role="group" aria-label="Façon d’ajouter" style={{ display: 'flex', flexWrap: 'wrap' }}>
+            <button aria-pressed={tab === 'search'} onClick={() => setTab('search')}>Rechercher</button>
+            <button aria-pressed={tab === 'grid'} onClick={() => setTab('grid')}>Par modèle / taille</button>
+            <button aria-pressed={tab === 'new'} onClick={() => setTab('new')}>Nouveaux articles{fresh.length ? ` (${fresh.length})` : ''}</button>
           </div>
+          {priceField}
+          {tab !== 'grid' && (
+            <>
+              <div className="row">
+                <div className="field" style={{ flex: 1 }}><input autoFocus aria-label="Rechercher un article" placeholder={tab === 'new' ? 'Filtrer les nouveaux articles' : 'Rechercher un code ou un nom'} value={q} onChange={(e) => setQ(e.target.value)} /></div>
+                {tab === 'new' && <div className="segmented" role="group" aria-label="Créés depuis">{NEW_DAYS.map((d) => <button key={d} aria-pressed={days === d} onClick={() => setDays(d)}>{d} jours</button>)}</div>}
+              </div>
+              {tab === 'new' && <p className="small muted" style={{ margin: 0 }}>Articles créés ces {days} derniers jours, les plus récents en premier. Tapez la quantité sur chaque ligne.</p>}
+              <ul className="list card" style={{ padding: 0 }}>
+                {list.map(productRow)}
+                {!list.length && <Empty icon="search" title={tab === 'new' ? `Aucun article créé ces ${days} derniers jours` : 'Aucun article trouvé'}>
+                  <Button onClick={() => setTab('grid')}>Créer par modèle / taille</Button>
+                </Empty>}
+              </ul>
+            </>
+          )}
+          {tab === 'grid' && (
+            <>
+              <SelectField label="Page" value={catId} onChange={setCatId} options={pages.length ? pages.map((c) => ({ value: c.id, label: categoryPath(c.id) })) : [{ value: '', label: 'Aucune page avec variantes' }]} />
+              {!pages.length && <div className="notice"><Icon name="alert" /><span>Aucune page n’a de variantes (modèle, taille…). Définissez-les dans <a href="#/pages">Pages et variantes</a>, ou <button type="button" className="link-btn" onClick={() => setCreating(true)}>créez un article simple</button>.</span></div>}
+              {attrs.map((a) => (
+                <div key={a.id} className="stack-s">
+                  <strong className="small">{a.name}{a.required === false ? ' (facultatif)' : ''}</strong>
+                  <div className="row" style={{ gap: 6 }}>
+                    {activeValues(a).map((v) => <button key={v.id} type="button" className="chip" aria-pressed={(picked[a.id] ?? []).includes(v.id)} title={v.label} onClick={() => toggle(a.id, v.id)}>{v.label === v.code ? v.label : <>{v.code}<span className="chip-sub"> · {v.label}</span></>}</button>)}
+                    {activeValues(a).length > 1 && <button type="button" className="chip chip-quiet" onClick={() => setPicked({ ...picked, [a.id]: (picked[a.id] ?? []).length === activeValues(a).length ? [] : activeValues(a).map((v) => v.id) })}>{(picked[a.id] ?? []).length === activeValues(a).length ? 'Aucune' : 'Toutes'}</button>}
+                    {!activeValues(a).length && <span className="small muted">Aucune valeur : ajoutez-en dans <a href="#/pages">Pages et variantes</a>.</span>}
+                  </div>
+                </div>
+              ))}
+              {cat && attrs.length > 0 && missingAttr.length > 0 && <p className="small muted" style={{ margin: 0 }}>Cochez : {missingAttr.map((a) => a.name).join(', ')}.</p>}
+              {combos.length > 0 && (
+                <>
+                  <div className="row builder-all">
+                    <input className="cell-input num-input" inputMode="numeric" placeholder="Quantité" aria-label="Quantité pour toutes" value={allQty} onChange={(e) => setAllQty(e.target.value)} />
+                    {combos.some((c) => !c.ex) && <input className="cell-input num-input" inputMode="numeric" placeholder="PV détail" aria-label="PV détail pour tous les nouveaux" value={allPv} onChange={(e) => setAllPv(e.target.value)} />}
+                    <Button variant="ghost" onClick={() => {
+                      if (allQty !== '') setGridQty({ ...gridQty, ...Object.fromEntries(combos.map((c) => [c.id, allQty])) });
+                      if (allPv !== '') setGridPv({ ...gridPv, ...Object.fromEntries(combos.filter((c) => !c.ex).map((c) => [c.id, allPv])) });
+                    }}>Pour toutes</Button>
+                  </div>
+                  <div className="table-wrap"><table className="table">
+                    <thead><tr><th>Article</th><th className="t-num">En stock</th><th style={{ width: 100 }}>Quantité</th><th style={{ width: 130 }}>PV détail (Ar)</th></tr></thead>
+                    <tbody>{combos.map((c) => (
+                      <tr key={c.id}>
+                        <td><strong>{c.ex ? c.ex.name : c.parts.name}</strong> {!c.ex && <Badge tone="brand">nouveau</Badge>}<div className="small muted">{c.ex?.code ?? c.parts.code} · {c.parts.label}</div></td>
+                        <td className="t-num">{c.variant ? stockOf(c.variant.id) : 0}</td>
+                        <td><input className="cell-input num-input" inputMode="numeric" placeholder="0" aria-label={`Quantité ${c.parts.name}`} value={gridQty[c.id] ?? ''} onChange={(e) => setGridQty({ ...gridQty, [c.id]: e.target.value })} /></td>
+                        <td>{c.ex ? <span className="small muted">{fmtAr(c.ex.priceRetail)}</span> : <input className="cell-input num-input" inputMode="numeric" aria-label={`PV détail ${c.parts.name}`} value={gridPv[c.id] ?? ''} onChange={(e) => setGridPv({ ...gridPv, [c.id]: e.target.value })} />}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table></div>
+                  <p className="small muted" style={{ margin: 0 }}>{combos.length} combinaison(s){combos.some((c) => !c.ex) ? ` · celles marquées « nouveau » seront créées automatiquement (photo, nom et prix modifiables ensuite dans Articles)` : ''}.</p>
+                </>
+              )}
+            </>
+          )}
+          {error && <div className="notice notice-danger"><Icon name="alert" /><span>{error}</span></div>}
         </div>
       )}
-      {creating && <ProductForm onClose={() => setCreating(false)} onSaved={(p) => { setProd(p); setCreating(false); }} />}
+      {creating && <ProductForm onClose={() => setCreating(false)} onSaved={(p) => { setCreating(false); setTab('search'); setQ(p.code); }} />}
     </Modal>
   );
 }
