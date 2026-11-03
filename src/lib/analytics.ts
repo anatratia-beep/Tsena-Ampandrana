@@ -53,6 +53,7 @@ export function salesLedger(from?: string, to?: string): SaleLine[] {
     return lines.map((l) => ({ ...l, value: l.value - (total ? (discount * l.value) / total : 0) }));
   };
   for (const o of all<Order>('orders')) {
+    if (o.internal) continue; // vente interne (employé, prix d'achat) : pas une vente, comptée à part (« Prix d'achat »)
     const adj = o.adjusts || [];
     if (isWalkIn(o)) {
       if (o.status === 'cancelled' || !inR(o.createdAt)) continue;

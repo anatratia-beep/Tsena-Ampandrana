@@ -128,6 +128,7 @@ export function sellerDay(u: User, date: string): SellerDay {
   const mobOld: MobOld[] = [];
   const pending: PendingSale[] = [];
   for (const o of all<Order>('orders')) {
+    if (o.internal) continue; // vente interne (employé, prix d'achat) : hors versement (case « Prix d'achat » du rapport patron)
     if (!isMine(o, u)) continue;
     const old = saleDay(o) < date;
     const oldCash = (n: number) => { if (!old) return; if (date <= firstPayDay(saleDay(o))) cash1 += n; else cash2 += n; };
@@ -239,6 +240,7 @@ export function pagesOfDay(date: string): PageDay[] {
     if (l.kind === 'sale') r.ids.add(l.order.id);
   }
   for (const o of all<Order>('orders')) {
+    if (o.internal) continue; // vente interne (employé, prix d'achat) : hors versement (case « Prix d'achat » du rapport patron)
     const u = ownerOf(o); if (!u) continue;
     const old = saleDay(o) < date, first = old && date <= firstPayDay(saleDay(o));
     const oldCash = (r: PageDay, n: number) => { if (!old) return; if (first) r.cash1 += n; else r.cash2 += n; };

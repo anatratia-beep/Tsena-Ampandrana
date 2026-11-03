@@ -125,6 +125,7 @@ export function situation(from: string, to: string, pages?: string[]) {
     if (mine) { uniq.orders.add(o.id); if (sold - counted > 0.5) uniq.rest.add(o.id); if (isEx) uniq.exchange.add(o.id); }
   }
   for (const o of all<Order>('orders')) {
+    if (o.internal) continue;
     const sh = orderShares(o);
     const val = Math.max(0, itemsValue(o));
     // 2. Annulé : commandes de la période qui ont été annulées
