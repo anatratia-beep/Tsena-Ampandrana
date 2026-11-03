@@ -7,7 +7,7 @@ import { rootOf } from './scope';
 import { addDays, dayOf, mondayOf, today, type CashMove } from './money';
 import { grid, usdRate } from './payouts';
 import { expenseDay } from './closed';
-import { isWalkIn, unpaidOf, type Order } from './orders';
+import { isStaffBuy, isWalkIn, unpaidOf, type Order } from './orders';
 import { saleDay } from './handovers';
 import { situation } from './situation';
 
@@ -113,7 +113,7 @@ function frozenUnpaid(from: string, to: string, count: string): WeekUnpaid {
 function staffBuys(from: string, to: string) {
   let amount = 0, n = 0;
   for (const o of all<Order>('orders')) {
-    if (!o.internal || o.status === 'cancelled') continue;
+    if (!isStaffBuy(o) || o.status === 'cancelled') continue;
     const d = saleDay(o); if (d < from || d > to) continue;
     amount += Math.max(0, itemsValue(o)); n++;
   }
@@ -125,7 +125,7 @@ function staffBuys(from: string, to: string) {
 function prevUnpaidPaid(from: string, to: string) {
   let amount = 0; const ids = new Set<string>();
   for (const o of all<Order>('orders')) {
-    if (o.internal || o.status === 'cancelled' || (!isWalkIn(o) && !o.dispatchedAt)) continue;
+    if (isStaffBuy(o) || o.status === 'cancelled' || (!isWalkIn(o) && !o.dispatchedAt)) continue;
     const sd = saleDay(o);
     if (sd >= from) continue;
     const ins = cashIns(o);

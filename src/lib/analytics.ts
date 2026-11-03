@@ -3,7 +3,7 @@
 import { all, get } from './db';
 import { productPage } from './scope';
 import { stockOf, variantCost, incomingOf, type Category, type Product, type Purchase, type Variant } from './catalog';
-import { isPickupZone, isWalkIn, sellingLines, type Courier, type Order } from './orders';
+import { isStaffBuy, isPickupZone, isWalkIn, sellingLines, type Courier, type Order } from './orders';
 import { dayOf, type CashMove, type FinanceCategory } from './money';
 import { purchaseTotalAr, purchasePaid, purchaseTotal } from './purchases';
 import { adjustKept, type Adjust } from './lots';
@@ -53,7 +53,7 @@ export function salesLedger(from?: string, to?: string): SaleLine[] {
     return lines.map((l) => ({ ...l, value: l.value - (total ? (discount * l.value) / total : 0) }));
   };
   for (const o of all<Order>('orders')) {
-    if (o.internal) continue; // vente interne (employé, prix d'achat) : pas une vente, comptée à part (« Prix d'achat »)
+    if (isStaffBuy(o)) continue; // vente interne (employé, prix d'achat) : pas une vente, comptée à part (« Prix d'achat »)
     const adj = o.adjusts || [];
     if (isWalkIn(o)) {
       if (o.status === 'cancelled' || !inR(o.createdAt)) continue;
