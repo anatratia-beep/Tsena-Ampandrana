@@ -13,6 +13,7 @@ import { Icon } from '../ui/icons';
 import { voidPurchase } from '../lib/corrections';
 import { ACCOUNTS, ACCOUNT_IDS, addMove, atFor, type AccountId } from '../lib/money';
 import { ProductForm, Thumb } from './Products';
+import { productPage } from '../lib/scope';
 import { activeAttrs, activeValues, articleId, articleParts, combinations, findArticle, saveArticles } from '../lib/attrs';
 
 const money = (n: number, cur: 'RMB' | 'MGA') => cur === 'RMB' ? `${n.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} ¥` : fmtAr(n);
@@ -36,7 +37,7 @@ function PurchaseList() {
   const [order, setOrder] = useKeep<ListOrder>('purch.order', 'new');
   const [period, setPeriod] = useKeep<Period>('purch.period', defaultPeriod('all'));
   const list = useMemo(() => {
-    const n = q.trim().toLowerCase();
+  const n = q.trim().toLowerCase();
     return applyDates(purchases
       .filter((p) => tab === 'all' || (tab === 'open' ? !['received', 'cancelled'].includes(p.status) : p.status === 'received'))
       .filter((p) => !n || `${p.number} ${p.orderRef} ${p.trackingNo} ${get<Supplier>('suppliers', p.supplierId || '')?.name} ${p.notes}`.toLowerCase().includes(n))
@@ -436,6 +437,9 @@ function LinePicker({ currency, onClose, onAdd }: { currency: 'RMB' | 'MGA'; onC
   const [q, setQ] = useState('');
   const [prod, setProd] = useState<Product | null>(null);
   const [qty, setQty] = useState<Record<string, string>>({});       // id variante → quantité
+  const [cost, setCost] = useState<Record<string, string>>({});     // id variante → prix d'achat de la ligne
+  const [pageF, setPageFRaw] = useState(keep('page', ''));
+  const setPageF = (v: string) => { setPageFRaw(v); remember('page', v); };
   const [price, setPrice] = useState('');
   const [creating, setCreating] = useState(false);
   const [days, setDaysRaw] = useState(Number(keep('days', '30')) || 30);
@@ -449,16 +453,20 @@ function LinePicker({ currency, onClose, onAdd }: { currency: 'RMB' | 'MGA'; onC
   const [picked, setPicked] = useState<Record<string, string[]>>({});
   const [gridQty, setGridQty] = useState<Record<string, string>>({});   // id article (fixe) → quantité
   const [gridPv, setGridPv] = useState<Record<string, string>>({});     // id article → PV détail (articles à créer)
+  const [gridCost, setGridCost] = useState<Record<string, string>>({}); // id article → prix d'achat
+  const [allCost, setAllCost] = useState('');
   const [allQty, setAllQty] = useState('');
   const [allPv, setAllPv] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const CUR = currency === 'RMB' ? '¥' : 'Ar';
   const n = q.trim().toLowerCase();
-  const pool = products.filter((p) => p.active !== false && p.kind !== 'lot');
+  const roots = cats.filter((c) => !c.parentId && !c.removed).sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name, 'fr'));
+  const pool = products.filter((p) => p.active !== false && p.kind !== 'lot' && (!pageF || productPage(p.id) === pageF));
   const since = Date.now() - days * 86400e3;
   const fresh = pool.filter((p) => p.createdAt && Date.parse(p.createdAt) >= since).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-  const list = tab === 'new' ? (n ? fresh.filter((p) => matchQuery(productText(p), n)) : fresh).slice(0, 200) : searchItems(pool, productText, n, true).list.slice(0, 40);
+  const list = tab === 'new' ? (n ? fresh.filter((p) => matchQuery(productText(p), n)) : fresh).slice(0, 200) : (n ? searchItems(pool, productText, n, true).list : pageF ? [...pool].sort((a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true })) : searchItems(pool, productText, n, true).list).slice(0, pageF ? 400 : 40);
   const toggle = (aid: string, vid: string) => { const cur = picked[aid] ?? []; setPicked({ ...picked, [aid]: cur.includes(vid) ? cur.filter((x) => x !== vid) : [...cur, vid] }); };
   const combos = cat ? combinations(cat, picked).map((sel) => {
     const ex = findArticle(cat.id, sel);
@@ -469,7 +477,7 @@ function LinePicker({ currency, onClose, onAdd }: { currency: 'RMB' | 'MGA'; onC
 
   // Tout ce qui sera ajouté : quantités saisies (recherche / nouveaux / variantes) + lignes du tableau par modèle.
   const direct = Object.entries(qty).map(([vid, v]) => ({ vid, n: parseNum(v) || 0 })).filter((x) => x.n > 0 && get<Variant>('variants', x.vid));
-  const gridRows = combos.map((c) => ({ ...c, n: parseNum(gridQty[c.id] ?? '') || 0, pv: parseNum(gridPv[c.id] ?? '') })).filter((c) => c.n > 0);
+  const gridRows = combos.map((c) => ({ ...c, n: parseNum(gridQty[c.id] ?? '') || 0, pv: parseNum(gridPv[c.id] ?? ''), cost: parseNum(gridCost[c.id] ?? '') })).filter((c) => c.n > 0);
   const toCreate = gridRows.filter((c) => !c.ex);
   const noPv = toCreate.filter((c) => !c.pv);
   const pieces = direct.reduce((t, x) => t + x.n, 0) + gridRows.reduce((t, c) => t + c.n, 0);
@@ -481,10 +489,10 @@ function LinePicker({ currency, onClose, onAdd }: { currency: 'RMB' | 'MGA'; onC
     try {
       if (toCreate.length) await saveArticles(cat!, toCreate.map((c) => ({ sel: c.sel, retail: c.pv, wholesale: c.pv })), 'Création (achat)');
       const unit = parseNum(price) || 0;
-      const lines: PurchaseLine[] = direct.map((x) => ({ id: newId(), variantId: x.vid, qtyOrdered: x.n, qtyReceived: 0, unitPrice: unit }));
+      const lines: PurchaseLine[] = direct.map((x) => ({ id: newId(), variantId: x.vid, qtyOrdered: x.n, qtyReceived: 0, unitPrice: parseNum(cost[x.vid] ?? '') ?? unit }));
       for (const c of gridRows) {
         const vid = c.variant?.id ?? productVariants(c.id)[0]?.id ?? `v_${c.id}`;
-        lines.push({ id: newId(), variantId: vid, qtyOrdered: c.n, qtyReceived: 0, unitPrice: unit });
+        lines.push({ id: newId(), variantId: vid, qtyOrdered: c.n, qtyReceived: 0, unitPrice: c.cost ?? unit });
       }
       onAdd(lines);
       if (toCreate.length) toast(`${toCreate.length} nouvel(s) article(s) créé(s) et ajouté(s) à la commande`);
@@ -493,8 +501,12 @@ function LinePicker({ currency, onClose, onAdd }: { currency: 'RMB' | 'MGA'; onC
   }
 
   const qtyInput = (v: Variant, label?: string) => (
-    <input className="cell-input num-input" inputMode="numeric" placeholder="0" aria-label={`Quantité ${label ?? variantLabel(v)}`} value={qty[v.id] ?? ''}
-      onChange={(e) => setQty({ ...qty, [v.id]: e.target.value })} onClick={(e) => e.stopPropagation()} style={{ width: 80 }} />
+    <span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+      <input className="cell-input num-input" inputMode="numeric" placeholder="Qté" aria-label={`Quantité ${label ?? variantLabel(v)}`} value={qty[v.id] ?? ''}
+        onChange={(e) => setQty({ ...qty, [v.id]: e.target.value })} onClick={(e) => e.stopPropagation()} style={{ width: 70 }} />
+      <input className="cell-input num-input" inputMode="decimal" placeholder={price ? price : `Prix ${CUR}`} aria-label={`Prix d’achat ${label ?? variantLabel(v)}`} value={cost[v.id] ?? ''}
+        onChange={(e) => setCost({ ...cost, [v.id]: e.target.value })} onClick={(e) => e.stopPropagation()} style={{ width: 90 }} />
+    </span>
   );
   const productRow = (p: Product) => {
     const vs = productVariants(p.id);
@@ -511,7 +523,7 @@ function LinePicker({ currency, onClose, onAdd }: { currency: 'RMB' | 'MGA'; onC
       </li>
     );
   };
-  const priceField = <TextField label={`Prix d’achat unitaire (${currency === 'RMB' ? '¥' : 'Ar'})`} value={price} onChange={setPrice} inputMode="decimal" hint="Le même pour toutes les lignes ajoutées. Modifiable ensuite ligne par ligne." />;
+  const priceField = <TextField label={`Prix d’achat par défaut (${CUR})`} value={price} onChange={setPrice} inputMode="decimal" hint="Utilisé pour les lignes dont la case « Prix » est vide. Chaque ligne peut avoir son propre prix." />;
 
   return (
     <Modal title={prod ? `${prod.code} — quantités` : 'Ajouter des articles'} onClose={onClose} wide
@@ -539,7 +551,8 @@ function LinePicker({ currency, onClose, onAdd }: { currency: 'RMB' | 'MGA'; onC
           {tab !== 'grid' && (
             <>
               <div className="row">
-                <div className="field" style={{ flex: 1 }}><input autoFocus aria-label="Rechercher un article" placeholder={tab === 'new' ? 'Filtrer les nouveaux articles' : 'Rechercher un code ou un nom'} value={q} onChange={(e) => setQ(e.target.value)} /></div>
+                <SelectField label="Page" value={pageF} onChange={setPageF} options={[{ value: '', label: 'Toutes les pages' }, ...roots.map((c) => ({ value: c.id, label: c.name }))]} />
+                <div className="field" style={{ flex: '1 1 240px', alignSelf: 'flex-end' }}><input autoFocus aria-label="Rechercher un article" placeholder={tab === 'new' ? 'Filtrer les nouveaux articles' : 'Rechercher un code ou un nom'} value={q} onChange={(e) => setQ(e.target.value)} /></div>
                 {tab === 'new' && <div className="segmented" role="group" aria-label="Créés depuis">{NEW_DAYS.map((d) => <button key={d} aria-pressed={days === d} onClick={() => setDays(d)}>{d} jours</button>)}</div>}
               </div>
               {tab === 'new' && <p className="small muted" style={{ margin: 0 }}>Articles créés ces {days} derniers jours, les plus récents en premier. Tapez la quantité sur chaque ligne.</p>}
@@ -570,19 +583,22 @@ function LinePicker({ currency, onClose, onAdd }: { currency: 'RMB' | 'MGA'; onC
                 <>
                   <div className="row builder-all">
                     <input className="cell-input num-input" inputMode="numeric" placeholder="Quantité" aria-label="Quantité pour toutes" value={allQty} onChange={(e) => setAllQty(e.target.value)} />
+                    <input className="cell-input num-input" inputMode="decimal" placeholder={`Prix d’achat ${CUR}`} aria-label="Prix d’achat pour toutes" value={allCost} onChange={(e) => setAllCost(e.target.value)} />
                     {combos.some((c) => !c.ex) && <input className="cell-input num-input" inputMode="numeric" placeholder="PV détail" aria-label="PV détail pour tous les nouveaux" value={allPv} onChange={(e) => setAllPv(e.target.value)} />}
                     <Button variant="ghost" onClick={() => {
                       if (allQty !== '') setGridQty({ ...gridQty, ...Object.fromEntries(combos.map((c) => [c.id, allQty])) });
+                      if (allCost !== '') setGridCost({ ...gridCost, ...Object.fromEntries(combos.map((c) => [c.id, allCost])) });
                       if (allPv !== '') setGridPv({ ...gridPv, ...Object.fromEntries(combos.filter((c) => !c.ex).map((c) => [c.id, allPv])) });
                     }}>Pour toutes</Button>
                   </div>
                   <div className="table-wrap"><table className="table">
-                    <thead><tr><th>Article</th><th className="t-num">En stock</th><th style={{ width: 100 }}>Quantité</th><th style={{ width: 130 }}>PV détail (Ar)</th></tr></thead>
+                    <thead><tr><th>Article</th><th className="t-num">En stock</th><th style={{ width: 90 }}>Quantité</th><th style={{ width: 110 }}>Prix d’achat ({CUR})</th><th style={{ width: 120 }}>PV détail (Ar)</th></tr></thead>
                     <tbody>{combos.map((c) => (
                       <tr key={c.id}>
                         <td><strong>{c.ex ? c.ex.name : c.parts.name}</strong> {!c.ex && <Badge tone="brand">nouveau</Badge>}<div className="small muted">{c.ex?.code ?? c.parts.code} · {c.parts.label}</div></td>
                         <td className="t-num">{c.variant ? stockOf(c.variant.id) : 0}</td>
                         <td><input className="cell-input num-input" inputMode="numeric" placeholder="0" aria-label={`Quantité ${c.parts.name}`} value={gridQty[c.id] ?? ''} onChange={(e) => setGridQty({ ...gridQty, [c.id]: e.target.value })} /></td>
+                        <td><input className="cell-input num-input" inputMode="decimal" placeholder={price || ''} aria-label={`Prix d’achat ${c.parts.name}`} value={gridCost[c.id] ?? ''} onChange={(e) => setGridCost({ ...gridCost, [c.id]: e.target.value })} /></td>
                         <td>{c.ex ? <span className="small muted">{fmtAr(c.ex.priceRetail)}</span> : <input className="cell-input num-input" inputMode="numeric" aria-label={`PV détail ${c.parts.name}`} value={gridPv[c.id] ?? ''} onChange={(e) => setGridPv({ ...gridPv, [c.id]: e.target.value })} />}</td>
                       </tr>
                     ))}</tbody>

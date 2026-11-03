@@ -3,6 +3,7 @@
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
   { date: '2026-11-03', items: [
+    'Achats → Ajouter des articles : filtre par page (tous les articles de la page s’affichent sans rien chercher), et sur chaque ligne la quantité ET le prix d’achat se saisissent ensemble (le « prix par défaut » sert pour les lignes laissées vides). Par modèle / taille : colonne « Prix d’achat » et « Pour toutes ».',
     'Achats : « Ajouter un article » devient « Ajouter des articles », en un seul écran. Onglet « Par modèle / taille » : cochez les modèles et les tailles (ou couleurs) de la page, tapez les quantités (ou « Pour toutes ») ; les combinaisons qui n’existent pas encore sont créées automatiquement avec leur prix de vente.',
     'Achats : quantité tapée directement sur la ligne de l’article dans la recherche, plusieurs articles d’un coup, un seul prix d’achat pour toutes les lignes.',
     'Achats : nouveau filtre « Nouveaux articles » (créés ces 7, 30 ou 90 derniers jours, les plus récents en premier) pour les mettre vite dans la commande.',

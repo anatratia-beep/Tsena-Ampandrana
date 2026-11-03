@@ -14,8 +14,9 @@ await p.evaluate(async () => {
   await t.save('categories', [{ id: 'pg', name: 'Plateforme', code: 'PLA', order: 1, attrs: [
     { id: 'mod', name: 'Modèle', required: true, active: true, values: [{ id: 'm6', label: 'PH6', code: 'PH6' }, { id: 'm7', label: 'PH7', code: 'PH7' }] },
     { id: 'tai', name: 'Taille', required: true, active: true, values: [{ id: 'tM', label: 'M', code: 'M' }, { id: 'tL', label: 'L', code: 'L' }] }] }]);
-  await t.save('products', [{ id: 'OLD', code: 'OLD1', name: 'Vieux article', categoryId: 'pg', priceRetail: 1000, active: true, createdAt: old }]);
-  await t.save('variants', [{ id: 'vOLD', productId: 'OLD', sku: 'OLD1', active: true, createdAt: old }]);
+  await t.save('categories', [{ id: 'pz', name: 'Netvision', code: 'NET', order: 2 }]);
+  await t.save('products', [{ id: 'NV1', code: 'NV1', name: 'Câble Netvision', categoryId: 'pz', priceRetail: 5000, active: true, createdAt: old }, { id: 'OLD', code: 'OLD1', name: 'Vieux article', categoryId: 'pg', priceRetail: 1000, active: true, createdAt: old }]);
+  await t.save('variants', [{ id: 'vNV1', productId: 'NV1', sku: 'NV1', active: true, createdAt: old }, { id: 'vOLD', productId: 'OLD', sku: 'OLD1', active: true, createdAt: old }]);
 });
 await p.goto('http://localhost:5173/#/achats'); await p.waitForTimeout(600);
 await p.getByRole('button', { name: 'Nouvelle commande' }).click(); await p.waitForTimeout(300);
@@ -28,17 +29,18 @@ await dlg.getByRole('button', { name: 'Toutes' }).first().click();
 await p.waitForTimeout(200);
 let tx = N(await dlg.innerText());
 ok((tx.match(/nouveau/g) || []).length >= 4, '4 combinaisons PH6/PH7 × M/L proposées, marquées « nouveau »');
-await dlg.getByLabel(/Prix d’achat unitaire/).fill('25');
+await dlg.getByLabel(/Prix d’achat par défaut/).fill('25');
 await dlg.getByLabel('Quantité pour toutes').fill('5');
 await dlg.getByLabel('PV détail pour tous les nouveaux').fill('30000');
 await dlg.getByRole('button', { name: 'Pour toutes' }).click(); await p.waitForTimeout(200);
 await dlg.getByLabel('Quantité PH7 L').fill('2');
+await dlg.getByLabel('Prix d’achat PH7 L').fill('40');
 await dlg.getByRole('button', { name: /^Ajouter 17 pièce/ }).click(); await p.waitForTimeout(600);
 const created = await p.evaluate(() => window.__tsena.all('products').filter((x) => x.attrs).map((x) => x.name + ':' + x.priceRetail).sort());
 ok(created.join() === 'PH6 L:30000,PH6 M:30000,PH7 L:30000,PH7 M:30000', `les 4 articles créés en un clic avec leur PV (${created.join()})`);
 const form = p.getByRole('dialog').first();
 tx = N(await form.innerText());
-ok(tx.includes('17 pièces') && tx.includes('425 ¥'), 'commande : 17 pièces à 25 ¥ = 425 ¥');
+ok(tx.includes('17 pièces') && tx.includes('455 ¥'), 'commande : 15 pièces à 25 ¥ + 2 pièces à 40 ¥ (prix propre à la ligne) = 455 ¥');
 // Nouveaux articles : les 4 créés apparaissent, pas le vieux ; quantité sur la ligne
 await p.getByRole('button', { name: 'Ajouter un article' }).click(); await p.waitForTimeout(300);
 const d2 = p.getByRole('dialog').last();
@@ -53,10 +55,15 @@ ok(tx.includes('20 pièces'), 'ajout depuis « Nouveaux articles » : 3 pièces 
 await p.getByRole('button', { name: 'Ajouter un article' }).click(); await p.waitForTimeout(300);
 const d3 = p.getByRole('dialog').last();
 await d3.getByRole('button', { name: 'Rechercher' }).click();
-await d3.getByLabel('Rechercher un article').fill('vieux'); await p.waitForTimeout(200);
-await d3.getByLabel(/Quantité OLD1/).fill('4');
+await d3.getByLabel('Page').selectOption({ label: 'Netvision' }); await p.waitForTimeout(200);
+tx = N(await d3.innerText());
+ok(tx.includes('Câble Netvision') && !tx.includes('Vieux article') && !tx.includes('PH6'), 'filtre par page : seulement les articles de Netvision, sans rien chercher');
+await d3.getByLabel(/Quantité NV1/).fill('4');
+await d3.getByLabel(/Prix d’achat NV1/).fill('30');
 await d3.getByRole('button', { name: /^Ajouter 4 pièce/ }).click(); await p.waitForTimeout(400);
 await form.getByRole('button', { name: 'Créer la commande' }).click(); await p.waitForTimeout(600);
 const pur = await p.evaluate(() => window.__tsena.all('purchases')[0]);
+const nv = pur?.lines.find((l) => l.variantId === 'vNV1');
+ok(nv && nv.qtyOrdered === 4 && nv.unitPrice === 30, 'quantité et prix d’achat saisis ensemble sur la ligne (4 × 30 ¥)');
 ok(pur && pur.lines.length === 5 && pur.lines.reduce((t, l) => t + l.qtyOrdered, 0) === 24, `commande créée : 5 lignes, 24 pièces (${pur?.lines.length}, ${pur?.lines.reduce((t, l) => t + l.qtyOrdered, 0)})`);
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
