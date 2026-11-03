@@ -105,6 +105,7 @@ export async function syncNow(): Promise<void> {
     const device = getMeta('deviceId', '');
     const conflicts: SyncConflictLog[] = [];
     let sent = 0, received = 0, fixedSkew = 0;
+    const pushedRevs: number[] = []; // versions envoyées par cet appareil : pas besoin de les re-télécharger
 
     // 1. Réception des modifications des autres appareils, fusionnées champ par champ avec celles d'ici.
     const pull = async () => {
@@ -113,21 +114,45 @@ export async function syncNow(): Promise<void> {
       // en comparant avec le dernier numéro du cloud, et on reprend tout depuis le début (la fusion évite les doublons).
       if (lastRev > 0) {
         const top = await fetch(`${cfg.url}/rest/v1/records?select=rev&order=rev.desc&limit=1`, { headers: headers(cfg) });
-        if (top.ok) { const [t] = await top.json(); if (!t || t.rev < lastRev) { lastRev = 0; await setMeta('lastRev', 0); } }
+        if (top.ok) { const [t] = await top.json(); if (!t || t.rev < lastRev) { lastRev = 0; await setMeta('lastRev', 0); await setMeta('seenRevs', []); } }
       }
       for (;;) {
         const from = Math.max(0, lastRev - 50); // petite marge de sécurité : une fusion déjà faite ne change rien
-        const res = await fetch(`${cfg.url}/rest/v1/records?select=tbl,id,data,rev&rev=gt.${from}&order=rev.asc&limit=1000`, { headers: headers(cfg) });
+        // D'abord la liste légère (sans le contenu) ; le contenu n'est téléchargé que pour les versions pas encore
+        // reçues ici. Avant, la marge de sécurité re-téléchargeait ~50 fiches complètes à chaque passage
+        // (toutes les 15 s, sur chaque appareil) : c'est ce qui épuisait le quota de données du cloud.
+        const res = await fetch(`${cfg.url}/rest/v1/records?select=tbl,id,rev&rev=gt.${from}&order=rev.asc&limit=1000`, { headers: headers(cfg) });
         if (!res.ok) throw new Error(`Réception refusée (${res.status})`);
-        const rows: { tbl: string; id: string; data: any; rev: number }[] = await res.json();
+        const heads: { tbl: string; id: string; rev: number }[] = await res.json();
+        // Chaque modification dans le cloud reçoit un nouveau numéro (rev) : un numéro déjà reçu = contenu déjà fusionné ici.
+        const seen = new Set([...getMeta<number[]>('seenRevs', []), ...pushedRevs]);
+        const need = heads.filter((h) => !seen.has(h.rev));
+        let rows: { tbl: string; id: string; data: any; rev: number }[] = [];
+        if (need.length && need.length === heads.length) {
+          const full = await fetch(`${cfg.url}/rest/v1/records?select=tbl,id,data,rev&rev=gt.${from}&rev=lte.${heads[heads.length - 1].rev}&order=rev.asc`, { headers: headers(cfg) });
+          if (!full.ok) throw new Error(`Réception refusée (${full.status})`);
+          rows = await full.json();
+        } else if (need.length) {
+          const byTbl = new Map<string, string[]>();
+          for (const h of need) byTbl.set(h.tbl, [...(byTbl.get(h.tbl) ?? []), h.id]);
+          for (const [tbl, ids] of byTbl) {
+            for (let i = 0; i < ids.length; i += 50) {
+              const part = ids.slice(i, i + 50).map((x) => `"${x.replace(/"/g, '')}"`).join(',');
+              const r2 = await fetch(`${cfg.url}/rest/v1/records?select=tbl,id,data,rev&tbl=eq.${encodeURIComponent(tbl)}&id=in.(${encodeURIComponent(part)})`, { headers: headers(cfg) });
+              if (!r2.ok) throw new Error(`Réception refusée (${r2.status})`);
+              rows.push(...await r2.json());
+            }
+          }
+        }
         const r = await applyRemote(rows, 'sync');
         received += r.applied;
         conflicts.push(...r.conflicts);
-        const maxRev = rows.reduce((m, x) => Math.max(m, x.rev), lastRev);
+        const maxRev = heads.reduce((m, x) => Math.max(m, x.rev), lastRev);
+        await setMeta('seenRevs', [...new Set([...seen, ...heads.map((h) => h.rev)])].filter((v) => v > maxRev - 50));
         const progressed = maxRev > lastRev;
         lastRev = maxRev;
         await setMeta('lastRev', lastRev);
-        if (rows.length < 1000 || !progressed) break;
+        if (heads.length < 1000 || !progressed) break;
       }
     };
 
@@ -139,7 +164,7 @@ export async function syncNow(): Promise<void> {
     // refusée ne bloque plus tout l'appareil (les autres ventes partent quand même), elle est signalée à part.
     const send = async (rows: { tbl: string; id: string; data: unknown; updated_at?: string; device: string }[]): Promise<void> => {
       if (!rows.length) return;
-      const res = await fetch(`${cfg.url}/rest/v1/records?on_conflict=tbl,id&select=tbl,id,updated_at`, {
+      const res = await fetch(`${cfg.url}/rest/v1/records?on_conflict=tbl,id&select=tbl,id,updated_at,rev`, {
         method: 'POST',
         headers: { ...headers(cfg), Prefer: 'resolution=merge-duplicates,return=representation' },
         body: JSON.stringify(rows),
@@ -159,6 +184,7 @@ export async function syncNow(): Promise<void> {
       try { back = await res.json(); } catch { back = null; }
       if (Array.isArray(back)) {
         const ok = new Set(back.filter((b: any) => b && b.tbl).map((b: any) => b.tbl + ':' + b.id));
+        for (const b of back as any[]) if (b && typeof b.rev === 'number') pushedRevs.push(b.rev);
         for (const r of rows) if (!ok.has(r.tbl + ':' + r.id)) rejected.push({ tbl: r.tbl, id: r.id });
       }
     };
