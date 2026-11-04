@@ -13,6 +13,10 @@ export interface DupGroup { key: string; items: Product[]; pages: string[] }
 const lastToken = (name: string) => normText(name).trim().split(/\s+/).pop() ?? '';
 const photoKey = (p: Product) => (p.photo ? `${p.photo.length}:${p.photo.slice(-80)}` : '');
 
+const attrSig = (p: Product) => Object.keys(p.attrs ?? {}).filter((k) => p.attrs![k]).sort().map((k) => `${k}=${p.attrs![k]}`).join('&');
+/** Vrai si les deux articles sont clairement différents : même page, articles de page, valeurs différentes. */
+const distinct = (a: Product, b: Product) => !!(a.attrs && b.attrs && rootOf(a.categoryId) === rootOf(b.categoryId) && attrSig(a) !== attrSig(b));
+
 /** Groupes d'articles probablement en double (au moins deux pages différentes, ou même nom dans la même page). */
 export function findDuplicates(): DupGroup[] {
   const groups = new Map<string, Product[]>();
@@ -24,7 +28,11 @@ export function findDuplicates(): DupGroup[] {
     for (const k of keys) { if (!groups.has(k)) groups.set(k, []); groups.get(k)!.push(p); }
   }
   const out: DupGroup[] = []; const seen = new Set<string>();
-  for (const [key, items] of groups) {
+  for (const [key, all0] of groups) {
+    // Deux articles d'une même page avec des valeurs différentes (ex. « SEXY M » noir et « SEXY M » blanc) ne sont pas
+    // des doublons : seule la couleur (ou une autre valeur) les distingue. On ne garde que les articles qui ont un vrai
+    // jumeau dans le groupe (même combinaison de valeurs, article simple, ou autre page).
+    const items = all0.filter((p) => all0.some((q) => q.id !== p.id && !distinct(p, q)));
     if (items.length < 2) continue;
     const pages = [...new Set(items.map((p) => rootOf(p.categoryId)))];
     const sameName = key.startsWith('nm|');

@@ -2,6 +2,9 @@
 // La plus récente en premier. `date` : AAAA-MM-JJ.
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
+  { date: '2026-11-04', items: [
+    'Articles en double : deux articles d’une même page qui ne diffèrent que par une valeur (couleur, taille…), ex. « SEXY M » noir et « SEXY M » blanc, ne sont plus signalés comme doublons.',
+  ] },
   { date: '2026-11-03', items: [
     'Achats → Ajouter des articles : filtre par page (tous les articles de la page s’affichent sans rien chercher), et sur chaque ligne la quantité ET le prix d’achat se saisissent ensemble (le « prix par défaut » sert pour les lignes laissées vides). Par modèle / taille : colonne « Prix d’achat » et « Pour toutes ».',
     'Achats : « Ajouter un article » devient « Ajouter des articles », en un seul écran. Onglet « Par modèle / taille » : cochez les modèles et les tailles (ou couleurs) de la page, tapez les quantités (ou « Pour toutes ») ; les combinaisons qui n’existent pas encore sont créées automatiquement avec leur prix de vente.',
