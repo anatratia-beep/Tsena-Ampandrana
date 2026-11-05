@@ -30,7 +30,10 @@ await p.getByLabel('MVola de Poignet précieux').fill('12000'); await p.keyboard
 r = N(await row().innerText()).replace(/\s+/g, ' ');
 ok(/12 000 Ar/.test(r) && /calculé 15 000 Ar/.test(r), `MVola corrigé : 12 000, calcul 15 000 affiché (${r})`);
 ok(/Total .* 12 000 Ar/.test(await foot()), `total MVola = montant corrigé (${await foot()})`);
+const mvCount = async () => N(await p.locator('.money-count tbody tr', { hasText: 'MVola' }).first().locator('td').nth(1).innerText()).trim();
+ok(await mvCount() === '12 000 Ar', `« Argent réellement reçu » : MVola calculé = total du versement (12 000) (${await mvCount()})`);
 await row().getByRole('button', { name: 'remettre' }).click(); await p.waitForTimeout(400);
 r = N(await row().innerText()).replace(/\s+/g, ' ');
 ok(/15 000 Ar/.test(r) && !/calculé 15 000/.test(r), 'remettre : retour au calcul');
+ok(await mvCount() === '15 000 Ar', `« Argent réellement reçu » : MVola calculé 15 000, sans le règlement d'avant (${await mvCount()})`);
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);

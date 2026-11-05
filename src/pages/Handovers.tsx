@@ -129,8 +129,10 @@ function dayCalc(date: string) {
   const sum = (f: (d: PageDay) => number) => rows.reduce((t, d) => t + f(d), 0);
   const feeBy = { mvola: sum((d) => d.feeBy.mvola), orange: sum((d) => d.feeBy.orange), airtel: sum((d) => d.feeBy.airtel) };
   const calc: Record<CountField, number> = {
-    cash: sum((d) => d.toPay), mvola: sum((d) => d.pay.mvola) - feeBy.mvola,
-    orange: sum((d) => d.pay.orange) - feeBy.orange, airtel: sum((d) => d.pay.airtel) - feeBy.airtel,
+    // Même chiffre que le tableau du versement : ventes du jour seulement (sans les règlements de jours précédents),
+    // correction ✏️ prise en compte.
+    cash: sum((d) => d.toPay), mvola: sum((d) => mobDay(d, 'mvola')),
+    orange: sum((d) => mobDay(d, 'orange')), airtel: sum((d) => mobDay(d, 'airtel')),
   };
   return { calc, feeBy, feeMobile: feeBy.mvola + feeBy.orange + feeBy.airtel };
 }
