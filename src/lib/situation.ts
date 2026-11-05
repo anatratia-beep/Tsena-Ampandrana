@@ -218,7 +218,7 @@ export function restLedger(from: string, to: string, pages?: string[]): RestRow[
 export function cancelledRests(from: string, to: string): (RestRow & { cancelled: number })[] {
   const out: (RestRow & { cancelled: number })[] = [];
   for (const o of all<Order>('orders')) {
-    if (o.status !== 'cancelled' || o.internal || (!isWalkIn(o) && !o.dispatchedAt)) continue;
+    if (o.status !== 'cancelled' || o.internal || o.cancelChecked || (!isWalkIn(o) && !o.dispatchedAt)) continue;
     const day = dayOf(isWalkIn(o) ? o.createdAt : o.dispatchedAt!);
     if (!day || day < from || day > to) continue;
     const value = Math.max(0, itemsValue(o));

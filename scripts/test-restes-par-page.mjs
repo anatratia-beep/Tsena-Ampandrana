@@ -35,10 +35,18 @@ const rows = (await card.locator('tbody tr, tfoot tr').allInnerTexts()).map(N);
 console.log(rows.join('\n'));
 const i = rows.indexOf('Netvision');
 ok(i >= 0, 'groupe Netvision');
-ok(new RegExp(`^Le ${days.d0} annulé : N2 120 000 Ar 40 000 Ar — 30 000 Ar 50 000 Ar$`).test(rows[i + 1]), `Netvision ${days.d0} : 120 000 → 1er 40 000 → annulé 30 000 → reste 50 000`);
+ok(new RegExp(`^Le ${days.d0} annulé : N2 · ✓ Validé 120 000 Ar 40 000 Ar — 30 000 Ar 50 000 Ar$`).test(rows[i + 1]), `Netvision ${days.d0} : 120 000 → 1er 40 000 → annulé 30 000 → reste 50 000`);
 ok(new RegExp(`^Le ${days.d1} 25 000 Ar — — — 25 000 Ar$`).test(rows[i + 2]), `Netvision ${days.d1} : reste 25 000`);
 ok(/^Total Netvision 145 000 Ar 40 000 Ar — 30 000 Ar 75 000 Ar$/.test(rows[i + 3]), 'total Netvision');
 ok(rows.includes('Poignet précieux') && !rows.some((r) => /X1/.test(r)), 'Poignet précieux à part, X1 (jamais partie) ignorée');
 ok(/^Total toutes pages 165 000 Ar 40 000 Ar — 30 000 Ar 95 000 Ar$/.test(rows[rows.length - 1]), `total toutes pages (${rows[rows.length - 1]})`);
 if (process.env.SHOT) { await card.scrollIntoViewIfNeeded(); await card.screenshot({ path: process.env.SHOT }); }
+// ✓ Validé : l'annulation vue sort du suivi
+await card.getByRole('button', { name: /Valider l’annulation N2/ }).click(); await p.waitForTimeout(500);
+const rows2 = (await card.locator('tbody tr, tfoot tr').allInnerTexts()).map(N);
+const j = rows2.indexOf('Netvision');
+ok(new RegExp(`^Le ${days.d0} 90 000 Ar 40 000 Ar — — 50 000 Ar$`).test(rows2[j + 1]), `après validation : ${days.d0} 90 000 → 40 000 → reste 50 000, plus d'annulé (${rows2[j + 1]})`);
+ok(/^Total toutes pages 135 000 Ar 40 000 Ar — — 95 000 Ar$/.test(rows2[rows2.length - 1]), `reste encore dû inchangé 95 000 (${rows2[rows2.length - 1]})`);
+ok(await p.evaluate(() => !!window.__tsena.get('orders', 'N2').cancelChecked), 'N2 marquée validée');
+if (process.env.SHOT2) await card.screenshot({ path: process.env.SHOT2 });
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);

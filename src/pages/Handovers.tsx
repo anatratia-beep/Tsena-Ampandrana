@@ -3,9 +3,9 @@
 //   saisit ce qu'il a reçu et valide.
 // - Le vendeur voit sa propre feuille : ce qu'il doit remettre, et si le responsable l'a reçu.
 import { useState } from 'react';
-import { useCan, useCurrentUser } from '../lib/auth';
-import { get, useTable } from '../lib/db';
-import type { Courier } from '../lib/orders';
+import { audit, currentUser, useCan, useCurrentUser } from '../lib/auth';
+import { get, save, useTable } from '../lib/db';
+import type { Courier, Order } from '../lib/orders';
 import { fmtAr, parseNum, parseAr } from '../lib/catalog';
 import { addDays, today } from '../lib/money';
 import { cancelHandover, changedSince, gapDue, gapsBefore, handoverHistory, openGaps, pagesOfDay, repayGap, receiveHandover, sellerDay, sellersOfDay, type Handover, type PageDay, type PendingSale, type SellerDay } from '../lib/handovers';
@@ -331,8 +331,8 @@ function RestFollow({ date }: { date: string }) {
   useTable('orders');
   const from = addDays(date, -6);
   const pageName = (id: string) => get<{ name: string }>('categories', id)?.name ?? 'Sans page';
-  type Cell = { start: number; p1: number; p2: number; cancelled: number; rest: number; refs: string[] };
-  const zero = (): Cell => ({ start: 0, p1: 0, p2: 0, cancelled: 0, rest: 0, refs: [] });
+  type Cell = { start: number; p1: number; p2: number; cancelled: number; rest: number; refs: string[]; ids: string[] };
+  const zero = (): Cell => ({ start: 0, p1: 0, p2: 0, cancelled: 0, rest: 0, refs: [], ids: [] });
   const m = new Map<string, Map<string, Cell>>();
   const rowsIn = [...restLedger(from, date), ...cancelledRests(from, date)];
   for (const r of rowsIn) {
@@ -343,7 +343,7 @@ function RestFollow({ date }: { date: string }) {
       const c = byDay.get(r.day) ?? zero(); byDay.set(r.day, c);
       c.start += (r.value - r.sameDay) * k; c.p1 += (r.p1?.amount ?? 0) * k; c.p2 += (r.p2?.amount ?? 0) * k;
       c.cancelled += cancelled * k; c.rest += r.rest * k;
-      if (cancelled > 0.5) c.refs.push(r.o.number || '');
+      if (cancelled > 0.5 && !c.ids.includes(r.o.id)) { c.refs.push(r.o.number || ''); c.ids.push(r.o.id); }
     }
   }
   const pages = [...m.entries()].map(([pg, byDay]) => ({ pg, name: pageName(pg), days: [...byDay.entries()].filter(([, c]) => c.start > 0.5).sort(([a], [b]) => a.localeCompare(b)) }))
@@ -351,6 +351,16 @@ function RestFollow({ date }: { date: string }) {
   const sum = (cs: Cell[]) => cs.reduce((t, c) => ({ ...t, start: t.start + c.start, p1: t.p1 + c.p1, p2: t.p2 + c.p2, cancelled: t.cancelled + c.cancelled, rest: t.rest + c.rest }), zero());
   const all7 = sum(pages.flatMap((x) => x.days.map(([, c]) => c)));
   const ddmmyy = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(2, 4)}`;
+  const can = useCan();
+  /** Annulation vue et validée : elle sort du suivi (la ligne disparaît s'il n'y reste rien). */
+  const validate = async (c: Cell) => {
+    const me = currentUser();
+    try {
+      await save('orders', c.ids.map((id) => ({ id, cancelChecked: { at: new Date().toISOString(), by: me?.fullName } })) as Partial<Order>[]);
+      await audit('Annulation validée', `${c.refs.filter(Boolean).join(', ')} : reste annulé ${fmtAr(c.cancelled)} vu au versement`, 'orders', c.ids[0]);
+      toast('Annulation validée');
+    } catch (e: any) { toast(e.message, 'error'); }
+  };
   const cells = (c: Cell, strong = false) => {
     const v = (n: number, cls = '') => <td className={`t-num ${cls}`}>{n > 0.5 ? (strong ? <strong>{fmtAr(n)}</strong> : fmtAr(n)) : <span className="muted">—</span>}</td>;
     return <>{v(c.start)}{v(c.p1, 'pos')}{v(c.p2, 'pos')}{v(c.cancelled, 'muted')}{v(c.rest, 'neg')}</>;
@@ -367,7 +377,7 @@ function RestFollow({ date }: { date: string }) {
           <tbody>{pages.map((x) => [
             <tr key={x.pg} className="rest-follow-page"><td colSpan={6}><strong>{x.name}</strong></td></tr>,
             ...x.days.map(([day, c]) => (
-              <tr key={`${x.pg}-${day}`}><td>Le {ddmmyy(day)}{c.refs.length ? <div className="small muted">annulé : {c.refs.filter(Boolean).join(', ')}</div> : null}</td>{cells(c)}</tr>
+              <tr key={`${x.pg}-${day}`}><td>Le {ddmmyy(day)}{c.refs.length ? <div className="small muted">annulé : {c.refs.filter(Boolean).join(', ')}{can('handover.receive') && <> · <button type="button" className="link-btn small" aria-label={`Valider l’annulation ${c.refs.filter(Boolean).join(', ')}`} onClick={() => validate(c)}>✓ Validé</button></>}</div> : null}</td>{cells(c)}</tr>
             )),
             x.days.length > 1 && <tr key={`${x.pg}-t`} className="t-total"><td>Total {x.name}</td>{cells(sum(x.days.map(([, c]) => c)), true)}</tr>,
           ])}</tbody>

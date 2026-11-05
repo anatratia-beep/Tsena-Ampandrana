@@ -107,6 +107,8 @@ export interface Order extends BaseRecord {
   /** Annulations rectifiées (annulée par erreur) : historique, et demande en attente du super-admin. */
   rectifications?: Rectification[];
   rectifyRequest?: RectifyRequest;
+  /** Versements : annulation avec reste vue et validée par le responsable (n'apparaît plus dans le suivi des restes). */
+  cancelChecked?: { at: string; by?: string };
 }
 
 export const ORDER_STATUS: Record<OrderStatus, { label: string; tone: 'neutral' | 'brand' | 'warn' | 'ok' | 'danger' }> = {
