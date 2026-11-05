@@ -11,7 +11,7 @@ import { addDays, today } from '../lib/money';
 import { cancelHandover, changedSince, gapDue, gapsBefore, handoverHistory, openGaps, pagesOfDay, repayGap, receiveHandover, sellerDay, sellersOfDay, type Handover, type PageDay, type PendingSale, type SellerDay } from '../lib/handovers';
 import { printA4, a4Table, arA4, h } from '../lib/a4';
 import { cancelledRests, restLedger, type RestRow } from '../lib/situation';
-import { COUNT_LABELS, FIX_LABELS, mobFixOf, moneyCountOf, parseFormula, setMobFix, setMoneyCount, setPhoneSolde, type CountField, type FixField } from '../lib/moneyCount';
+import { COUNT_LABELS, FIX_LABELS, mobFixOf, restSeenOf, setRestSeen, moneyCountOf, parseFormula, setMobFix, setMoneyCount, setPhoneSolde, type CountField, type FixField } from '../lib/moneyCount';
 import { userPages } from '../lib/scope';
 import { Badge, Button, Confirm, Empty, Help, IconButton, Modal, PageHead, TextField, fmtDate, toast } from '../ui/kit';
 import { Icon } from '../ui/icons';
@@ -346,7 +346,7 @@ function RestFollow({ date }: { date: string }) {
       if (cancelled > 0.5 && !c.ids.includes(r.o.id)) { c.refs.push(r.o.number || ''); c.ids.push(r.o.id); }
     }
   }
-  const pages = [...m.entries()].map(([pg, byDay]) => ({ pg, name: pageName(pg), days: [...byDay.entries()].filter(([, c]) => c.start > 0.5).sort(([a], [b]) => a.localeCompare(b)) }))
+  const pages = [...m.entries()].map(([pg, byDay]) => ({ pg, name: pageName(pg), days: [...byDay.entries()].filter(([day, c]) => c.start > 0.5 && !(c.rest <= 0.5 && c.ids.length === 0 && restSeenOf(day, pg))).sort(([a], [b]) => a.localeCompare(b)) }))
     .filter((x) => x.days.length).sort((a, b) => a.name.localeCompare(b.name));
   const sum = (cs: Cell[]) => cs.reduce((t, c) => ({ ...t, start: t.start + c.start, p1: t.p1 + c.p1, p2: t.p2 + c.p2, cancelled: t.cancelled + c.cancelled, rest: t.rest + c.rest }), zero());
   const all7 = sum(pages.flatMap((x) => x.days.map(([, c]) => c)));
@@ -360,6 +360,8 @@ function RestFollow({ date }: { date: string }) {
         await save('orders', c.ids.map((id) => ({ id, cancelChecked: { at: new Date().toISOString(), by: me?.fullName } })) as Partial<Order>[]);
         await audit('Annulation validée', `${c.refs.filter(Boolean).join(', ')} : reste annulé ${fmtAr(c.cancelled)} vu au versement`, 'orders', c.ids[0]);
       }
+      // Jour soldé (plus rien à payer) : la ligne sort du suivi.
+      if (pg && day && c.rest <= 0.5) await setRestSeen(day, pg, name || pg);
       toast('Validé');
     } catch (e: any) { toast(e.message, 'error'); }
   };
@@ -380,7 +382,7 @@ function RestFollow({ date }: { date: string }) {
             <tr key={x.pg} className="rest-follow-page"><td colSpan={6}><strong>{x.name}</strong></td></tr>,
             ...x.days.map(([day, c]) => (
               <tr key={`${x.pg}-${day}`}><td>Le {ddmmyy(day)}{c.refs.length ? <div className="small muted">annulé : {c.refs.filter(Boolean).join(', ')}</div> : null}
-                {can('handover.receive') && c.ids.length > 0 && <div><button type="button" className="link-btn small" aria-label={c.ids.length ? `Valider l’annulation ${c.refs.filter(Boolean).join(', ')}` : `Valider le ${ddmmyy(day)} (${x.name})`} onClick={() => validate(c, x.pg, day, x.name)}>✓ Valider les annulés</button></div>}</td>{cells(c)}</tr>
+                {can('handover.receive') && (c.ids.length > 0 || c.rest <= 0.5) && <div><button type="button" className="link-btn small" aria-label={c.ids.length ? `Valider l’annulation ${c.refs.filter(Boolean).join(', ')}` : `Valider le ${ddmmyy(day)} (${x.name})`} onClick={() => validate(c, x.pg, day, x.name)}>{c.rest > 0.5 ? '✓ Valider les annulés' : '✓ Validé'}</button></div>}</td>{cells(c)}</tr>
             )),
             x.days.length > 1 && <tr key={`${x.pg}-t`} className="t-total"><td>Total {x.name}</td>{cells(sum(x.days.map(([, c]) => c)), true)}</tr>,
           ])}</tbody>
