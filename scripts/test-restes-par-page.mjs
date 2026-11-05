@@ -49,9 +49,11 @@ const j = rows2.indexOf('Netvision');
 ok(new RegExp(`^Le ${days.d0} 90 000 Ar 40 000 Ar — — 50 000 Ar$`).test(rows2[j + 1]), `après validation : ${days.d0} 90 000 → 40 000 → reste 50 000, plus d'annulé (${rows2[j + 1]})`);
 ok(/^Total toutes pages 150 000 Ar 55 000 Ar — — 95 000 Ar$/.test(rows2[rows2.length - 1]), `reste encore dû inchangé 95 000 (${rows2[rows2.length - 1]})`);
 ok(await p.evaluate(() => !!window.__tsena.get('orders', 'N2').cancelChecked), 'N2 marquée validée');
-// jour soldé (reste 0) : reste visible (pour voir qui vient de payer), pas de bouton
-const soldRow = async () => (await card.locator('tbody tr').allInnerTexts()).map(N).filter((r) => r.startsWith(`Le ${days.d1} 15 000 Ar 15 000 Ar`));
-ok((await soldRow()).length === 1, `Poignet précieux ${days.d1} soldé toujours visible (${JSON.stringify(await soldRow())})`);
-ok(await card.getByRole('button', { name: /Valider le/ }).count() === 0, 'pas de bouton pour masquer un jour soldé');
+// jour soldé (reste 0) : ✓ Validé le fait sortir du suivi
+const soldRow = async () => (await card.locator('tbody tr').allInnerTexts()).map(N).filter((r) => r.startsWith(`Le ${days.d1}`) && / — —$|— 0 Ar$|— —$/.test(r) && !/25 000/.test(r));
+ok((await soldRow()).length === 1, `Poignet précieux ${days.d1} soldé visible avec ✓ Validé (${JSON.stringify(await soldRow())})`);
+await card.getByRole('button', { name: `Valider le ${days.d1} (Poignet précieux)` }).click(); await p.waitForTimeout(500);
+ok((await soldRow()).length === 0, 'après ✓ Validé : le jour soldé sort du suivi');
+ok(await card.getByRole('button', { name: `Valider le ${days.d1} (Netvision)` }).count() === 0, 'pas de ✓ Validé sur un jour avec un reste dû');
 if (process.env.SHOT2) await card.screenshot({ path: process.env.SHOT2 });
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
