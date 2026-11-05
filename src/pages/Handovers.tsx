@@ -389,9 +389,8 @@ function RestFollow({ date }: { date: string }) {
                   const ok = restOkOf(day, x.pg), fresh = c.p1 + c.p2 - ok;
                   const todo = fresh > 0.5 || c.ids.length > 0 || c.rest <= 0.5;
                   return <>
-                    {fresh > 0.5 && ok > 0.5 && <div className="small pos">nouveau paiement : {fmtAr(fresh)}</div>}
                     {can('handover.receive') && todo ? <div><button type="button" className="link-btn small" aria-label={`Valider le ${ddmmyy(day)} (${x.name})`} onClick={() => validate(c, x.pg, day, x.name)}>✓ Validé</button></div>
-                      : ok > 0.5 ? <div className="small muted">✓ validé ({fmtAr(ok)} payé)</div> : null}
+                      : ok > 0.5 ? <div className="small muted">✓ validé</div> : null}
                   </>;
                 })()}</td>{cells(c)}</tr>
             )),

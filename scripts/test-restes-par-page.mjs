@@ -46,7 +46,7 @@ if (process.env.SHOT) { await card.scrollIntoViewIfNeeded(); await card.screensh
 await card.getByRole('button', { name: `Valider le ${days.d0} (Netvision)` }).click(); await p.waitForTimeout(500);
 const rows2 = (await card.locator('tbody tr, tfoot tr').allInnerTexts()).map(N);
 const j = rows2.indexOf('Netvision');
-ok(new RegExp(`^Le ${days.d0} ✓ validé \\(40 000 Ar payé\\) 90 000 Ar 40 000 Ar — — 50 000 Ar$`).test(rows2[j + 1]), `après validation : ligne gardée (reste 50 000), 40 000 payé validé, plus d'annulé (${rows2[j + 1]})`);
+ok(new RegExp(`^Le ${days.d0} ✓ validé 90 000 Ar 40 000 Ar — — 50 000 Ar$`).test(rows2[j + 1]), `après validation : ligne gardée (reste 50 000), 40 000 payé validé, plus d'annulé (${rows2[j + 1]})`);
 ok(/^Total toutes pages 150 000 Ar 55 000 Ar — — 95 000 Ar$/.test(rows2[rows2.length - 1]), `reste encore dû inchangé 95 000 (${rows2[rows2.length - 1]})`);
 ok(await p.evaluate(() => !!window.__tsena.get('orders', 'N2').cancelChecked), 'N2 marquée validée');
 // jour soldé (reste 0) : ✓ Validé le fait sortir du suivi
@@ -59,11 +59,11 @@ ok(await card.getByRole('button', { name: `Valider le ${days.d1} (Netvision)` })
 await p.evaluate(async () => { const t = window.__tsena; const o = t.get('orders', 'N1'); await t.save('orders', [{ id: 'N1', payments: [...o.payments, { id: 'p9', at: new Date().toISOString(), amount: 15000, method: 'mvola', receivedBy: 'shop' }] }]); });
 await p.waitForTimeout(500);
 let r3 = (await card.locator('tbody tr').allInnerTexts()).map(N).find((r) => r.startsWith(`Le ${days.d0}`) && /90 000/.test(r)) || '';
-ok(/nouveau paiement : 15 000 Ar ✓ Validé/.test(r3) && /35 000 Ar$/.test(r3), `nouveau paiement 15 000 à valider, reste 35 000 (${r3})`);
+ok(/^Le \S+ ✓ Validé 90 000/.test(r3) && /35 000 Ar$/.test(r3), `nouveau paiement 15 000 à valider, reste 35 000 (${r3})`);
 if (process.env.SHOT3) await card.screenshot({ path: process.env.SHOT3 });
 await card.getByRole('button', { name: `Valider le ${days.d0} (Netvision)` }).click(); await p.waitForTimeout(500);
 r3 = (await card.locator('tbody tr').allInnerTexts()).map(N).find((r) => r.startsWith(`Le ${days.d0}`) && /90 000/.test(r)) || '';
 if (process.env.SHOT4) await card.screenshot({ path: process.env.SHOT4 });
-ok(/✓ validé \(55 000 Ar payé\)/.test(r3) && /35 000 Ar$/.test(r3), `après ✓ Validé : 55 000 validé, la ligne reste (reste 35 000) (${r3})`);
+ok(/✓ validé 90 000/.test(r3) && await p.evaluate(() => Object.values(window.__tsena.all('moneyCounts')).some((m) => Object.values(m.restOk || {}).includes(55000))) && /35 000 Ar$/.test(r3), `après ✓ Validé : 55 000 validé, la ligne reste (reste 35 000) (${r3})`);
 if (process.env.SHOT2) await card.screenshot({ path: process.env.SHOT2 });
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
