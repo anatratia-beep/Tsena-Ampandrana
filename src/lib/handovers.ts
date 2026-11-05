@@ -260,6 +260,9 @@ export function pagesOfDay(date: string): PageDay[] {
       add((r, k) => { r.pay.cash += got * k; r.courierCash += got * k; r.fees += f * k; if (old) r.cashOld += (got - f) * k; oldCash(r, got * k); oldFee(r, f * k); });
     }
   }
+  // Page dont le versement a été reçu ce jour mais sans vente restante (ex. vente devenue « vente interne ») : la ligne
+  // reste visible pour pouvoir corriger ce versement.
+  for (const h of all<Handover>('handovers')) if (h.date === date && h.status === 'received' && h.userId.startsWith('page:')) row(h.userId.slice(5));
   const list = [...rows.values()].map(({ ids, names, ...r }) => {
     r.orders = ids.size; r.sellers = [...names].sort((a, b) => a.localeCompare(b, 'fr'));
     r.mobOld.sort((a, b) => a.day.localeCompare(b.day));
