@@ -17,6 +17,8 @@ export interface MoneyCount extends BaseRecord {
   soldes?: Partial<Record<'mvola' | 'orange' | 'airtel', number>>;
   /** Versements : MVola / Orange / Airtel corrigés à la main pour une page ou un vendeur (clé = identifiant de la ligne). */
   mobFix?: Record<string, Partial<Record<FixField, number>>>;
+  /** Suivi des restes : pages dont ce jour de vente est soldé et validé (« ✓ Validé »), masqué du suivi. */
+  restSeen?: string[];
 }
 
 /**
@@ -70,3 +72,12 @@ export async function setMobFix(date: string, key: string, name: string, field: 
   await audit('Versement corrigé', `${date}, ${name} : ${FIX_LABELS[field]} ${amount == null ? `remis au calcul (${Math.round(calc).toLocaleString('fr-FR')} Ar)` : `${Math.round(calc).toLocaleString('fr-FR')} Ar → ${Math.round(amount).toLocaleString('fr-FR')} Ar`}`, 'moneyCounts', moneyCountId(date), 'medium');
 }
 export const mobFixOf = (date: string, key: string, field: FixField) => moneyCountOf(date)?.mobFix?.[key]?.[field];
+
+/** Suivi des restes : jour de vente d'une page soldé et validé (la ligne sort du suivi). */
+export async function setRestSeen(date: string, pageId: string, name: string) {
+  const me = currentUser();
+  const restSeen = [...new Set([...(moneyCountOf(date)?.restSeen || []), pageId])];
+  await save('moneyCounts', { id: moneyCountId(date), date, restSeen, byName: me?.fullName, at: new Date().toISOString() } as Partial<MoneyCount>);
+  await audit('Restes validés', `${date}, ${name} : jour soldé, validé`, 'moneyCounts', moneyCountId(date));
+}
+export const restSeenOf = (date: string, pageId: string) => !!moneyCountOf(date)?.restSeen?.includes(pageId);
