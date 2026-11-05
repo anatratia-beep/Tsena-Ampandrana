@@ -237,3 +237,35 @@ export function cancelledRests(from: string, to: string): (RestRow & { cancelled
   }
   return out;
 }
+
+/**
+ * Pour la vérification du versement : part ESPÈCES des 1er et 2ème paiements, comptée comme dans le
+ * « Suivi des restes par page », reçue le jour `date`, par page. Une vente sur plusieurs pages est partagée
+ * comme dans le suivi. Lecture seule : aucune formule existante ne change.
+ */
+export function restCashOn(date: string): Map<string, { n1: number; n2: number }> {
+  const out = new Map<string, { n1: number; n2: number }>();
+  const from = addDays(date, -60);
+  for (const r of [...restLedger(from, date), ...cancelledRests(from, date)]) {
+    if (r.day >= date) continue;
+    const first = date <= firstPayDay(r.day);
+    const slot = first ? r.p1?.amount ?? 0 : r.p2?.amount ?? 0;
+    if (slot <= 0.5) continue;
+    const p1Day = firstPayDay(r.day);
+    let gross = 0, grossD = 0, cashD = 0;
+    for (const p of r.o.payments || []) {
+      const d = payDay(r.o, p); if (!d || d <= r.day) continue;
+      if ((d <= p1Day) !== first) continue;
+      gross += p.amount;
+      if (d === date) { grossD += p.amount; if (p.method === 'cash') cashD += p.amount; }
+    }
+    if (gross <= 0.5 || cashD <= 0.5) continue;
+    const cash = slot * (grossD / gross) * (cashD / grossD);
+    const pages = r.pages.length ? r.pages : ['_'], k = 1 / pages.length;
+    for (const pg of pages) {
+      const c = out.get(pg) ?? { n1: 0, n2: 0 }; out.set(pg, c);
+      if (first) c.n1 += cash * k; else c.n2 += cash * k;
+    }
+  }
+  return out;
+}
