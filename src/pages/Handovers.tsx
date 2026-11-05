@@ -107,11 +107,12 @@ function Restes({ date, pages }: { date: string; pages?: string[] }) {
 function Boards({ date, view }: { date: string; view: 'page' | 'seller' }) {
   return (
     <>
-      <PageRests date={date} />
-      <RestFollow date={date} />
       {view === 'page' ? <PageBoard date={date} /> : <Board date={date} />}
       <MoneyCountCard date={date} />
       <MoneyWeek date={date} />
+      {/* Restes impayés : sous l'argent reçu de la semaine (pas en haut de la page). */}
+      <PageRests date={date} />
+      <RestFollow date={date} />
       <SellerGaps date={date} />
     </>
   );
