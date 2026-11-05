@@ -10,7 +10,7 @@ import { fmtAr, parseNum, parseAr } from '../lib/catalog';
 import { addDays, today } from '../lib/money';
 import { cancelHandover, changedSince, gapDue, gapsBefore, handoverHistory, openGaps, pagesOfDay, repayGap, receiveHandover, sellerDay, sellersOfDay, type Handover, type PageDay, type PendingSale, type SellerDay } from '../lib/handovers';
 import { printA4, a4Table, arA4, h } from '../lib/a4';
-import { cancelledRests, restLedger, type RestRow } from '../lib/situation';
+import { cancelledRests, restCashOn, restLedger, type RestRow } from '../lib/situation';
 import { COUNT_LABELS, FIX_LABELS, mobFixOf, restOkOf, restSeenOf, setRestOk, setRestSeen, moneyCountOf, parseFormula, setMobFix, setMoneyCount, setPhoneSolde, type CountField, type FixField } from '../lib/moneyCount';
 import { userPages } from '../lib/scope';
 import { Badge, Button, Confirm, Empty, Help, IconButton, Modal, PageHead, TextField, fmtDate, toast } from '../ui/kit';
@@ -416,7 +416,7 @@ const toPayDay = (d: SellerDay) => { const c = dayCash(d); return d.toPay + (c.n
 const fixCalc = (d: SellerDay, f: FixField) => f === 'sales' ? d.sales : f === 'n1' ? dayCash(d).n1c : f === 'n2' ? dayCash(d).n2c : mobCalc(d, f);
 /** Case corrigeable (✏️) du versement : MVola / Orange / Airtel, total ventes, 1er et 2ème paiement espèces.
  *  Le montant corrigé est affiché et totalisé, le calcul reste visible ; « remettre » revient au calcul. */
-function MobCell({ d, m }: { d: SellerDay; m: FixField }) {
+function MobCell({ d, m, expect }: { d: SellerDay; m: FixField; expect?: number }) {
   const [open, setOpen] = useState(false);
   const mob = m === 'mvola' || m === 'orange' || m === 'airtel';
   const old = mob ? d.mobOld.filter((x) => x.method === m) : [], n = old.reduce((t, x) => t + x.amount, 0);
@@ -449,12 +449,15 @@ function MobCell({ d, m }: { d: SellerDay; m: FixField }) {
       </div>
     </td>
   );
+  // 1er / 2ème paiement qui ne correspond pas au « Suivi des restes par page » : chiffre en orange.
+  const shownN = fix ?? calc, bad = expect != null && Math.abs(Math.round(shownN) - Math.round(Math.max(0, expect))) > 0.5;
   return (
-    <td className="t-num" onClick={(e) => e.stopPropagation()}>
+    <td className={`t-num${bad ? ' cell-mismatch' : ''}`} onClick={(e) => e.stopPropagation()}>
       <div className="row" style={{ gap: 2, flexWrap: 'nowrap', justifyContent: 'flex-end', alignItems: 'center' }}>
-        {fix != null ? <strong>{fmtAr(fix)}</strong> : money(calc)}
+        {bad ? <span className="mismatch-num">{fmtAr(shownN)}</span> : fix != null ? <strong>{fmtAr(fix)}</strong> : money(calc)}
         {can('handover.receive') && <IconButton icon="edit" label={`Corriger ${FIX_LABELS[m]} (${d.user.fullName})`} onClick={() => { setVal(String(Math.round(fix ?? calc))); setEdit(true); }} />}
       </div>
+      {bad && <div className="small mismatch-note">suivi des restes : {fmtAr(Math.max(0, expect!))}</div>}
       {fix != null && <div className="small muted">calculé {fmtAr(calc)} · <button type="button" className="link-btn small" disabled={busy} onClick={() => save(null)}>remettre</button></div>}
       {old.length > 0 && <div><button type="button" className="link-btn small" aria-expanded={open} onClick={() => setOpen(!open)}>règlements {fmtAr(n)}</button></div>}
       {open && <div className="small muted" style={{ whiteSpace: 'nowrap' }}>{old.map((x, i) => <div key={i}>{x.page} le {ddmmyy(x.day)} : {fmtAr(x.amount)}{x.number ? ` (${x.number})` : ''}</div>)}</div>}
@@ -517,6 +520,7 @@ function PageBoard({ date, between }: { date: string; between?: ReactNode }) {
   // « Sans page » (articles sans page) : montré à part sous le tableau, jamais compté dans les totaux du versement.
   const allRows = pagesOfDay(date);
   const rows = allRows.filter((d) => d.pageId !== '_'), noPage = allRows.find((d) => d.pageId === '_');
+  const suivi = restCashOn(date); // 1er / 2ème paiement espèces selon le suivi des restes, pour repérer les écarts
   const t = rows.reduce((a, d) => ({ sales: a.sales + salesDay(d), cash: a.cash + d.pay.cash, day: a.day + dayCash(d).shown, c1: a.c1 + dayCash(d).n1, c2: a.c2 + dayCash(d).n2, fm: a.fm + d.feeMobile, mvola: a.mvola + mobDay(d, 'mvola'), orange: a.orange + mobDay(d, 'orange'), airtel: a.airtel + mobDay(d, 'airtel'), fees: a.fees + d.fees, toPay: a.toPay + toPayDay(d), got: a.got + (d.handover?.amount ?? 0) }),
     { sales: 0, cash: 0, day: 0, c1: 0, c2: 0, fm: 0, mvola: 0, orange: 0, airtel: 0, fees: 0, toPay: 0, got: 0 });
   const rest = rows.filter((d) => !d.handover).reduce((s, d) => s + toPayDay(d), 0);
@@ -568,7 +572,7 @@ function PageBoard({ date, between }: { date: string; between?: ReactNode }) {
                 <tr key={d.pageId}>
                   <td><strong>{d.user.fullName}</strong><div className="small muted">{d.sellers.join(', ') || '—'}</div><PrevGap k={d.user.id} date={date} /></td>
                   <MobCell d={d} m="sales" />
-                  <CashCells d={d} />
+                  <CashCells d={d} suivi={suivi.get(d.pageId) ?? { n1: 0, n2: 0 }} />
                   <MobCell d={d} m="mvola" />
                   <MobCell d={d} m="orange" />
                   <MobCell d={d} m="airtel" />
@@ -678,13 +682,12 @@ function dayCash(d: SellerDay) {
   const shown = d.handover ? d.handover.amount - n1 - n2 : calc;
   return { n1, n2, n1c, n2c, calc, shown, changed: !!d.handover && Math.round(shown) !== Math.round(calc) };
 }
-function CashCells({ d }: { d: SellerDay }) {
-  const c = dayCash(d);
+function CashCells({ d, suivi }: { d: SellerDay; suivi?: { n1: number; n2: number } }) {
   return (
     <>
       <td className="t-num" onClick={(e) => e.stopPropagation()}><DayCashCell d={d} /></td>
-      <MobCell d={d} m="n1" />
-      <MobCell d={d} m="n2" />
+      <MobCell d={d} m="n1" expect={suivi && suivi.n1 - d.fee1} />
+      <MobCell d={d} m="n2" expect={suivi && suivi.n2 - d.fee2} />
     </>
   );
 }

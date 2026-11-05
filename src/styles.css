@@ -1323,3 +1323,6 @@ a.bell { text-decoration: none; }
 .table.handover-table thead th:first-child, .table.money-count thead th:first-child, .table.money-week thead th:first-child { border-radius: 14px 0 0 14px; text-align: left !important; }
 .handover-table thead th:last-child, .money-count thead th:last-child, .money-week thead th:last-child { border-radius: 0 14px 14px 0; }
 [data-theme='dark'] .handover-table thead th, [data-theme='dark'] .money-count thead th, [data-theme='dark'] .money-week thead th { color: var(--ink); }
+/* Versement : 1er / 2ème paiement différent du « Suivi des restes par page ». */
+.cell-mismatch { background: var(--p-orange-soft, #FDE6D2); }
+.cell-mismatch .mismatch-num, .mismatch-note { color: #C2610F; font-weight: 700; }
