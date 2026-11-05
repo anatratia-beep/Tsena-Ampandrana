@@ -382,7 +382,7 @@ function RestFollow({ date }: { date: string }) {
             <tr key={x.pg} className="rest-follow-page"><td colSpan={6}><strong>{x.name}</strong></td></tr>,
             ...x.days.map(([day, c]) => (
               <tr key={`${x.pg}-${day}`}><td>Le {ddmmyy(day)}{c.refs.length ? <div className="small muted">annulé : {c.refs.filter(Boolean).join(', ')}</div> : null}
-                {can('handover.receive') && (c.ids.length > 0 || c.rest <= 0.5) && <div><button type="button" className="link-btn small" aria-label={c.ids.length ? `Valider l’annulation ${c.refs.filter(Boolean).join(', ')}` : `Valider le ${ddmmyy(day)} (${x.name})`} onClick={() => validate(c, x.pg, day, x.name)}>✓ Validé</button></div>}</td>{cells(c)}</tr>
+                {can('handover.receive') && (c.ids.length > 0 || c.rest <= 0.5) && <div><button type="button" className="link-btn small" aria-label={c.ids.length ? `Valider l’annulation ${c.refs.filter(Boolean).join(', ')}` : `Valider le ${ddmmyy(day)} (${x.name})`} onClick={() => validate(c, x.pg, day, x.name)}>{c.rest > 0.5 ? '✓ Valider les annulés' : '✓ Validé'}</button></div>}</td>{cells(c)}</tr>
             )),
             x.days.length > 1 && <tr key={`${x.pg}-t`} className="t-total"><td>Total {x.name}</td>{cells(sum(x.days.map(([, c]) => c)), true)}</tr>,
           ])}</tbody>

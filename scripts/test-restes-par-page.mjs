@@ -36,7 +36,7 @@ const rows = (await card.locator('tbody tr, tfoot tr').allInnerTexts()).map(N);
 console.log(rows.join('\n'));
 const i = rows.indexOf('Netvision');
 ok(i >= 0, 'groupe Netvision');
-ok(new RegExp(`^Le ${days.d0} annulé : N2 ✓ Validé 120 000 Ar 40 000 Ar — 30 000 Ar 50 000 Ar$`).test(rows[i + 1]), `Netvision ${days.d0} : 120 000 → 1er 40 000 → annulé 30 000 → reste 50 000`);
+ok(new RegExp(`^Le ${days.d0} annulé : N2 ✓ Valider les annulés 120 000 Ar 40 000 Ar — 30 000 Ar 50 000 Ar$`).test(rows[i + 1]), `Netvision ${days.d0} : 120 000 → 1er 40 000 → annulé 30 000 → reste 50 000`);
 ok(new RegExp(`^Le ${days.d1} 25 000 Ar — — — 25 000 Ar$`).test(rows[i + 2]), `Netvision ${days.d1} : reste 25 000`);
 ok(/^Total Netvision 145 000 Ar 40 000 Ar — 30 000 Ar 75 000 Ar$/.test(rows[i + 3]), 'total Netvision');
 ok(rows.includes('Poignet précieux') && !rows.some((r) => /X1/.test(r)), 'Poignet précieux à part, X1 (jamais partie) ignorée');
