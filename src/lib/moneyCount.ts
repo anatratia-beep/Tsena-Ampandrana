@@ -19,6 +19,8 @@ export interface MoneyCount extends BaseRecord {
   mobFix?: Record<string, Partial<Record<FixField, number>>>;
   /** Suivi des restes : pages dont ce jour de vente est soldé et validé (« ✓ Validé »), masqué du suivi. */
   restSeen?: string[];
+  /** Suivi des restes : montant déjà payé (1er + 2ème paiement) validé par page pour ce jour de vente. */
+  restOk?: Record<string, number>;
 }
 
 /**
@@ -81,3 +83,12 @@ export async function setRestSeen(date: string, pageId: string, name: string) {
   await audit('Restes validés', `${date}, ${name} : jour soldé, validé`, 'moneyCounts', moneyCountId(date));
 }
 export const restSeenOf = (date: string, pageId: string) => !!moneyCountOf(date)?.restSeen?.includes(pageId);
+
+/** Suivi des restes : paiements reçus jusqu'ici pour ce jour de vente d'une page, vus et validés. */
+export async function setRestOk(date: string, pageId: string, name: string, paid: number) {
+  const me = currentUser();
+  const restOk = { ...(moneyCountOf(date)?.restOk || {}), [pageId]: Math.round(paid) };
+  await save('moneyCounts', { id: moneyCountId(date), date, restOk, byName: me?.fullName, at: new Date().toISOString() } as Partial<MoneyCount>);
+  await audit('Paiements validés', `${date}, ${name} : ${Math.round(paid).toLocaleString('fr-FR')} Ar payés, validés`, 'moneyCounts', moneyCountId(date));
+}
+export const restOkOf = (date: string, pageId: string) => moneyCountOf(date)?.restOk?.[pageId];
