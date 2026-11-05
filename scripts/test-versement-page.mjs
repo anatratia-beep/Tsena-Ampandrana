@@ -67,8 +67,12 @@ rs = N(await rests().innerText()).replace(/\s+/g, ' ');
 ok(/Le .{3,6} \d\d\/\d\d · clients 6 000 Ar \(R1\) 6 000 Ar/.test(rs) && /Le .{3,6} \d\d\/\d\d · impayé vendeur 5 000 Ar 5 000 Ar/.test(rs), `détail Intimity style jour par jour : client R1 6 000, impayé vendeur 5 000 (${rs})`);
 await rests().locator('tr', { hasText: 'Intimity style' }).first().click(); await p.waitForTimeout(200);
 ok(!/\(R1\)/.test(await rests().innerText()), 'le détail se referme');
-const firstCard = await p.locator('main .card').nth(1).innerText();
-ok(firstCard.includes('Restes impayés par page'), 'tableau des restes impayés juste sous la date');
+const h2s = await p.locator('main h2').allInnerTexts();
+ok(h2s.indexOf('Restes impayés par page') > h2s.indexOf('Argent réellement reçu : la semaine') && h2s.indexOf('Argent réellement reçu : la semaine') >= 0, `restes impayés sous « Argent reçu : la semaine » (${h2s.join(' | ')})`);
+const at = (t) => h2s.findIndex((x) => x.startsWith(t));
+ok(at('Suivi des restes') >= 0 && at('Suivi des restes') < at('Page par page'), `suivi des restes juste avant le tableau du jour (${h2s.join(' | ')})`);
+const statY = (await p.locator('.stat-grid').first().boundingBox()).y, suiviY = (await p.getByRole('heading', { name: /Suivi des restes/ }).boundingBox()).y;
+ok(statY < suiviY, 'chiffres du jour (Total des ventes…) tout en haut, avant le suivi');
 // Argent réellement reçu ce jour (saisi à la main) comparé au calcul
 const mc = () => p.locator('.card', { hasText: 'Argent réellement reçu ce jour' });
 await mc().getByLabel('Espèces réellement reçu').fill('85000'); await mc().getByLabel('Espèces réellement reçu').press('Enter'); await p.waitForTimeout(400);

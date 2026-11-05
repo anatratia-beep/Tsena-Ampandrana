@@ -41,6 +41,7 @@ ok(new RegExp(`^Le ${days.d1} ✓ Validé 25 000 Ar — — — 25 000 Ar$`).tes
 ok(/^Total Netvision 145 000 Ar 40 000 Ar — 30 000 Ar 75 000 Ar$/.test(rows[i + 3]), 'total Netvision');
 ok(rows.includes('Poignet précieux') && !rows.some((r) => /X1/.test(r)), 'Poignet précieux à part, X1 (jamais partie) ignorée');
 ok(/^Total toutes pages 180 000 Ar 55 000 Ar — 30 000 Ar 95 000 Ar$/.test(rows[rows.length - 1]), `total toutes pages (${rows[rows.length - 1]})`);
+if (process.env.SHOTPAGE) await p.screenshot({ path: process.env.SHOTPAGE, clip: { x: 0, y: 0, width: 1280, height: 1500 }, fullPage: true });
 if (process.env.SHOT) { await card.scrollIntoViewIfNeeded(); await card.screenshot({ path: process.env.SHOT }); }
 // ✓ Validé : l'annulation vue sort du suivi
 await card.getByRole('button', { name: `Valider le ${days.d0} (Netvision)` }).click(); await p.waitForTimeout(500);
