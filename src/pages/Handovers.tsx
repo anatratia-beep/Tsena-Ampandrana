@@ -10,7 +10,7 @@ import { fmtAr, parseNum, parseAr } from '../lib/catalog';
 import { addDays, today } from '../lib/money';
 import { cancelHandover, changedSince, gapDue, gapsBefore, handoverHistory, openGaps, pagesOfDay, repayGap, receiveHandover, sellerDay, sellersOfDay, type Handover, type PageDay, type PendingSale, type SellerDay } from '../lib/handovers';
 import { printA4, a4Table, arA4, h } from '../lib/a4';
-import { restLedger, type RestRow } from '../lib/situation';
+import { cancelledRests, restLedger, type RestRow } from '../lib/situation';
 import { COUNT_LABELS, FIX_LABELS, mobFixOf, moneyCountOf, parseFormula, setMobFix, setMoneyCount, setPhoneSolde, type CountField, type FixField } from '../lib/moneyCount';
 import { userPages } from '../lib/scope';
 import { Badge, Button, Confirm, Empty, Help, IconButton, Modal, PageHead, TextField, fmtDate, toast } from '../ui/kit';
@@ -108,6 +108,7 @@ function Boards({ date, view }: { date: string; view: 'page' | 'seller' }) {
   return (
     <>
       <PageRests date={date} />
+      <RestFollow date={date} />
       {view === 'page' ? <PageBoard date={date} /> : <Board date={date} />}
       <MoneyCountCard date={date} />
       <MoneyWeek date={date} />
@@ -322,6 +323,61 @@ function PageRests({ date }: { date: string }) {
   );
 }
 
+/**
+ * Suivi des restes par page, jour par jour (jour de la vente, 7 derniers jours) : reste du jour → 1er paiement →
+ * 2ème paiement → annulé → reste encore dû. Lecture seule, mêmes chiffres que les restes impayés.
+ */
+function RestFollow({ date }: { date: string }) {
+  useTable('orders');
+  const from = addDays(date, -6);
+  const pageName = (id: string) => get<{ name: string }>('categories', id)?.name ?? 'Sans page';
+  type Cell = { start: number; p1: number; p2: number; cancelled: number; rest: number; refs: string[] };
+  const zero = (): Cell => ({ start: 0, p1: 0, p2: 0, cancelled: 0, rest: 0, refs: [] });
+  const m = new Map<string, Map<string, Cell>>();
+  const rowsIn = [...restLedger(from, date), ...cancelledRests(from, date)];
+  for (const r of rowsIn) {
+    const pages = r.pages.length ? r.pages : ['_'], k = 1 / pages.length;
+    const cancelled = 'cancelled' in r ? (r as { cancelled: number }).cancelled : 0;
+    for (const pg of pages) {
+      let byDay = m.get(pg); if (!byDay) { byDay = new Map(); m.set(pg, byDay); }
+      const c = byDay.get(r.day) ?? zero(); byDay.set(r.day, c);
+      c.start += (r.value - r.sameDay) * k; c.p1 += (r.p1?.amount ?? 0) * k; c.p2 += (r.p2?.amount ?? 0) * k;
+      c.cancelled += cancelled * k; c.rest += r.rest * k;
+      if (cancelled > 0.5) c.refs.push(r.o.number || '');
+    }
+  }
+  const pages = [...m.entries()].map(([pg, byDay]) => ({ pg, name: pageName(pg), days: [...byDay.entries()].filter(([, c]) => c.start > 0.5).sort(([a], [b]) => a.localeCompare(b)) }))
+    .filter((x) => x.days.length).sort((a, b) => a.name.localeCompare(b.name));
+  const sum = (cs: Cell[]) => cs.reduce((t, c) => ({ ...t, start: t.start + c.start, p1: t.p1 + c.p1, p2: t.p2 + c.p2, cancelled: t.cancelled + c.cancelled, rest: t.rest + c.rest }), zero());
+  const all7 = sum(pages.flatMap((x) => x.days.map(([, c]) => c)));
+  const ddmmyy = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(2, 4)}`;
+  const cells = (c: Cell, strong = false) => {
+    const v = (n: number, cls = '') => <td className={`t-num ${cls}`}>{n > 0.5 ? (strong ? <strong>{fmtAr(n)}</strong> : fmtAr(n)) : <span className="muted">—</span>}</td>;
+    return <>{v(c.start)}{v(c.p1, 'pos')}{v(c.p2, 'pos')}{v(c.cancelled, 'muted')}{v(c.rest, 'neg')}</>;
+  };
+  return (
+    <div className="card card-flush">
+      <div className="card-pad row-between">
+        <div><h2>Suivi des restes par page (7 derniers jours)</h2><p className="small muted" style={{ margin: 0 }}>Pour chaque jour de vente : reste à payer ce jour-là, puis 1er paiement, 2ème paiement, montant annulé et ce qui reste encore dû.</p></div>
+        <strong className={`num ${all7.rest > 0.5 ? 'neg' : ''}`}>{fmtAr(all7.rest)}</strong>
+      </div>
+      {pages.length === 0 ? <p className="card-pad small muted" style={{ paddingTop: 0 }}>Aucun reste sur ces 7 jours.</p> : (
+        <div className="table-wrap"><table className="table table-grid rest-follow">
+          <thead><tr><th>Date de vente</th><th className="t-num">Reste du jour</th><th className="t-num">1er paiement</th><th className="t-num">2ème paiement</th><th className="t-num">Annulé</th><th className="t-num">Reste encore dû</th></tr></thead>
+          <tbody>{pages.map((x) => [
+            <tr key={x.pg} className="rest-follow-page"><td colSpan={6}><strong>{x.name}</strong></td></tr>,
+            ...x.days.map(([day, c]) => (
+              <tr key={`${x.pg}-${day}`}><td>Le {ddmmyy(day)}{c.refs.length ? <div className="small muted">annulé : {c.refs.filter(Boolean).join(', ')}</div> : null}</td>{cells(c)}</tr>
+            )),
+            x.days.length > 1 && <tr key={`${x.pg}-t`} className="t-total"><td>Total {x.name}</td>{cells(sum(x.days.map(([, c]) => c)), true)}</tr>,
+          ])}</tbody>
+          <tfoot><tr className="t-total"><td>Total toutes pages</td>{cells(all7, true)}</tr></tfoot>
+        </table></div>
+      )}
+    </div>
+  );
+}
+
 /** MVola / Orange / Airtel des ventes du jour seulement (sans frais livreurs) : les règlements de ventes des jours
  *  précédents reçus ce jour-là ne sont pas comptés, ils s'affichent en détail sous le chiffre. */
 const mobCalc = (d: SellerDay, m: 'mvola' | 'orange' | 'airtel') => d.pay[m] - d.feeBy[m] - d.mobOld.filter((x) => x.method === m).reduce((t, x) => t + x.amount, 0);
@@ -436,7 +492,7 @@ function PageBoard({ date }: { date: string }) {
   // « Sans page » (articles sans page) : montré à part sous le tableau, jamais compté dans les totaux du versement.
   const allRows = pagesOfDay(date);
   const rows = allRows.filter((d) => d.pageId !== '_'), noPage = allRows.find((d) => d.pageId === '_');
-  const t = rows.reduce((a, d) => ({ sales: a.sales + salesDay(d), cash: a.cash + d.pay.cash, day: a.day + dayCash(d).shown, c1: a.c1 + dayCash(d).n1, c2: a.c2 + dayCash(d).n2, fm: a.fm + d.feeMobile, mvola: a.mvola + mobDay(d, 'mvola'), orange: a.orange + mobDay(d, 'orange'), airtel: a.airtel + mobDay(d, 'airtel'), fees: a.fees + d.fees, toPay: a.toPay + d.toPay, got: a.got + (d.handover?.amount ?? 0) }),
+  const t = rows.reduce((a, d) => ({ sales: a.sales + salesDay(d), cash: a.cash + d.pay.cash, day: a.day + dayCash(d).shown, c1: a.c1 + dayCash(d).n1, c2: a.c2 + dayCash(d).n2, fm: a.fm + d.feeMobile, mvola: a.mvola + mobDay(d, 'mvola'), orange: a.orange + mobDay(d, 'orange'), airtel: a.airtel + mobDay(d, 'airtel'), fees: a.fees + d.fees, toPay: a.toPay + toPayDay(d), got: a.got + (d.handover?.amount ?? 0) }),
     { sales: 0, cash: 0, day: 0, c1: 0, c2: 0, fm: 0, mvola: 0, orange: 0, airtel: 0, fees: 0, toPay: 0, got: 0 });
   const rest = rows.filter((d) => !d.handover).reduce((s, d) => s + toPayDay(d), 0);
   const waiting = rows.filter((d) => !d.handover && (d.toPay || d.sales));
@@ -508,7 +564,7 @@ function PageBoard({ date }: { date: string }) {
 function Board({ date }: { date: string }) {
   const rows = sellersOfDay(date);
   const [open, setOpen] = useState<string | null>(null);
-  const t = rows.reduce((a, d) => ({ sales: a.sales + salesDay(d), cash: a.cash + d.pay.cash, day: a.day + dayCash(d).shown, c1: a.c1 + dayCash(d).n1, c2: a.c2 + dayCash(d).n2, fm: a.fm + d.feeMobile, mvola: a.mvola + mobDay(d, 'mvola'), orange: a.orange + mobDay(d, 'orange'), airtel: a.airtel + mobDay(d, 'airtel'), fees: a.fees + d.fees, exp: a.exp + d.expenses, toPay: a.toPay + d.toPay, got: a.got + (d.handover?.amount ?? 0) }),
+  const t = rows.reduce((a, d) => ({ sales: a.sales + salesDay(d), cash: a.cash + d.pay.cash, day: a.day + dayCash(d).shown, c1: a.c1 + dayCash(d).n1, c2: a.c2 + dayCash(d).n2, fm: a.fm + d.feeMobile, mvola: a.mvola + mobDay(d, 'mvola'), orange: a.orange + mobDay(d, 'orange'), airtel: a.airtel + mobDay(d, 'airtel'), fees: a.fees + d.fees, exp: a.exp + d.expenses, toPay: a.toPay + toPayDay(d), got: a.got + (d.handover?.amount ?? 0) }),
     { sales: 0, cash: 0, day: 0, c1: 0, c2: 0, fm: 0, mvola: 0, orange: 0, airtel: 0, fees: 0, exp: 0, toPay: 0, got: 0 });
   const waiting = rows.filter((d) => !d.handover && (d.toPay || d.sales));
   const rest = rows.filter((d) => !d.handover).reduce((s, d) => s + toPayDay(d), 0);

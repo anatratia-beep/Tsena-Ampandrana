@@ -210,3 +210,30 @@ export function restLedger(from: string, to: string, pages?: string[]): RestRow[
   }
   return out.sort((a, b) => a.day.localeCompare(b.day) || (a.o.number || '').localeCompare(b.o.number || ''));
 }
+
+/**
+ * Ventes annulées alors qu'il restait à payer (partie au livreur ou vendue en boutique), jour de la vente dans la période :
+ * même découpage que restLedger (payé le jour, 1er, 2ème paiement), et `cancelled` = reste perdu à l'annulation.
+ */
+export function cancelledRests(from: string, to: string): (RestRow & { cancelled: number })[] {
+  const out: (RestRow & { cancelled: number })[] = [];
+  for (const o of all<Order>('orders')) {
+    if (o.status !== 'cancelled' || o.internal || (!isWalkIn(o) && !o.dispatchedAt)) continue;
+    const day = dayOf(isWalkIn(o) ? o.createdAt : o.dispatchedAt!);
+    if (!day || day < from || day > to) continue;
+    const value = Math.max(0, itemsValue(o));
+    if (value <= 0.5) continue;
+    let same = 0; const later = new Map<string, number>();
+    for (const p of o.payments || []) { const d = payDay(o, p); if (!d) continue; if (d <= day) same += p.amount; else later.set(d, (later.get(d) ?? 0) + p.amount); }
+    let left = value; const sameDay = Math.max(0, Math.min(same, left)); left -= sameDay;
+    const p1Day = firstPayDay(day);
+    const s1 = [...later].filter(([d]) => d <= p1Day), s2 = [...later].filter(([d]) => d > p1Day).sort();
+    let p1: RestRow['p1'], p2: RestRow['p2'];
+    const a1 = Math.max(0, Math.min(s1.reduce((t, [, a]) => t + a, 0), left)); left -= a1; if (a1 > 0.5) p1 = { day: s1[s1.length - 1][0], amount: a1 };
+    const a2 = Math.max(0, Math.min(s2.reduce((t, [, a]) => t + a, 0), left)); left -= a2; if (a2 > 0.5) p2 = { day: s2[s2.length - 1][0], amount: a2, times: s2.length };
+    if (left <= 0.5) continue; // tout était payé : rien de perdu
+    const pg = rootOf(get<{ categoryId?: string }>('products', get<{ productId?: string }>('variants', o.lines[0]?.variantId || '')?.productId || '')?.categoryId) || '_';
+    out.push({ o, day, pages: [pg], value, sameDay, p1, p2, rest: 0, atCourier: 0, cancelled: left });
+  }
+  return out;
+}

@@ -2,7 +2,7 @@
 // Le montant corrigé est totalisé ; le total à payer suit ; un versement déjà reçu est réenregistré (mêmes espèces du jour).
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
-const p = await (await b.newContext({ viewport: { width: 1400, height: 900 }, timezoneId: 'Indian/Antananarivo' })).newPage();
+const p = await (await b.newContext({ viewport: { width: 1400, height: 900 }, timezoneId: 'Indian/Antananarivo', deviceScaleFactor: Number(process.env.DPR || 1) })).newPage();
 const N = (t) => t.replace(/[  ]/g, ' ').replace(/\s+/g, ' ');
 let fail = 0; const ok = (c, m) => { console.log((c ? 'OK   ' : 'FAIL ') + m); if (!c) fail++; };
 p.on('pageerror', (e) => { console.log('ERR', e.message); fail++; });
@@ -44,7 +44,9 @@ c = await cells();
 ok(/9 000 Ar/.test(c[idx]) && /calculé 10 000 Ar/.test(c[idx]), `${label} corrigé 9 000 (${c[idx]})`);
 ok(/^15 000 Ar/.test(c[2]) && !/chiffres changés/.test(c[2]), `espèces du jour restent 15 000, pas « chiffres changés » (${c[2]})`);
 ok(/24 000 Ar/.test(c[c.length - 1]), `total à payer = 24 000 (${c[c.length - 1]})`);
+ok(/24 000 Ar$/.test(await foot()), `total à payer en bas = 24 000 (${await foot()})`);
 ok(JSON.stringify(await amt()) === '[24000]', `versement réenregistré à 24 000 (${JSON.stringify(await amt())})`);
+if (process.env.SHOT) await p.locator('.handover-table').first().screenshot({ path: process.env.SHOT });
 // remettre
 await row().locator('td').nth(idx).getByRole('button', { name: 'remettre' }).click(); await p.waitForTimeout(600);
 c = await cells();
