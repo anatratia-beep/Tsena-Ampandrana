@@ -11,7 +11,7 @@ import { addDays, today } from '../lib/money';
 import { cancelHandover, changedSince, gapDue, gapsBefore, handoverHistory, openGaps, pagesOfDay, repayGap, receiveHandover, sellerDay, sellersOfDay, type Handover, type PageDay, type PendingSale, type SellerDay } from '../lib/handovers';
 import { printA4, a4Table, arA4, h } from '../lib/a4';
 import { cancelledRests, restLedger, type RestRow } from '../lib/situation';
-import { COUNT_LABELS, FIX_LABELS, mobFixOf, restSeenOf, setRestSeen, moneyCountOf, parseFormula, setMobFix, setMoneyCount, setPhoneSolde, type CountField, type FixField } from '../lib/moneyCount';
+import { COUNT_LABELS, FIX_LABELS, mobFixOf, restOkOf, restSeenOf, setRestOk, setRestSeen, moneyCountOf, parseFormula, setMobFix, setMoneyCount, setPhoneSolde, type CountField, type FixField } from '../lib/moneyCount';
 import { userPages } from '../lib/scope';
 import { Badge, Button, Confirm, Empty, Help, IconButton, Modal, PageHead, TextField, fmtDate, toast } from '../ui/kit';
 import { Icon } from '../ui/icons';
@@ -360,6 +360,8 @@ function RestFollow({ date }: { date: string }) {
         await save('orders', c.ids.map((id) => ({ id, cancelChecked: { at: new Date().toISOString(), by: me?.fullName } })) as Partial<Order>[]);
         await audit('Annulation validée', `${c.refs.filter(Boolean).join(', ')} : reste annulé ${fmtAr(c.cancelled)} vu au versement`, 'orders', c.ids[0]);
       }
+      // Paiements reçus jusqu'ici : vus et validés (la ligne reste tant qu'il y a un reste à payer).
+      if (pg && day && c.p1 + c.p2 > 0.5) await setRestOk(day, pg, name || pg, c.p1 + c.p2);
       // Jour soldé (plus rien à payer) : la ligne sort du suivi.
       if (pg && day && c.rest <= 0.5) await setRestSeen(day, pg, name || pg);
       toast('Validé');
@@ -382,7 +384,16 @@ function RestFollow({ date }: { date: string }) {
             <tr key={x.pg} className="rest-follow-page"><td colSpan={6}><strong>{x.name}</strong></td></tr>,
             ...x.days.map(([day, c]) => (
               <tr key={`${x.pg}-${day}`}><td>Le {ddmmyy(day)}{c.refs.length ? <div className="small muted">annulé : {c.refs.filter(Boolean).join(', ')}</div> : null}
-                {can('handover.receive') && (c.ids.length > 0 || c.rest <= 0.5) && <div><button type="button" className="link-btn small" aria-label={c.ids.length ? `Valider l’annulation ${c.refs.filter(Boolean).join(', ')}` : `Valider le ${ddmmyy(day)} (${x.name})`} onClick={() => validate(c, x.pg, day, x.name)}>{c.rest > 0.5 ? '✓ Valider les annulés' : '✓ Validé'}</button></div>}</td>{cells(c)}</tr>
+                {(() => {
+                  // Validé par jour : les paiements reçus depuis la dernière validation (et les annulations) sont à valider.
+                  const ok = restOkOf(day, x.pg), fresh = c.p1 + c.p2 - ok;
+                  const todo = fresh > 0.5 || c.ids.length > 0 || c.rest <= 0.5;
+                  return <>
+                    {fresh > 0.5 && ok > 0.5 && <div className="small pos">nouveau paiement : {fmtAr(fresh)}</div>}
+                    {can('handover.receive') && todo ? <div><button type="button" className="link-btn small" aria-label={`Valider le ${ddmmyy(day)} (${x.name})`} onClick={() => validate(c, x.pg, day, x.name)}>✓ Validé</button></div>
+                      : ok > 0.5 ? <div className="small muted">✓ validé ({fmtAr(ok)} payé)</div> : null}
+                  </>;
+                })()}</td>{cells(c)}</tr>
             )),
             x.days.length > 1 && <tr key={`${x.pg}-t`} className="t-total"><td>Total {x.name}</td>{cells(sum(x.days.map(([, c]) => c)), true)}</tr>,
           ])}</tbody>
