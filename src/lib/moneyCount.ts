@@ -91,4 +91,4 @@ export async function setRestOk(date: string, pageId: string, name: string, paid
   await save('moneyCounts', { id: moneyCountId(date), date, restOk, byName: me?.fullName, at: new Date().toISOString() } as Partial<MoneyCount>);
   await audit('Paiements validés', `${date}, ${name} : ${Math.round(paid).toLocaleString('fr-FR')} Ar payés, validés`, 'moneyCounts', moneyCountId(date));
 }
-export const restOkOf = (date: string, pageId: string) => moneyCountOf(date)?.restOk?.[pageId] ?? 0;
+export const restOkOf = (date: string, pageId: string) => moneyCountOf(date)?.restOk?.[pageId];

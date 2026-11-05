@@ -361,7 +361,7 @@ function RestFollow({ date }: { date: string }) {
         await audit('Annulation validée', `${c.refs.filter(Boolean).join(', ')} : reste annulé ${fmtAr(c.cancelled)} vu au versement`, 'orders', c.ids[0]);
       }
       // Paiements reçus jusqu'ici : vus et validés (la ligne reste tant qu'il y a un reste à payer).
-      if (pg && day && c.p1 + c.p2 > 0.5) await setRestOk(day, pg, name || pg, c.p1 + c.p2);
+      if (pg && day) await setRestOk(day, pg, name || pg, c.p1 + c.p2);
       // Jour soldé (plus rien à payer) : la ligne sort du suivi.
       if (pg && day && c.rest <= 0.5) await setRestSeen(day, pg, name || pg);
       toast('Validé');
@@ -386,11 +386,11 @@ function RestFollow({ date }: { date: string }) {
               <tr key={`${x.pg}-${day}`}><td>Le {ddmmyy(day)}{c.refs.length ? <div className="small muted">annulé : {c.refs.filter(Boolean).join(', ')}</div> : null}
                 {(() => {
                   // Validé par jour : les paiements reçus depuis la dernière validation (et les annulations) sont à valider.
-                  const ok = restOkOf(day, x.pg), fresh = c.p1 + c.p2 - ok;
-                  const todo = fresh > 0.5 || c.ids.length > 0 || c.rest <= 0.5;
+                  const ok = restOkOf(day, x.pg), fresh = c.p1 + c.p2 - (ok ?? 0);
+                  const todo = ok == null || fresh > 0.5 || c.ids.length > 0 || c.rest <= 0.5;
                   return <>
                     {can('handover.receive') && todo ? <div><button type="button" className="link-btn small" aria-label={`Valider le ${ddmmyy(day)} (${x.name})`} onClick={() => validate(c, x.pg, day, x.name)}>✓ Validé</button></div>
-                      : ok > 0.5 ? <div className="small muted">✓ validé</div> : null}
+                      : ok != null ? <div className="small muted">✓ validé</div> : null}
                   </>;
                 })()}</td>{cells(c)}</tr>
             )),
