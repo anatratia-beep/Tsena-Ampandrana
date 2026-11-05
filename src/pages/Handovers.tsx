@@ -2,7 +2,7 @@
 // - Le responsable voit tous les vendeurs du jour (ventes par page, espèces, MVola, Orange, Airtel, total à payer),
 //   saisit ce qu'il a reçu et valide.
 // - Le vendeur voit sa propre feuille : ce qu'il doit remettre, et si le responsable l'a reçu.
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { audit, currentUser, useCan, useCurrentUser } from '../lib/auth';
 import { get, save, useTable } from '../lib/db';
 import type { Courier, Order } from '../lib/orders';
@@ -107,12 +107,11 @@ function Restes({ date, pages }: { date: string; pages?: string[] }) {
 function Boards({ date, view }: { date: string; view: 'page' | 'seller' }) {
   return (
     <>
-      {view === 'page' ? <PageBoard date={date} /> : <Board date={date} />}
+      {/* Ordre : chiffres du jour → suivi des restes par page → tableau du jour → argent reçu → restes impayés. */}
+      {view === 'page' ? <PageBoard date={date} between={<RestFollow date={date} />} /> : <Board date={date} between={<RestFollow date={date} />} />}
       <MoneyCountCard date={date} />
       <MoneyWeek date={date} />
-      {/* Restes impayés : sous l'argent reçu de la semaine (pas en haut de la page). */}
       <PageRests date={date} />
-      <RestFollow date={date} />
       <SellerGaps date={date} />
     </>
   );
@@ -514,7 +513,7 @@ function SellerGaps({ date }: { date: string }) {
 }
 
 /** Responsable : toutes les pages du jour. Espèces reçues saisies directement dans le tableau. */
-function PageBoard({ date }: { date: string }) {
+function PageBoard({ date, between }: { date: string; between?: ReactNode }) {
   // « Sans page » (articles sans page) : montré à part sous le tableau, jamais compté dans les totaux du versement.
   const allRows = pagesOfDay(date);
   const rows = allRows.filter((d) => d.pageId !== '_'), noPage = allRows.find((d) => d.pageId === '_');
@@ -551,6 +550,7 @@ function PageBoard({ date }: { date: string }) {
         <div className="card stat stat-strong"><span className="small muted">Total à payer (espèces)</span><strong className="stat-value num">{fmtAr(t.toPay)}</strong><span className="small muted">déjà reçu : {fmtAr(t.got)}</span></div>
         <div className="card stat"><span className="small muted">Reste à recevoir</span><strong className={`stat-value num ${rest > 0 ? 'neg' : ''}`}>{fmtAr(rest)}</strong><span className="small muted">{waiting.length ? `${waiting.length} page(s) pas encore reçue(s)` : 'tout est reçu'}</span></div>
       </div>
+      {between /* suivi des restes : entre les chiffres du jour et le tableau */}
       <div className="card card-flush">
         <div className="card-pad row-between">
           <div><h2>Page par page</h2>
@@ -587,7 +587,7 @@ function PageBoard({ date }: { date: string }) {
 }
 
 /** Responsable : tous les vendeurs du jour. */
-function Board({ date }: { date: string }) {
+function Board({ date, between }: { date: string; between?: ReactNode }) {
   const rows = sellersOfDay(date);
   const [open, setOpen] = useState<string | null>(null);
   const t = rows.reduce((a, d) => ({ sales: a.sales + salesDay(d), cash: a.cash + d.pay.cash, day: a.day + dayCash(d).shown, c1: a.c1 + dayCash(d).n1, c2: a.c2 + dayCash(d).n2, fm: a.fm + d.feeMobile, mvola: a.mvola + mobDay(d, 'mvola'), orange: a.orange + mobDay(d, 'orange'), airtel: a.airtel + mobDay(d, 'airtel'), fees: a.fees + d.fees, exp: a.exp + d.expenses, toPay: a.toPay + toPayDay(d), got: a.got + (d.handover?.amount ?? 0) }),
@@ -628,6 +628,7 @@ function Board({ date }: { date: string }) {
         <div className="card stat stat-strong"><span className="small muted">Total à payer (espèces)</span><strong className="stat-value num">{fmtAr(t.toPay)}</strong><span className="small muted">déjà reçu : {fmtAr(t.got)}</span></div>
         <div className="card stat"><span className="small muted">Reste à recevoir</span><strong className={`stat-value num ${rest > 0 ? 'neg' : ''}`}>{fmtAr(rest)}</strong><span className="small muted">{waiting.length ? `${waiting.length} vendeur(s) pas encore reçu(s)` : 'tout est reçu'}</span></div>
       </div>
+      {between /* suivi des restes : entre les chiffres du jour et le tableau */}
       <div className="card card-flush">
         <div className="card-pad row-between">
           <div><h2>Vendeur par vendeur</h2>
