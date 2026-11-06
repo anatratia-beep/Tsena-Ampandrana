@@ -1329,3 +1329,6 @@ a.bell { text-decoration: none; }
 .boss-week-table .bw-orange { background: var(--p-orange); color: #fff; }
 .boss-week-table .bw-rest, .boss-week-table .bw-prev { background: var(--p-violet-soft); }
 .boss-week-table .bw-sales { vertical-align: middle; font-size: 1.1em; }
+.boss-week .bw-head { display: flex; align-items: baseline; gap: 16px; margin: 6px 0 8px; }
+.boss-week .bw-head span { font-weight: 700; }
+.boss-week .bw-head strong { color: var(--danger); font-size: 1.6em; }

@@ -5,7 +5,7 @@ import { setMeta, useMeta, useTable } from '../lib/db';
 import { fmtAr } from '../lib/catalog';
 import { fmtPhone, normPhone } from '../lib/orders';
 import { today } from '../lib/money';
-import { PKIND, bossReport, periodOf, reportText, shiftAnchor, type PKind, type PageRow, type Report, type StockRow } from '../lib/report';
+import { PKIND, bossMoney, bossReport, periodOf, reportText, shiftAnchor, type PKind, type PageRow, type Report, type StockRow } from '../lib/report';
 import { a4Table, arA4, h, printA4 } from '../lib/a4';
 import { useCompany } from '../lib/settings';
 import { usdRate } from '../lib/payouts';
@@ -35,6 +35,7 @@ export function BossReport() {
   const r = useMemo(() => bossReport(per.from, per.to), [per.from, per.to, orders, cash, stock]);
   const p = useMemo(() => bossReport(prevPer.from, prevPer.to), [prevPer.from, prevPer.to, orders, cash, stock]);
   const sent = useMeta<Record<string, string>>('reportSent', {});
+  const lundi = useMeta<Record<string, Partial<Record<'cash' | 'mvola' | 'orange', number>>>>('bossLundi', {}); // « Lundi » saisi à la main, par semaine
   const key = reportKey(kind, per.from);
   const markSent = () => setMeta('reportSent', { ...sent, [key]: new Date().toISOString() });
   const go = (dir: -1 | 1) => { const n = shiftAnchor(kind, anchor, dir, custom); setAnchor(n.anchor); if (n.custom) setCustom(n.custom); };
@@ -178,30 +179,47 @@ export function BossReport() {
       {(() => {
         // Récap de la semaine du versement (même chiffres que « Argent réellement reçu : la semaine »).
         const w = weekVersement(per.to > today() ? today() : per.to);
-        const lines = [
-          { id: 'cash', label: 'Espèces', cur: w.cashReal, hint: `calcul ${fmtAr(w.cashCalc)}` },
-          { id: 'mvola', label: 'MVola', cur: w.mvReal, hint: `calcul ${fmtAr(w.mvCalc)}` },
-          { id: 'orange', label: 'Orange Money', cur: w.orReal, hint: `calcul ${fmtAr(w.orCalc)}` },
-          { id: 'rest', label: 'Reste à payer', cur: m.weekCur.amount, hint: 'semaine en cours' },
-          { id: 'prev', label: 'Reste semaine −1', cur: m.weekPrev.amount, hint: 'semaine précédente' },
+        const wm = bossMoney(w.monday, w.sunday); // dépenses de la semaine, par compte
+        type Acc = 'cash' | 'mvola' | 'orange';
+        const accs: { id: Acc; label: string; cur: number; calc: number; exp: number }[] = [
+          { id: 'cash', label: 'Espèces', cur: w.cashReal, calc: w.cashCalc, exp: wm.cash.expenses },
+          { id: 'mvola', label: 'MVola', cur: w.mvReal, calc: w.mvCalc, exp: wm.mvola.expenses },
+          { id: 'orange', label: 'Orange Money', cur: w.orReal, calc: w.orCalc, exp: wm.orange.expenses },
         ];
-        const total = lines.reduce((t, x) => t + x.cur, 0), diff = total - w.sales;
+        const lundiOf = (id: Acc) => lundi[w.monday]?.[id];
+        const rows = accs.map((x) => { const reste = x.cur - x.exp, l = lundiOf(x.id); return { ...x, reste, lundi: l, diff: (l ?? 0) - reste }; });
+        const restCur = m.weekCur.amount, restPrev = m.weekPrev.amount;
+        const total = rows.reduce((t, x) => t + x.cur, 0) + restCur + restPrev, diff = total - w.sales;
+        const diffAll = rows.reduce((t, x) => t + x.diff, 0);
+        const sg = (n: number) => <strong className={n < -0.5 ? 'neg' : ''}>{n > 0.5 ? '+ ' : n < -0.5 ? '− ' : ''}{fmtAr(Math.abs(n))}</strong>;
+        const saveLundi = (id: Acc, v: string) => {
+          const n = v.trim() === '' ? undefined : Number(v.replace(/[^\d-]/g, ''));
+          if (n != null && !isFinite(n)) { toast('Montant invalide.', 'error'); return; }
+          setMeta('bossLundi', { ...lundi, [w.monday]: { ...(lundi[w.monday] || {}), [id]: n } });
+        };
         return (
           <section className="card card-flush boss-week">
             <div className="card-pad"><h2>Versement de la semaine du {dd(w.monday)} au {dd(w.sunday)}</h2>
-              <p className="small muted" style={{ margin: 0 }}>Argent réellement reçu (écrit chaque jour dans Versements) + restes, comparé au total des ventes de la semaine.</p></div>
+              <div className="bw-head"><span>Ventes de la semaine</span><strong className="num">{fmtAr(w.sales)}</strong></div>
+              <p className="small muted" style={{ margin: 0 }}>Reçu = argent réellement reçu (Versements). Lundi : à remplir à la main (argent compté, solde MVola / Orange Money). Reste = reçu − dépenses de la semaine sur ce compte. Différence = lundi − reste.</p></div>
             <div className="table-wrap"><table className="table table-grid boss-week-table">
-              <thead><tr><th></th><th className="t-num">Reçu</th><th className="t-num">Vente</th></tr></thead>
+              <thead><tr><th></th><th className="t-num">Reçu</th><th className="t-num">Vente</th><th className="t-num">Lundi</th><th className="t-num">Reste</th><th className="t-num">Différence</th></tr></thead>
               <tbody>
-                {lines.map((x, i) => (
+                {rows.map((x, i) => (
                   <tr key={x.id}>
                     <td className={`bw-label bw-${x.id}`}><strong>{x.label}</strong></td>
-                    <td className="t-num">{fmtAr(x.cur)}<div className="small muted">{x.hint}</div></td>
-                    {i === 0 && <td className="t-num bw-sales" rowSpan={lines.length}><strong>{fmtAr(w.sales)}</strong></td>}
+                    <td className="t-num">{fmtAr(x.cur)}<div className="small muted">calcul {fmtAr(x.calc)}</div></td>
+                    {i === 0 && <td className="t-num bw-sales" rowSpan={5}><strong>{fmtAr(w.sales)}</strong></td>}
+                    <td className="t-num"><input key={`${w.monday}-${x.id}-${x.lundi ?? ''}`} className="cell-input num-input" style={{ width: 120, textAlign: 'right' }} inputMode="numeric" aria-label={`Lundi ${x.label}`} placeholder="à saisir"
+                      defaultValue={x.lundi == null ? '' : String(x.lundi)} onBlur={(e) => saveLundi(x.id, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} /></td>
+                    <td className="t-num"><strong className={x.reste < -0.5 ? 'neg' : ''}>{fmtAr(x.reste)}</strong><div className="small muted">dépenses {fmtAr(x.exp)}</div></td>
+                    <td className="t-num">{sg(x.diff)}</td>
                   </tr>
                 ))}
+                <tr><td className="bw-label bw-rest"><strong>Reste à payer</strong><div className="small muted">semaine en cours</div></td><td className="t-num"><strong className="neg">{fmtAr(restCur)}</strong></td><td colSpan={3} className="t-num small muted">Total différence : {sg(diffAll)}</td></tr>
+                <tr><td className="bw-label bw-prev"><strong>Reste semaine −1</strong><div className="small muted">semaine précédente</div></td><td className="t-num">{fmtAr(restPrev)}</td><td colSpan={3}></td></tr>
               </tbody>
-              <tfoot><tr className="t-total"><td>Sommes</td><td className="t-num">{fmtAr(total)}</td><td className="t-num">Différence : <strong className={diff < -0.5 ? 'neg' : ''}>{diff > 0.5 ? '+' : diff < -0.5 ? '−' : ''} {fmtAr(Math.abs(diff))}</strong></td></tr></tfoot>
+              <tfoot><tr className="t-total"><td>Sommes</td><td className="t-num">{fmtAr(total)}</td><td></td><td className="t-num" colSpan={2}>Différence (sommes − vente)</td><td className="t-num">{sg(diff)}</td></tr></tfoot>
             </table></div>
           </section>
         );
