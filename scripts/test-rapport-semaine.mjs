@@ -26,12 +26,12 @@ await p.evaluate(async () => {
 await p.goto('http://localhost:5173/#/versements'); await p.waitForTimeout(800);
 for (const [l, v] of [['Espèces réellement reçu', '25000'], ['MVola réellement reçu', '21000'], ['Orange Money réellement reçu', '0']]) { await p.getByLabel(l).fill(v); await p.keyboard.press('Tab'); await p.waitForTimeout(250); }
 await p.evaluate(async () => { await window.__tsena.save('cashMoves', [{ id: 'e1', type: 'expense', account: 'cash', amount: -4000, at: new Date().toISOString(), label: 'Sachet', categoryId: 'x' }]); });
-await p.goto('http://localhost:5173/#/rapports/patron'); await p.waitForTimeout(900);
+await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(900);
 await p.getByLabel('Lundi Espèces').fill('20000'); await p.keyboard.press('Enter'); await p.waitForTimeout(400);
 const sec = p.locator('.boss-week');
 const txt = N(await sec.innerText()); console.log(txt);
 const T = async () => N(await sec.innerText());
-ok(/versement de la semaine du/i.test(txt), 'titre semaine');
+ok(/rapport versement de la semaine du/i.test(txt), 'titre semaine');
 ok(/Ventes de la semaine 45 000 Ar/.test(txt), 'ventes de la semaine en haut 45 000');
 ok(/Total dépenses de la semaine 4 000 Ar espèces 4 000 Ar · MVola 0 Ar · Orange 0 Ar/.test(txt), 'total dépenses 4 000 en haut');
 ok(/Reste impayés semaine −1 0 Ar/.test(txt), 'reste impayés −1 en haut');
@@ -45,12 +45,16 @@ ok(/MVola 21 000 Ar calcul 20 000 Ar/.test(mv) && /− 21 000 Ar$/.test(mv), `MV
 const rest = sec.locator('tbody tr').nth(3);
 ok((await rest.locator('.neg').count()) > 0, 'reste à payer de la semaine en rouge');
 ok(/Sommes 46 000 Ar Différence \(sommes − vente\) \+ 1 000 Ar/.test(await T()), 'sommes 46 000, différence + 1 000');
-const after = await p.evaluate(() => { const a = [...document.querySelectorAll('h2')].find((h) => /Envoyer au patron/.test(h.textContent)); const b = document.querySelector('.boss-week'); return !!(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)); });
-ok(after, 'versement de la semaine en bas, après « Envoyer au patron »');
+ok(await p.getByRole('tab', { name: 'Rapport versement de la semaine' }).getAttribute('aria-selected') === 'true', 'onglet « Rapport versement de la semaine »');
+const tabs = await p.getByRole('tab').allInnerTexts(); ok(tabs[0] === 'Rapport au patron' && tabs[1] === 'Rapport versement de la semaine', `onglet juste après le rapport au patron (${tabs.slice(0, 3).join(' | ')})`);
+await p.goto('http://localhost:5173/#/rapports/patron'); await p.waitForTimeout(600);
+ok(await p.locator('.boss-week').count() === 0, 'plus dans le rapport au patron');
+await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(700);
 await sec.getByRole('button', { name: 'Semaine précédente' }).click(); await p.waitForTimeout(400);
 let t2 = await T(); ok(/du 26\/10 au 01\/11/i.test(t2) && /Ventes de la semaine 0 Ar/.test(t2), `semaine précédente : 26/10 → 01/11, ventes 0 (${t2.slice(0, 90)})`);
 await sec.getByRole('button', { name: 'Cette semaine' }).click(); await p.waitForTimeout(400);
 t2 = await T(); ok(/du 02\/11 au 08\/11/i.test(t2) && /Ventes de la semaine 45 000 Ar/.test(t2), 'retour cette semaine');
 const ow = await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1); ok(ow, 'pas de débordement');
+if (process.env.SHOT2) { await p.waitForTimeout(5000); await p.locator('.tabs').scrollIntoViewIfNeeded(); await p.locator('.tabs').screenshot({ path: process.env.SHOT2 }); }
 if (process.env.SHOT) await p.waitForTimeout(5000), await sec.screenshot({ path: process.env.SHOT });
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);

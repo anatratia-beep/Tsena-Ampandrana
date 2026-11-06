@@ -35,9 +35,6 @@ export function BossReport() {
   const r = useMemo(() => bossReport(per.from, per.to), [per.from, per.to, orders, cash, stock]);
   const p = useMemo(() => bossReport(prevPer.from, prevPer.to), [prevPer.from, prevPer.to, orders, cash, stock]);
   const sent = useMeta<Record<string, string>>('reportSent', {});
-  const [weekPick, setWeekPick] = useState<string | null>(null); // semaine choisie pour « Versement de la semaine »
-  const weekRef = weekPick ?? (per.to > today() ? today() : per.to);
-  const lundi = useMeta<Record<string, Partial<Record<'cash' | 'mvola' | 'orange', number>>>>('bossLundi', {}); // « Lundi » saisi à la main, par semaine
   const key = reportKey(kind, per.from);
   const markSent = () => setMeta('reportSent', { ...sent, [key]: new Date().toISOString() });
   const go = (dir: -1 | 1) => { const n = shiftAnchor(kind, anchor, dir, custom); setAnchor(n.anchor); if (n.custom) setCustom(n.custom); };
@@ -213,84 +210,90 @@ export function BossReport() {
         </div>
         {!company.bossPhone && <p className="small muted">Enregistrez le WhatsApp du patron dans Paramètres → Société pour l’envoyer en un clic.</p>}
       </section>
-
-      {(() => {
-        // Récap de la semaine du versement (même chiffres que « Argent réellement reçu : la semaine »).
-        const w = weekVersement(weekRef);
-        const wm = bossMoney(w.monday, w.sunday); // dépenses de la semaine, par compte
-        type Acc = 'cash' | 'mvola' | 'orange';
-        const accs: { id: Acc; label: string; cur: number; calc: number; exp: number }[] = [
-          { id: 'cash', label: 'Espèces', cur: w.cashReal, calc: w.cashCalc, exp: wm.cash.expenses },
-          { id: 'mvola', label: 'MVola', cur: w.mvReal, calc: w.mvCalc, exp: wm.mvola.expenses },
-          { id: 'orange', label: 'Orange Money', cur: w.orReal, calc: w.orCalc, exp: wm.orange.expenses },
-        ];
-        const lundiOf = (id: Acc) => lundi[w.monday]?.[id];
-        const rows = accs.map((x) => { const reste = x.cur - x.exp, l = lundiOf(x.id); return { ...x, reste, lundi: l, diff: (l ?? 0) - reste }; });
-        const restCur = wm.weekCur.amount, restPrev = wm.weekPrev.amount;
-        const total = rows.reduce((t, x) => t + x.cur, 0) + restCur + restPrev, diff = total - w.sales;
-        const diffAll = rows.reduce((t, x) => t + x.diff, 0);
-        const sg = (n: number) => <strong className={n < -0.5 ? 'neg' : ''}>{n > 0.5 ? '+ ' : n < -0.5 ? '− ' : ''}{fmtAr(Math.abs(n))}</strong>;
-        const saveLundi = (id: Acc, v: string) => {
-          const n = v.trim() === '' ? undefined : Number(v.replace(/[^\d-]/g, ''));
-          if (n != null && !isFinite(n)) { toast('Montant invalide.', 'error'); return; }
-          setMeta('bossLundi', { ...lundi, [w.monday]: { ...(lundi[w.monday] || {}), [id]: n } });
-        };
-        const expAll = rows.reduce((t, x) => t + x.exp, 0);
-        const prevLive = restLikeAccueil(addDays(w.monday, -7), addDays(w.monday, -1)); // baisse avec les paiements et annulations
-        return (
-          <section className="stack-s boss-week">
-            <div className="row-between bw-nav">
-              <h2 className="dash-title">Versement de la semaine du {dd(w.monday)} au {dd(w.sunday)}</h2>
-              <div className="row" style={{ gap: 6, alignItems: 'center' }}>
-                <Button variant="ghost" icon="chevronLeft" aria-label="Semaine précédente" onClick={() => setWeekPick(addDays(w.monday, -7))} />
-                <input type="date" className="cell-input" style={{ width: 'auto' }} aria-label="Choisir une semaine" max={today()} value={weekRef} onChange={(e) => e.target.value && setWeekPick(e.target.value)} />
-                <Button variant="ghost" icon="chevronRight" aria-label="Semaine suivante" disabled={w.sunday >= today()} onClick={() => setWeekPick(addDays(w.monday, 7) > today() ? today() : addDays(w.monday, 7))} />
-                {w.sunday < today() && <Button variant="quiet" onClick={() => setWeekPick(today())}>Cette semaine</Button>}
-              </div>
-            </div>
-            <div className="stat-grid bw-top">
-              <div className="card stat bw-top-sales"><span className="small muted">Ventes de la semaine</span><strong className="stat-value num">{fmtAr(w.sales)}</strong><span className="small muted">total des ventes du versement</span></div>
-              <div className="card stat bw-top-exp"><span className="small muted">Total dépenses de la semaine</span><strong className="stat-value num">{fmtAr(expAll)}</strong><span className="small muted">espèces {fmtAr(rows[0].exp)} · MVola {fmtAr(rows[1].exp)} · Orange {fmtAr(rows[2].exp)}</span></div>
-              <div className="card stat bw-top-prev"><span className="small muted">Reste impayés semaine −1</span><strong className="stat-value num neg">{fmtAr(prevLive.amount)}</strong><span className="small muted">{prevLive.n} vente(s) du {dd(prevLive.from)} au {dd(prevLive.to)} · baisse dès qu’une vente est payée ou annulée</span></div>
-            </div>
-            <div className="card card-flush bw-card">
-              <div className="table-wrap"><table className="bw-table">
-                <thead><tr><th></th><th>Reçu</th><th>Vente</th><th>Lundi</th><th>Reste</th><th>Différence</th></tr></thead>
-                <tbody>
-                  {rows.map((x, i) => (
-                    <tr key={x.id}>
-                      <th scope="row"><span className={`bw-chip bw-${x.id}`}>{x.label}</span></th>
-                      <td>{fmtAr(x.cur)}<small>calcul {fmtAr(x.calc)}</small></td>
-                      {i === 0 && <td className="bw-sales" rowSpan={5}><span>Vente</span><strong>{fmtAr(w.sales)}</strong></td>}
-                      <td><input key={`${w.monday}-${x.id}-${x.lundi ?? ''}`} className="cell-input num-input" inputMode="numeric" aria-label={`Lundi ${x.label}`} placeholder="à saisir"
-                        defaultValue={x.lundi == null ? '' : String(x.lundi)} onBlur={(e) => saveLundi(x.id, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} /></td>
-                      <td><b className={x.reste < -0.5 ? 'neg' : ''}>{fmtAr(x.reste)}</b><small>− dépenses {fmtAr(x.exp)}</small></td>
-                      <td>{sg(x.diff)}</td>
-                    </tr>
-                  ))}
-                  <tr className="bw-rest-row">
-                    <th scope="row"><span className="bw-chip bw-rest">Reste à payer</span><small>semaine en cours</small></th>
-                    <td><b className="neg">{fmtAr(restCur)}</b></td>
-                    <td colSpan={2} className="bw-sumlabel">Total différence</td>
-                    <td>{sg(diffAll)}</td>
-                  </tr>
-                  <tr className="bw-rest-row">
-                    <th scope="row"><span className="bw-chip bw-prev">Reste semaine −1</span><small>figé au comptage</small></th>
-                    <td>{fmtAr(restPrev)}</td>
-                    <td colSpan={3}></td>
-                  </tr>
-                </tbody>
-                <tfoot><tr><th scope="row">Sommes</th><td>{fmtAr(total)}</td><td></td><td colSpan={2} className="bw-sumlabel">Différence (sommes − vente)</td><td>{sg(diff)}</td></tr></tfoot>
-              </table></div>
-            </div>
-          </section>
-        );
-      })()}
     </div>
   );
 }
 
 /** Rapports à envoyer (pour les rappels) : du jour le soir, de la semaine le lundi, du mois le 1er, de l'année le 1er janvier. */
+/** Rapport « Versement de la semaine » (onglet à part, après le rapport au patron) : comme le tableau Excel de la semaine. */
+export function WeekVersementReport() {
+  useTable('orders'); useTable('cashMoves'); useTable('moneyCounts'); useTable('handovers'); useTable('categories'); useTable('variants');
+  const lundi = useMeta<Record<string, Partial<Record<'cash' | 'mvola' | 'orange', number>>>>('bossLundi', {}); // « Lundi » saisi à la main, par semaine
+  const [weekPick, setWeekPick] = useState<string | null>(null);
+  const weekRef = weekPick ?? today();
+  const dd = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+  // Récap de la semaine du versement (même chiffres que « Argent réellement reçu : la semaine »).
+  const w = weekVersement(weekRef);
+  const wm = bossMoney(w.monday, w.sunday); // dépenses de la semaine, par compte
+  type Acc = 'cash' | 'mvola' | 'orange';
+  const accs: { id: Acc; label: string; cur: number; calc: number; exp: number }[] = [
+    { id: 'cash', label: 'Espèces', cur: w.cashReal, calc: w.cashCalc, exp: wm.cash.expenses },
+    { id: 'mvola', label: 'MVola', cur: w.mvReal, calc: w.mvCalc, exp: wm.mvola.expenses },
+    { id: 'orange', label: 'Orange Money', cur: w.orReal, calc: w.orCalc, exp: wm.orange.expenses },
+  ];
+  const lundiOf = (id: Acc) => lundi[w.monday]?.[id];
+  const rows = accs.map((x) => { const reste = x.cur - x.exp, l = lundiOf(x.id); return { ...x, reste, lundi: l, diff: (l ?? 0) - reste }; });
+  const restCur = wm.weekCur.amount, restPrev = wm.weekPrev.amount;
+  const total = rows.reduce((t, x) => t + x.cur, 0) + restCur + restPrev, diff = total - w.sales;
+  const diffAll = rows.reduce((t, x) => t + x.diff, 0);
+  const sg = (n: number) => <strong className={n < -0.5 ? 'neg' : ''}>{n > 0.5 ? '+ ' : n < -0.5 ? '− ' : ''}{fmtAr(Math.abs(n))}</strong>;
+  const saveLundi = (id: Acc, v: string) => {
+    const n = v.trim() === '' ? undefined : Number(v.replace(/[^\d-]/g, ''));
+    if (n != null && !isFinite(n)) { toast('Montant invalide.', 'error'); return; }
+    setMeta('bossLundi', { ...lundi, [w.monday]: { ...(lundi[w.monday] || {}), [id]: n } });
+  };
+  const expAll = rows.reduce((t, x) => t + x.exp, 0);
+  const prevLive = restLikeAccueil(addDays(w.monday, -7), addDays(w.monday, -1)); // baisse avec les paiements et annulations
+  return (
+    <section className="stack-s boss-week">
+      <div className="row-between bw-nav">
+        <h2 className="dash-title">Rapport versement de la semaine du {dd(w.monday)} au {dd(w.sunday)}</h2>
+        <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+          <Button variant="ghost" icon="chevronLeft" aria-label="Semaine précédente" onClick={() => setWeekPick(addDays(w.monday, -7))} />
+          <input type="date" className="cell-input" style={{ width: 'auto' }} aria-label="Choisir une semaine" max={today()} value={weekRef} onChange={(e) => e.target.value && setWeekPick(e.target.value)} />
+          <Button variant="ghost" icon="chevronRight" aria-label="Semaine suivante" disabled={w.sunday >= today()} onClick={() => setWeekPick(addDays(w.monday, 7) > today() ? today() : addDays(w.monday, 7))} />
+          {w.sunday < today() && <Button variant="quiet" onClick={() => setWeekPick(today())}>Cette semaine</Button>}
+        </div>
+      </div>
+      <div className="stat-grid bw-top">
+        <div className="card stat bw-top-sales"><span className="small muted">Ventes de la semaine</span><strong className="stat-value num">{fmtAr(w.sales)}</strong><span className="small muted">total des ventes du versement</span></div>
+        <div className="card stat bw-top-exp"><span className="small muted">Total dépenses de la semaine</span><strong className="stat-value num">{fmtAr(expAll)}</strong><span className="small muted">espèces {fmtAr(rows[0].exp)} · MVola {fmtAr(rows[1].exp)} · Orange {fmtAr(rows[2].exp)}</span></div>
+        <div className="card stat bw-top-prev"><span className="small muted">Reste impayés semaine −1</span><strong className="stat-value num neg">{fmtAr(prevLive.amount)}</strong><span className="small muted">{prevLive.n} vente(s) du {dd(prevLive.from)} au {dd(prevLive.to)} · baisse dès qu’une vente est payée ou annulée</span></div>
+      </div>
+      <div className="card card-flush bw-card">
+        <div className="table-wrap"><table className="bw-table">
+          <thead><tr><th></th><th>Reçu</th><th>Vente</th><th>Lundi</th><th>Reste</th><th>Différence</th></tr></thead>
+          <tbody>
+            {rows.map((x, i) => (
+              <tr key={x.id}>
+                <th scope="row"><span className={`bw-chip bw-${x.id}`}>{x.label}</span></th>
+                <td>{fmtAr(x.cur)}<small>calcul {fmtAr(x.calc)}</small></td>
+                {i === 0 && <td className="bw-sales" rowSpan={5}><span>Vente</span><strong>{fmtAr(w.sales)}</strong></td>}
+                <td><input key={`${w.monday}-${x.id}-${x.lundi ?? ''}`} className="cell-input num-input" inputMode="numeric" aria-label={`Lundi ${x.label}`} placeholder="à saisir"
+                  defaultValue={x.lundi == null ? '' : String(x.lundi)} onBlur={(e) => saveLundi(x.id, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} /></td>
+                <td><b className={x.reste < -0.5 ? 'neg' : ''}>{fmtAr(x.reste)}</b><small>− dépenses {fmtAr(x.exp)}</small></td>
+                <td>{sg(x.diff)}</td>
+              </tr>
+            ))}
+            <tr className="bw-rest-row">
+              <th scope="row"><span className="bw-chip bw-rest">Reste à payer</span><small>semaine en cours</small></th>
+              <td><b className="neg">{fmtAr(restCur)}</b></td>
+              <td colSpan={2} className="bw-sumlabel">Total différence</td>
+              <td>{sg(diffAll)}</td>
+            </tr>
+            <tr className="bw-rest-row">
+              <th scope="row"><span className="bw-chip bw-prev">Reste semaine −1</span><small>figé au comptage</small></th>
+              <td>{fmtAr(restPrev)}</td>
+              <td colSpan={3}></td>
+            </tr>
+          </tbody>
+          <tfoot><tr><th scope="row">Sommes</th><td>{fmtAr(total)}</td><td></td><td colSpan={2} className="bw-sumlabel">Différence (sommes − vente)</td><td>{sg(diff)}</td></tr></tfoot>
+        </table></div>
+      </div>
+    </section>
+  );
+}
+
 export function reportsDue(now = new Date()): { kind: PKind; anchor: string; label: string; key: string }[] {
   const t = today();
   const out: { kind: PKind; anchor: string; label: string; key: string }[] = [];
