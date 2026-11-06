@@ -35,6 +35,8 @@ export function BossReport() {
   const r = useMemo(() => bossReport(per.from, per.to), [per.from, per.to, orders, cash, stock]);
   const p = useMemo(() => bossReport(prevPer.from, prevPer.to), [prevPer.from, prevPer.to, orders, cash, stock]);
   const sent = useMeta<Record<string, string>>('reportSent', {});
+  const [weekPick, setWeekPick] = useState<string | null>(null); // semaine choisie pour « Versement de la semaine »
+  const weekRef = weekPick ?? (per.to > today() ? today() : per.to);
   const lundi = useMeta<Record<string, Partial<Record<'cash' | 'mvola' | 'orange', number>>>>('bossLundi', {}); // « Lundi » saisi à la main, par semaine
   const key = reportKey(kind, per.from);
   const markSent = () => setMeta('reportSent', { ...sent, [key]: new Date().toISOString() });
@@ -176,9 +178,45 @@ export function BossReport() {
         </div>
       </section>
 
+
+      <section className="card stack-s">
+        <h2>Chiffre d’affaires par page</h2>
+        {r.pages.length === 0 ? <p className="small muted">Aucune vente sur la période.</p> : <>
+          <div className="bars">{r.pages.map((x) => (
+            <div key={x.id} className="bar-row"><span className="bar-label">{x.name}</span><span className="bar-track"><span className="bar-fill" style={{ width: `${Math.max(2, (x.revenue / maxPage) * 100)}%` }} /></span><strong className="num">{fmtAr(x.revenue)}</strong></div>
+          ))}</div>
+          <SortTable rowKey={(x) => x.id} rows={r.pages} cols={pageCols} initialSort={{ key: 'r', desc: true }} />
+        </>}
+      </section>
+
+      {!isDay && <section className="card stack-s">
+        <h2>Stock (au prix de revient)</h2>
+        <div className="money-lines stock-flow">
+          <div><span>Valeur du stock au début ({new Date(`${r.from}T12:00:00`).toLocaleDateString('fr-FR')})</span><strong className="num">{fmtAr(r.stock.start)}</strong></div>
+          <div><span>+ Entrées (réceptions, ajustements)</span><strong className="num">{fmtAr(r.stock.in)}</strong></div>
+          <div><span>− Valeur du stock à la fin</span><strong className="num">{fmtAr(r.stock.end)}</strong></div>
+          <div className="ml-strong"><span>= Valeur du stock sorti</span><strong className="num">{fmtAr(r.stock.out)}</strong></div>
+          <div><span className="small">dont vendu (coût des ventes)</span><span className="num small">{fmtAr(r.stock.sold)}</span></div>
+          {Math.round(r.stock.other) !== 0 && <div><span className="small">dont autres sorties (pertes, ajustements)</span><span className="num small">{fmtAr(r.stock.other)}</span></div>}
+        </div>
+        <h3>Stock par page</h3>
+        <SortTable rowKey={(x) => x.id} rows={r.stockPages} cols={stockCols} initialSort={{ key: 'e', desc: true }} empty="Aucun stock." />
+      </section>}
+
+      <section className="card stack-s">
+        <div className="row-between"><h2>Envoyer au patron</h2>{sent[key] && <span className="small ok-text"><Icon name="check" size={14} /> Envoyé le {new Date(sent[key]).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}</span>}</div>
+        <pre className="recap-text">{text}</pre>
+        <div className="row">
+          <a className="btn btn-primary btn-wa" href={`https://wa.me/${intl}?text=${encodeURIComponent(text)}`} target="_blank" rel="noreferrer" onClick={markSent}><Icon name="share" />WhatsApp{company.bossPhone ? ` (${fmtPhone(company.bossPhone)})` : ''}</a>
+          <Button variant="ghost" icon="printer" onClick={pdf}>PDF A4 / Imprimer</Button>
+          <Button variant="ghost" icon="download" onClick={() => excel().catch((e) => toast(e.message, 'error'))}>Excel</Button>
+        </div>
+        {!company.bossPhone && <p className="small muted">Enregistrez le WhatsApp du patron dans Paramètres → Société pour l’envoyer en un clic.</p>}
+      </section>
+
       {(() => {
         // Récap de la semaine du versement (même chiffres que « Argent réellement reçu : la semaine »).
-        const w = weekVersement(per.to > today() ? today() : per.to);
+        const w = weekVersement(weekRef);
         const wm = bossMoney(w.monday, w.sunday); // dépenses de la semaine, par compte
         type Acc = 'cash' | 'mvola' | 'orange';
         const accs: { id: Acc; label: string; cur: number; calc: number; exp: number }[] = [
@@ -188,7 +226,7 @@ export function BossReport() {
         ];
         const lundiOf = (id: Acc) => lundi[w.monday]?.[id];
         const rows = accs.map((x) => { const reste = x.cur - x.exp, l = lundiOf(x.id); return { ...x, reste, lundi: l, diff: (l ?? 0) - reste }; });
-        const restCur = m.weekCur.amount, restPrev = m.weekPrev.amount;
+        const restCur = wm.weekCur.amount, restPrev = wm.weekPrev.amount;
         const total = rows.reduce((t, x) => t + x.cur, 0) + restCur + restPrev, diff = total - w.sales;
         const diffAll = rows.reduce((t, x) => t + x.diff, 0);
         const sg = (n: number) => <strong className={n < -0.5 ? 'neg' : ''}>{n > 0.5 ? '+ ' : n < -0.5 ? '− ' : ''}{fmtAr(Math.abs(n))}</strong>;
@@ -201,7 +239,15 @@ export function BossReport() {
         const prevLive = restLikeAccueil(addDays(w.monday, -7), addDays(w.monday, -1)); // baisse avec les paiements et annulations
         return (
           <section className="stack-s boss-week">
-            <h2 className="dash-title">Versement de la semaine du {dd(w.monday)} au {dd(w.sunday)}</h2>
+            <div className="row-between bw-nav">
+              <h2 className="dash-title">Versement de la semaine du {dd(w.monday)} au {dd(w.sunday)}</h2>
+              <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+                <Button variant="ghost" icon="chevronLeft" aria-label="Semaine précédente" onClick={() => setWeekPick(addDays(w.monday, -7))} />
+                <input type="date" className="cell-input" style={{ width: 'auto' }} aria-label="Choisir une semaine" max={today()} value={weekRef} onChange={(e) => e.target.value && setWeekPick(e.target.value)} />
+                <Button variant="ghost" icon="chevronRight" aria-label="Semaine suivante" disabled={w.sunday >= today()} onClick={() => setWeekPick(addDays(w.monday, 7) > today() ? today() : addDays(w.monday, 7))} />
+                {w.sunday < today() && <Button variant="quiet" onClick={() => setWeekPick(today())}>Cette semaine</Button>}
+              </div>
+            </div>
             <div className="stat-grid bw-top">
               <div className="card stat bw-top-sales"><span className="small muted">Ventes de la semaine</span><strong className="stat-value num">{fmtAr(w.sales)}</strong><span className="small muted">total des ventes du versement</span></div>
               <div className="card stat bw-top-exp"><span className="small muted">Total dépenses de la semaine</span><strong className="stat-value num">{fmtAr(expAll)}</strong><span className="small muted">espèces {fmtAr(rows[0].exp)} · MVola {fmtAr(rows[1].exp)} · Orange {fmtAr(rows[2].exp)}</span></div>
@@ -240,41 +286,6 @@ export function BossReport() {
           </section>
         );
       })()}
-
-      <section className="card stack-s">
-        <h2>Chiffre d’affaires par page</h2>
-        {r.pages.length === 0 ? <p className="small muted">Aucune vente sur la période.</p> : <>
-          <div className="bars">{r.pages.map((x) => (
-            <div key={x.id} className="bar-row"><span className="bar-label">{x.name}</span><span className="bar-track"><span className="bar-fill" style={{ width: `${Math.max(2, (x.revenue / maxPage) * 100)}%` }} /></span><strong className="num">{fmtAr(x.revenue)}</strong></div>
-          ))}</div>
-          <SortTable rowKey={(x) => x.id} rows={r.pages} cols={pageCols} initialSort={{ key: 'r', desc: true }} />
-        </>}
-      </section>
-
-      {!isDay && <section className="card stack-s">
-        <h2>Stock (au prix de revient)</h2>
-        <div className="money-lines stock-flow">
-          <div><span>Valeur du stock au début ({new Date(`${r.from}T12:00:00`).toLocaleDateString('fr-FR')})</span><strong className="num">{fmtAr(r.stock.start)}</strong></div>
-          <div><span>+ Entrées (réceptions, ajustements)</span><strong className="num">{fmtAr(r.stock.in)}</strong></div>
-          <div><span>− Valeur du stock à la fin</span><strong className="num">{fmtAr(r.stock.end)}</strong></div>
-          <div className="ml-strong"><span>= Valeur du stock sorti</span><strong className="num">{fmtAr(r.stock.out)}</strong></div>
-          <div><span className="small">dont vendu (coût des ventes)</span><span className="num small">{fmtAr(r.stock.sold)}</span></div>
-          {Math.round(r.stock.other) !== 0 && <div><span className="small">dont autres sorties (pertes, ajustements)</span><span className="num small">{fmtAr(r.stock.other)}</span></div>}
-        </div>
-        <h3>Stock par page</h3>
-        <SortTable rowKey={(x) => x.id} rows={r.stockPages} cols={stockCols} initialSort={{ key: 'e', desc: true }} empty="Aucun stock." />
-      </section>}
-
-      <section className="card stack-s">
-        <div className="row-between"><h2>Envoyer au patron</h2>{sent[key] && <span className="small ok-text"><Icon name="check" size={14} /> Envoyé le {new Date(sent[key]).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}</span>}</div>
-        <pre className="recap-text">{text}</pre>
-        <div className="row">
-          <a className="btn btn-primary btn-wa" href={`https://wa.me/${intl}?text=${encodeURIComponent(text)}`} target="_blank" rel="noreferrer" onClick={markSent}><Icon name="share" />WhatsApp{company.bossPhone ? ` (${fmtPhone(company.bossPhone)})` : ''}</a>
-          <Button variant="ghost" icon="printer" onClick={pdf}>PDF A4 / Imprimer</Button>
-          <Button variant="ghost" icon="download" onClick={() => excel().catch((e) => toast(e.message, 'error'))}>Excel</Button>
-        </div>
-        {!company.bossPhone && <p className="small muted">Enregistrez le WhatsApp du patron dans Paramètres → Société pour l’envoyer en un clic.</p>}
-      </section>
     </div>
   );
 }

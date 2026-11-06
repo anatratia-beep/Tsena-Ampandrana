@@ -45,6 +45,12 @@ ok(/MVola 21 000 Ar calcul 20 000 Ar/.test(mv) && /− 21 000 Ar$/.test(mv), `MV
 const rest = sec.locator('tbody tr').nth(3);
 ok((await rest.locator('.neg').count()) > 0, 'reste à payer de la semaine en rouge');
 ok(/Sommes 46 000 Ar Différence \(sommes − vente\) \+ 1 000 Ar/.test(await T()), 'sommes 46 000, différence + 1 000');
+const after = await p.evaluate(() => { const a = [...document.querySelectorAll('h2')].find((h) => /Envoyer au patron/.test(h.textContent)); const b = document.querySelector('.boss-week'); return !!(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)); });
+ok(after, 'versement de la semaine en bas, après « Envoyer au patron »');
+await sec.getByRole('button', { name: 'Semaine précédente' }).click(); await p.waitForTimeout(400);
+let t2 = await T(); ok(/du 26\/10 au 01\/11/i.test(t2) && /Ventes de la semaine 0 Ar/.test(t2), `semaine précédente : 26/10 → 01/11, ventes 0 (${t2.slice(0, 90)})`);
+await sec.getByRole('button', { name: 'Cette semaine' }).click(); await p.waitForTimeout(400);
+t2 = await T(); ok(/du 02\/11 au 08\/11/i.test(t2) && /Ventes de la semaine 45 000 Ar/.test(t2), 'retour cette semaine');
 const ow = await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1); ok(ow, 'pas de débordement');
 if (process.env.SHOT) await p.waitForTimeout(5000), await sec.screenshot({ path: process.env.SHOT });
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
