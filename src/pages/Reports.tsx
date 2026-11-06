@@ -15,12 +15,13 @@ import { BarChart } from '../ui/chart';
 import { SortTable, exportTables, type Col } from '../ui/table';
 import { today } from '../lib/money';
 import { GlobalRecap } from './GlobalRecap';
-import { BossReport } from './BossReport';
+import { BossReport, WeekVersementReport } from './BossReport';
 import { SellerReports } from './DayReport';
 import { abandonReasons, conversion, type ConvRow } from '../lib/insights';
 
 const TABS = [
   { key: 'patron', label: 'Rapport au patron' },
+  { key: 'versement-semaine', label: 'Rapport versement de la semaine' },
   { key: 'vendeurs-jour', label: 'Rapports des vendeurs' },
   { key: 'global', label: 'Récap global' },
   { key: 'resultat', label: 'Bénéfice et perte' },
@@ -49,8 +50,9 @@ export function ReportsPage() {
     <>
       <PageHead title="Rapports" subtitle="Rapport au patron (jour, semaine, mois, année) et analyses détaillées, triables, en PDF et Excel" />
       <div className="tabs" role="tablist">{TABS.map((t) => <button key={t.key} role="tab" aria-selected={cur.key === t.key} onClick={() => navigate('/rapports/' + t.key)}>{t.label}</button>)}</div>
-      {!['stock', 'global', 'patron', 'vendeurs-jour'].includes(cur.key) && <div className="card"><PeriodPicker value={period} onChange={setPeriod} /></div>}
+      {!['stock', 'global', 'patron', 'vendeurs-jour', 'versement-semaine'].includes(cur.key) && <div className="card"><PeriodPicker value={period} onChange={setPeriod} /></div>}
       {cur.key === 'patron' && <BossReport />}
+      {cur.key === 'versement-semaine' && <WeekVersementReport />}
       {cur.key === 'vendeurs-jour' && <SellerReports />}
       {cur.key === 'global' && <GlobalRecap />}
       {cur.key === 'resultat' && <ProfitLoss from={from} to={to} />}

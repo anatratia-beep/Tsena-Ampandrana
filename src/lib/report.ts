@@ -140,7 +140,7 @@ function prevUnpaidPaid(from: string, to: string) {
 
 /** Reste impayé de la semaine en cours : exactement le « Reste à payer » de « Situation par page » (accueil) sur la
  *  même période (sans frais de livraison ; l'argent encore chez le livreur reste à payer jusqu'à son versement). */
-function restLikeAccueil(from: string, to: string): WeekUnpaid {
+export function restLikeAccueil(from: string, to: string): WeekUnpaid {
   const t = situation(from, to).total;
   return { from, to, amount: t.rest, n: t.restN };
 }

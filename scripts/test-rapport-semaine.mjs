@@ -1,0 +1,60 @@
+// Rapport patron : cases « Versement de la semaine » (total ventes, espèces, MVola, Orange Money reçus).
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const p = await (await b.newContext({ viewport: { width: 1400, height: 900 }, timezoneId: 'Indian/Antananarivo', deviceScaleFactor: Number(process.env.DPR || 1) })).newPage();
+const N = (t) => t.replace(/[  ]/g, ' ').replace(/\s+/g, ' ');
+let fail = 0; const ok = (c, m) => { console.log((c ? 'OK   ' : 'FAIL ') + m); if (!c) fail++; };
+p.on('pageerror', (e) => { console.log('ERR', e.message); fail++; });
+await p.goto('http://localhost:5173/'); await p.waitForTimeout(600);
+await p.getByLabel("Nom d'utilisateur").fill('super-adm'); await p.locator('input[type=password]').fill('anosy'); await p.keyboard.press('Enter');
+await p.getByRole('button', { name: 'Plus tard' }).click(); await p.waitForTimeout(400);
+await p.evaluate(async () => {
+  const t = window.__tsena; const now = new Date().toISOString(); const ago = (n) => new Date(Date.now() - n * 864e5).toISOString(); const hash = t.get('users', 'user-superadmin').passwordHash;
+  await t.save('categories', [{ id: 'pp', name: 'Poignet précieux' }]);
+  await t.save('products', [{ id: 'a', code: 'A', name: 'Montre', categoryId: 'pp', priceRetail: 15000, active: true }]);
+  await t.save('variants', [{ id: 'va', productId: 'a', sku: 'A', costAvg: 5000, active: true }]);
+  await t.save('stockMoves', [{ variantId: 'va', qty: 50, type: 'initial', at: now }]);
+  await t.save('users', [{ id: 'u1', username: 'aina', fullName: 'Aina', roleId: 'role-seller', active: true, passwordHash: hash, mustChangePassword: false, pageIds: ['pp'] }]);
+  const shop = (id, at, pays) => ({ id, number: id, kind: 'order', channel: 'shop', phone: '', status: 'delivered', lines: [{ id: 'l' + id, variantId: 'va', qty: 1, unitPrice: 15000, qtyKept: 1 }], payments: pays.map(([a, m, w], i) => ({ id: `p${id}${i}`, at: w, amount: a, method: m, receivedBy: 'shop' })), discount: 0, deliveryFee: 0, createdBy: 'u1', createdByName: 'Aina', createdAt: at });
+  await t.save('orders', [shop('S1', now, [[15000, 'cash', now]]), shop('O1', ago(1), [[5000, 'cash', ago(1)], [10000, 'cash', now]])]);
+});
+await p.evaluate(async () => {
+  const t = window.__tsena; const now = new Date().toISOString();
+  const o = t.all('orders').find((x) => x.id === 'S1');
+  await t.save('orders', [{ ...o, payments: [...o.payments, { id: 'pm', at: now, amount: 20000, method: 'mvola', receivedBy: 'shop' }], lines: [{ ...o.lines[0], qty: 2, qtyKept: 2 }] }]);
+});
+await p.goto('http://localhost:5173/#/versements'); await p.waitForTimeout(800);
+for (const [l, v] of [['Espèces réellement reçu', '25000'], ['MVola réellement reçu', '21000'], ['Orange Money réellement reçu', '0']]) { await p.getByLabel(l).fill(v); await p.keyboard.press('Tab'); await p.waitForTimeout(250); }
+await p.evaluate(async () => { await window.__tsena.save('cashMoves', [{ id: 'e1', type: 'expense', account: 'cash', amount: -4000, at: new Date().toISOString(), label: 'Sachet', categoryId: 'x' }]); });
+await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(900);
+await p.getByLabel('Lundi Espèces').fill('20000'); await p.keyboard.press('Enter'); await p.waitForTimeout(400);
+const sec = p.locator('.boss-week');
+const txt = N(await sec.innerText()); console.log(txt);
+const T = async () => N(await sec.innerText());
+ok(/rapport versement de la semaine du/i.test(txt), 'titre semaine');
+ok(/Ventes de la semaine 45 000 Ar/.test(txt), 'ventes de la semaine en haut 45 000');
+ok(/Total dépenses de la semaine 4 000 Ar espèces 4 000 Ar · MVola 0 Ar · Orange 0 Ar/.test(txt), 'total dépenses 4 000 en haut');
+ok(/Reste impayés semaine −1 0 Ar/.test(txt), 'reste impayés −1 en haut');
+const cash = N(await sec.locator('tbody tr').nth(0).innerText());
+ok(/Espèces 25 000 Ar calcul 30 000 Ar/.test(cash), `espèces reçu 25 000 (${cash})`);
+ok(/ 21 000 Ar − dépenses 4 000 Ar/.test(cash), `reste espèces = 25 000 − 4 000 = 21 000 (${cash})`);
+ok(/− 1 000 Ar$/.test(cash), `différence = lundi 20 000 − reste 21 000 = − 1 000 (${cash})`);
+ok(await sec.getByLabel('Lundi Espèces').inputValue() === '20000', 'lundi gardé');
+const mv = N(await sec.locator('tbody tr').nth(1).innerText());
+ok(/MVola 21 000 Ar calcul 20 000 Ar/.test(mv) && /− 21 000 Ar$/.test(mv), `MVola : lundi vide → différence − 21 000 (${mv})`);
+const rest = sec.locator('tbody tr').nth(3);
+ok((await rest.locator('.neg').count()) > 0, 'reste à payer de la semaine en rouge');
+ok(/Sommes 46 000 Ar Différence \(sommes − vente\) \+ 1 000 Ar/.test(await T()), 'sommes 46 000, différence + 1 000');
+ok(await p.getByRole('tab', { name: 'Rapport versement de la semaine' }).getAttribute('aria-selected') === 'true', 'onglet « Rapport versement de la semaine »');
+const tabs = await p.getByRole('tab').allInnerTexts(); ok(tabs[0] === 'Rapport au patron' && tabs[1] === 'Rapport versement de la semaine', `onglet juste après le rapport au patron (${tabs.slice(0, 3).join(' | ')})`);
+await p.goto('http://localhost:5173/#/rapports/patron'); await p.waitForTimeout(600);
+ok(await p.locator('.boss-week').count() === 0, 'plus dans le rapport au patron');
+await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(700);
+await sec.getByRole('button', { name: 'Semaine précédente' }).click(); await p.waitForTimeout(400);
+let t2 = await T(); ok(/du 26\/10 au 01\/11/i.test(t2) && /Ventes de la semaine 0 Ar/.test(t2), `semaine précédente : 26/10 → 01/11, ventes 0 (${t2.slice(0, 90)})`);
+await sec.getByRole('button', { name: 'Cette semaine' }).click(); await p.waitForTimeout(400);
+t2 = await T(); ok(/du 02\/11 au 08\/11/i.test(t2) && /Ventes de la semaine 45 000 Ar/.test(t2), 'retour cette semaine');
+const ow = await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1); ok(ow, 'pas de débordement');
+if (process.env.SHOT2) { await p.waitForTimeout(5000); await p.locator('.tabs').scrollIntoViewIfNeeded(); await p.locator('.tabs').screenshot({ path: process.env.SHOT2 }); }
+if (process.env.SHOT) await p.waitForTimeout(5000), await sec.screenshot({ path: process.env.SHOT });
+console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);

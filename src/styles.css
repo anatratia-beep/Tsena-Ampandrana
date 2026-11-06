@@ -1323,3 +1323,26 @@ a.bell { text-decoration: none; }
 .table.handover-table thead th:first-child, .table.money-count thead th:first-child, .table.money-week thead th:first-child { border-radius: 14px 0 0 14px; text-align: left !important; }
 .handover-table thead th:last-child, .money-count thead th:last-child, .money-week thead th:last-child { border-radius: 0 14px 14px 0; }
 [data-theme='dark'] .handover-table thead th, [data-theme='dark'] .money-count thead th, [data-theme='dark'] .money-week thead th { color: var(--ink); }
+/* Rapport patron : versement de la semaine (comme le tableau Excel). */
+.bw-top .bw-top-sales .stat-value { color: var(--danger); }
+.bw-card { overflow: hidden; }
+.bw-table { width: 100%; border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; }
+.bw-table thead th { background: var(--brand-deep); color: #fff; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; padding: 12px 14px; text-align: right; white-space: nowrap; }
+.bw-table thead th:first-child { text-align: left; }
+.bw-table td, .bw-table tbody th, .bw-table tfoot th { padding: 12px 14px; border-bottom: 1px solid var(--lav-2); text-align: right; vertical-align: middle; white-space: nowrap; }
+.bw-table tbody th, .bw-table tfoot th { text-align: left; font-weight: 600; }
+.bw-table td small, .bw-table th small { display: block; color: var(--muted, #7a7391); font-size: 12px; font-weight: 400; margin-top: 2px; }
+.bw-table tbody tr:nth-child(even) td, .bw-table tbody tr:nth-child(even) th { background: var(--brand-tint); }
+.bw-chip { display: inline-block; padding: 5px 12px; border-radius: 999px; font-weight: 700; font-size: 13px; }
+.bw-chip.bw-cash { background: var(--p-green-soft); color: #1F6B3A; }
+.bw-chip.bw-mvola { background: var(--p-green); color: #fff; }
+.bw-chip.bw-orange { background: var(--p-orange); color: #fff; }
+.bw-chip.bw-rest, .bw-chip.bw-prev { background: var(--p-violet-soft); color: var(--brand-deep); }
+.bw-table td.bw-sales { background: var(--brand-tint) !important; border-left: 2px solid var(--lav-2); border-right: 2px solid var(--lav-2); text-align: center; }
+.bw-table td.bw-sales span { display: block; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted, #7a7391); }
+.bw-table td.bw-sales strong { font-size: 20px; color: var(--brand-deep); }
+.bw-table input.cell-input { width: 120px; text-align: right; }
+.bw-table .bw-sumlabel { color: var(--muted, #7a7391); font-size: 13px; }
+.bw-table tfoot th, .bw-table tfoot td { background: var(--brand-deep); color: #fff; font-weight: 700; border-bottom: 0; }
+.bw-table tfoot .bw-sumlabel { color: #E7DFFB; }
+.bw-table tfoot .neg { color: #FFD3E6; }
