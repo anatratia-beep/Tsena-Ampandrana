@@ -225,7 +225,8 @@ export function WeekVersementReport() {
   // Récap de la semaine du versement (même chiffres que « Argent réellement reçu : la semaine »).
   const w = weekVersement(weekRef);
   const wm = bossMoney(w.monday, w.sunday); // dépenses de la semaine, par compte
-  // Ventes = CA du rapport au patron sur la même semaine ; dépenses comptées à leur date (comme le Résultat et l'Excel).
+  // Ventes = CA du rapport au patron sur la même semaine. Dépenses espèces comme « À verser au patron » (une dépense du
+  // lundi payée avec l'argent de la semaine d'avant compte dans cette semaine-là) ; MVola / Orange à leur date.
   const sales = bossReport(w.monday, w.sunday).revenue;
   const expBy: Record<string, number> = {};
   for (const mv of all<{ type: string; account: string; at: string; amount: number }>('cashMoves')) {
@@ -235,7 +236,7 @@ export function WeekVersementReport() {
   const expOther = Object.entries(expBy).filter(([k]) => !['cash', 'mvola', 'orange'].includes(k)).reduce((t, [, v]) => t + v, 0);
   type Acc = 'cash' | 'mvola' | 'orange';
   const accs: { id: Acc; label: string; cur: number; calc: number; exp: number }[] = [
-    { id: 'cash', label: 'Espèces', cur: w.cashReal, calc: w.cashCalc, exp: expBy.cash ?? 0 },
+    { id: 'cash', label: 'Espèces', cur: w.cashReal, calc: w.cashCalc, exp: wm.cash.expenses },
     { id: 'mvola', label: 'MVola', cur: w.mvReal, calc: w.mvCalc, exp: expBy.mvola ?? 0 },
     { id: 'orange', label: 'Orange Money', cur: w.orReal, calc: w.orCalc, exp: expBy.orange ?? 0 },
   ];
@@ -265,7 +266,7 @@ export function WeekVersementReport() {
       </div>
       <div className="stat-grid bw-top">
         <div className="card stat bw-top-sales"><span className="small muted">Ventes de la semaine</span><strong className="stat-value num">{fmtAr(sales)}</strong><span className="small muted">comme le chiffre d’affaires du rapport au patron{Math.round(w.sales) !== Math.round(sales) ? ` · tableau du versement : ${fmtAr(w.sales)}` : ''}</span></div>
-        <div className="card stat bw-top-exp"><span className="small muted">Total dépenses de la semaine</span><strong className="stat-value num">{fmtAr(expAll)}</strong><span className="small muted">espèces {fmtAr(rows[0].exp)} · MVola {fmtAr(rows[1].exp)} · Orange {fmtAr(rows[2].exp)}{expOther > 0.5 ? <><br />autres comptes {fmtAr(expOther)} (total avec : {fmtAr(expAll + expOther)})</> : null}</span></div>
+        <div className="card stat bw-top-exp"><span className="small muted">Total dépenses de la semaine</span><strong className="stat-value num">{fmtAr(expAll)}</strong><span className="small muted">espèces {fmtAr(rows[0].exp)} · MVola {fmtAr(rows[1].exp)} · Orange {fmtAr(rows[2].exp)}{expOther > 0.5 ? <><br />autres comptes {fmtAr(expOther)}</> : null}</span></div>
         <div className="card stat bw-top-prev"><span className="small muted">Reste impayés semaine −1</span><strong className="stat-value num neg">{fmtAr(prevLive.amount)}</strong><span className="small muted">{prevLive.n} vente(s) du {dd(prevLive.from)} au {dd(prevLive.to)} · baisse dès qu’une vente est payée ou annulée</span></div>
       </div>
       <div className="card card-flush bw-card">
@@ -296,6 +297,16 @@ export function WeekVersementReport() {
             </tr>
           </tbody>
           <tfoot><tr><th scope="row">Sommes</th><td>{fmtAr(total)}</td><td></td><td colSpan={2} className="bw-sumlabel">Différence (sommes − vente)</td><td>{sg(diff)}</td></tr></tfoot>
+        </table></div>
+      </div>
+      <div className="card card-flush bw-card">
+        <div className="card-pad"><h2>Ventes par jour</h2><p className="small muted" style={{ margin: 0 }}>Pour comparer avec l’Excel jour par jour : chiffre d’affaires (rapport au patron) et total des ventes du tableau du versement (avec les corrections ✏️).</p></div>
+        <div className="table-wrap"><table className="bw-table bw-days">
+          <thead><tr><th>Jour</th><th>Chiffre d’affaires</th><th>Tableau du versement</th><th>Écart</th></tr></thead>
+          <tbody>{w.byDay.map((x) => { const ca = bossReport(x.day, x.day).revenue; return (
+            <tr key={x.day}><th scope="row" style={{ textTransform: 'capitalize' }}>{new Date(`${x.day}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' })}</th><td>{fmtAr(ca)}</td><td>{fmtAr(x.sales)}</td><td>{Math.round(x.sales - ca) === 0 ? <span className="muted">—</span> : sg(x.sales - ca)}</td></tr>
+          ); })}</tbody>
+          <tfoot><tr><th scope="row">Semaine</th><td>{fmtAr(sales)}</td><td>{fmtAr(w.sales)}</td><td>{Math.round(w.sales - sales) === 0 ? '—' : sg(w.sales - sales)}</td></tr></tfoot>
         </table></div>
       </div>
     </section>

@@ -33,13 +33,13 @@ const txt = N(await sec.innerText()); console.log(txt);
 const T = async () => N(await sec.innerText());
 ok(/rapport versement de la semaine du/i.test(txt), 'titre semaine');
 ok(/Ventes de la semaine 45 000 Ar/.test(txt), 'ventes de la semaine en haut 45 000');
-ok(/Total dépenses de la semaine 5 000 Ar espèces 5 000 Ar · MVola 0 Ar · Orange 0 Ar autres comptes 7 000 Ar \(total avec : 12 000 Ar\)/.test(txt), 'total dépenses 5 000 (dont dépense du lundi 1 000, gardée dans sa semaine), autres comptes 7 000 à part');
+ok(/Total dépenses de la semaine 4 000 Ar espèces 4 000 Ar · MVola 0 Ar · Orange 0 Ar autres comptes 7 000 Ar/.test(txt), 'dépense espèces du lundi (1 000) comptée avec la semaine d’avant : espèces 4 000 ; autres comptes 7 000 à part');
 ok(/comme le chiffre d’affaires du rapport au patron/.test(txt), 'ventes = CA du rapport au patron');
 ok(/Reste impayés semaine −1 0 Ar/.test(txt), 'reste impayés −1 en haut');
 const cash = N(await sec.locator('tbody tr').nth(0).innerText());
 ok(/Espèces 25 000 Ar calcul 30 000 Ar/.test(cash), `espèces reçu 25 000 (${cash})`);
-ok(/ 20 000 Ar − dépenses 5 000 Ar/.test(cash), `reste espèces = 25 000 − 5 000 = 20 000 (${cash})`);
-ok(/ 0 Ar$/.test(cash), `différence = lundi 20 000 − reste 20 000 = 0 (${cash})`);
+ok(/ 21 000 Ar − dépenses 4 000 Ar/.test(cash), `reste espèces = 25 000 − 4 000 = 21 000 (${cash})`);
+ok(/− 1 000 Ar$/.test(cash), `différence = lundi 20 000 − reste 21 000 = − 1 000 (${cash})`);
 ok(await sec.getByLabel('Lundi Espèces').inputValue() === '20000', 'lundi gardé');
 const mv = N(await sec.locator('tbody tr').nth(1).innerText());
 ok(/MVola 21 000 Ar calcul 20 000 Ar/.test(mv) && /− 21 000 Ar$/.test(mv), `MVola : lundi vide → différence − 21 000 (${mv})`);
@@ -55,7 +55,11 @@ await sec.getByRole('button', { name: 'Semaine précédente' }).click(); await p
 let t2 = await T(); ok(/du 26\/10 au 01\/11/i.test(t2) && /Ventes de la semaine 0 Ar/.test(t2), `semaine précédente : 26/10 → 01/11, ventes 0 (${t2.slice(0, 90)})`);
 await sec.getByRole('button', { name: 'Cette semaine' }).click(); await p.waitForTimeout(400);
 t2 = await T(); ok(/du 02\/11 au 08\/11/i.test(t2) && /Ventes de la semaine 45 000 Ar/.test(t2), 'retour cette semaine');
+const days = N(await p.locator('.bw-days').innerText());
+ok(/Semaine 45 000 Ar 45 000 Ar —/.test(days), `ventes par jour : total semaine CA = versement (${days.slice(-60)})`);
+ok((await p.locator('.bw-days tbody tr').count()) >= 1, 'une ligne par jour');
 const ow = await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1); ok(ow, 'pas de débordement');
 if (process.env.SHOT2) { await p.waitForTimeout(5000); await p.locator('.tabs').scrollIntoViewIfNeeded(); await p.locator('.tabs').screenshot({ path: process.env.SHOT2 }); }
+if (process.env.SHOT3) await p.locator('.bw-card', { has: p.locator('.bw-days') }).screenshot({ path: process.env.SHOT3 });
 if (process.env.SHOT) await p.waitForTimeout(5000), await sec.screenshot({ path: process.env.SHOT });
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
