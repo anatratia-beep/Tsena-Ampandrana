@@ -1323,3 +1323,9 @@ a.bell { text-decoration: none; }
 .table.handover-table thead th:first-child, .table.money-count thead th:first-child, .table.money-week thead th:first-child { border-radius: 14px 0 0 14px; text-align: left !important; }
 .handover-table thead th:last-child, .money-count thead th:last-child, .money-week thead th:last-child { border-radius: 0 14px 14px 0; }
 [data-theme='dark'] .handover-table thead th, [data-theme='dark'] .money-count thead th, [data-theme='dark'] .money-week thead th { color: var(--ink); }
+/* Rapport patron : versement de la semaine (comme le tableau Excel). */
+.boss-week-table .bw-cash { background: var(--p-green-soft); color: #1F6B3A; }
+.boss-week-table .bw-mvola { background: var(--p-green); color: #fff; }
+.boss-week-table .bw-orange { background: var(--p-orange); color: #fff; }
+.boss-week-table .bw-rest, .boss-week-table .bw-prev { background: var(--p-violet-soft); }
+.boss-week-table .bw-sales { vertical-align: middle; font-size: 1.1em; }

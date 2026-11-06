@@ -13,6 +13,7 @@ import { Button, Choice, TextField, toast, useRoute } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { SortTable, exportTables, type Col } from '../ui/table';
 import { Delta } from './Reports';
+import { weekVersement } from './Handovers';
 
 const pctTxt = (n: number) => (n * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' %';
 
@@ -21,7 +22,7 @@ export const reportKey = (kind: PKind, from: string) => `${kind}:${from}`;
 
 export function BossReport() {
   // Les tables servent de dépendances : un « Payé », une annulation ou une dépense recalcule le rapport tout de suite.
-  const orders = useTable('orders'), cash = useTable('cashMoves'), stock = useTable('stockMoves'); useTable('variants'); useTable('boostReadings'); useTable('categories');
+  const orders = useTable('orders'), cash = useTable('cashMoves'), stock = useTable('stockMoves'); useTable('variants'); useTable('boostReadings'); useTable('categories'); useTable('moneyCounts'); useTable('handovers');
   const company = useCompany();
   const route = useRoute();
   const q = new URLSearchParams(route.split('?')[1] ?? '');
@@ -173,6 +174,38 @@ export function BossReport() {
           ))}
         </div>
       </section>
+
+      {(() => {
+        // Récap de la semaine du versement (même chiffres que « Argent réellement reçu : la semaine »).
+        const w = weekVersement(per.to > today() ? today() : per.to);
+        const lines = [
+          { id: 'cash', label: 'Espèces', cur: w.cashReal, hint: `calcul ${fmtAr(w.cashCalc)}` },
+          { id: 'mvola', label: 'MVola', cur: w.mvReal, hint: `calcul ${fmtAr(w.mvCalc)}` },
+          { id: 'orange', label: 'Orange Money', cur: w.orReal, hint: `calcul ${fmtAr(w.orCalc)}` },
+          { id: 'rest', label: 'Reste à payer', cur: m.weekCur.amount, hint: 'semaine en cours' },
+          { id: 'prev', label: 'Reste semaine −1', cur: m.weekPrev.amount, hint: 'semaine précédente' },
+        ];
+        const total = lines.reduce((t, x) => t + x.cur, 0), diff = total - w.sales;
+        return (
+          <section className="card card-flush boss-week">
+            <div className="card-pad"><h2>Versement de la semaine du {dd(w.monday)} au {dd(w.sunday)}</h2>
+              <p className="small muted" style={{ margin: 0 }}>Argent réellement reçu (écrit chaque jour dans Versements) + restes, comparé au total des ventes de la semaine.</p></div>
+            <div className="table-wrap"><table className="table table-grid boss-week-table">
+              <thead><tr><th></th><th className="t-num">Reçu</th><th className="t-num">Vente</th></tr></thead>
+              <tbody>
+                {lines.map((x, i) => (
+                  <tr key={x.id}>
+                    <td className={`bw-label bw-${x.id}`}><strong>{x.label}</strong></td>
+                    <td className="t-num">{fmtAr(x.cur)}<div className="small muted">{x.hint}</div></td>
+                    {i === 0 && <td className="t-num bw-sales" rowSpan={lines.length}><strong>{fmtAr(w.sales)}</strong></td>}
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot><tr className="t-total"><td>Sommes</td><td className="t-num">{fmtAr(total)}</td><td className="t-num">Différence : <strong className={diff < -0.5 ? 'neg' : ''}>{diff > 0.5 ? '+' : diff < -0.5 ? '−' : ''} {fmtAr(Math.abs(diff))}</strong></td></tr></tfoot>
+            </table></div>
+          </section>
+        );
+      })()}
 
       <section className="card stack-s">
         <h2>Chiffre d’affaires par page</h2>
