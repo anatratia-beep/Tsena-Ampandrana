@@ -4,8 +4,8 @@ import { useMemo, useState } from 'react';
 import { setMeta, useMeta, useTable } from '../lib/db';
 import { fmtAr } from '../lib/catalog';
 import { fmtPhone, normPhone } from '../lib/orders';
-import { today } from '../lib/money';
-import { PKIND, bossMoney, bossReport, periodOf, reportText, shiftAnchor, type PKind, type PageRow, type Report, type StockRow } from '../lib/report';
+import { addDays, today } from '../lib/money';
+import { PKIND, bossMoney, bossReport, restLikeAccueil, periodOf, reportText, shiftAnchor, type PKind, type PageRow, type Report, type StockRow } from '../lib/report';
 import { a4Table, arA4, h, printA4 } from '../lib/a4';
 import { useCompany } from '../lib/settings';
 import { usdRate } from '../lib/payouts';
@@ -197,30 +197,46 @@ export function BossReport() {
           if (n != null && !isFinite(n)) { toast('Montant invalide.', 'error'); return; }
           setMeta('bossLundi', { ...lundi, [w.monday]: { ...(lundi[w.monday] || {}), [id]: n } });
         };
+        const expAll = rows.reduce((t, x) => t + x.exp, 0);
+        const prevLive = restLikeAccueil(addDays(w.monday, -7), addDays(w.monday, -1)); // baisse avec les paiements et annulations
         return (
-          <section className="card card-flush boss-week">
-            <div className="card-pad"><h2>Versement de la semaine du {dd(w.monday)} au {dd(w.sunday)}</h2>
-              <div className="bw-head"><span>Ventes de la semaine</span><strong className="num">{fmtAr(w.sales)}</strong></div>
-              <p className="small muted" style={{ margin: 0 }}>Reçu = argent réellement reçu (Versements). Lundi : à remplir à la main (argent compté, solde MVola / Orange Money). Reste = reçu − dépenses de la semaine sur ce compte. Différence = lundi − reste.</p></div>
-            <div className="table-wrap"><table className="table table-grid boss-week-table">
-              <thead><tr><th></th><th className="t-num">Reçu</th><th className="t-num">Vente</th><th className="t-num">Lundi</th><th className="t-num">Reste</th><th className="t-num">Différence</th></tr></thead>
-              <tbody>
-                {rows.map((x, i) => (
-                  <tr key={x.id}>
-                    <td className={`bw-label bw-${x.id}`}><strong>{x.label}</strong></td>
-                    <td className="t-num">{fmtAr(x.cur)}<div className="small muted">calcul {fmtAr(x.calc)}</div></td>
-                    {i === 0 && <td className="t-num bw-sales" rowSpan={5}><strong>{fmtAr(w.sales)}</strong></td>}
-                    <td className="t-num"><input key={`${w.monday}-${x.id}-${x.lundi ?? ''}`} className="cell-input num-input" style={{ width: 120, textAlign: 'right' }} inputMode="numeric" aria-label={`Lundi ${x.label}`} placeholder="à saisir"
-                      defaultValue={x.lundi == null ? '' : String(x.lundi)} onBlur={(e) => saveLundi(x.id, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} /></td>
-                    <td className="t-num"><strong className={x.reste < -0.5 ? 'neg' : ''}>{fmtAr(x.reste)}</strong><div className="small muted">dépenses {fmtAr(x.exp)}</div></td>
-                    <td className="t-num">{sg(x.diff)}</td>
+          <section className="stack-s boss-week">
+            <h2 className="dash-title">Versement de la semaine du {dd(w.monday)} au {dd(w.sunday)}</h2>
+            <div className="stat-grid bw-top">
+              <div className="card stat bw-top-sales"><span className="small muted">Ventes de la semaine</span><strong className="stat-value num">{fmtAr(w.sales)}</strong><span className="small muted">total des ventes du versement</span></div>
+              <div className="card stat bw-top-exp"><span className="small muted">Total dépenses de la semaine</span><strong className="stat-value num">{fmtAr(expAll)}</strong><span className="small muted">espèces {fmtAr(rows[0].exp)} · MVola {fmtAr(rows[1].exp)} · Orange {fmtAr(rows[2].exp)}</span></div>
+              <div className="card stat bw-top-prev"><span className="small muted">Reste impayés semaine −1</span><strong className="stat-value num neg">{fmtAr(prevLive.amount)}</strong><span className="small muted">{prevLive.n} vente(s) du {dd(prevLive.from)} au {dd(prevLive.to)} · baisse dès qu’une vente est payée ou annulée</span></div>
+            </div>
+            <div className="card card-flush bw-card">
+              <div className="table-wrap"><table className="bw-table">
+                <thead><tr><th></th><th>Reçu</th><th>Vente</th><th>Lundi</th><th>Reste</th><th>Différence</th></tr></thead>
+                <tbody>
+                  {rows.map((x, i) => (
+                    <tr key={x.id}>
+                      <th scope="row"><span className={`bw-chip bw-${x.id}`}>{x.label}</span></th>
+                      <td>{fmtAr(x.cur)}<small>calcul {fmtAr(x.calc)}</small></td>
+                      {i === 0 && <td className="bw-sales" rowSpan={5}><span>Vente</span><strong>{fmtAr(w.sales)}</strong></td>}
+                      <td><input key={`${w.monday}-${x.id}-${x.lundi ?? ''}`} className="cell-input num-input" inputMode="numeric" aria-label={`Lundi ${x.label}`} placeholder="à saisir"
+                        defaultValue={x.lundi == null ? '' : String(x.lundi)} onBlur={(e) => saveLundi(x.id, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} /></td>
+                      <td><b className={x.reste < -0.5 ? 'neg' : ''}>{fmtAr(x.reste)}</b><small>− dépenses {fmtAr(x.exp)}</small></td>
+                      <td>{sg(x.diff)}</td>
+                    </tr>
+                  ))}
+                  <tr className="bw-rest-row">
+                    <th scope="row"><span className="bw-chip bw-rest">Reste à payer</span><small>semaine en cours</small></th>
+                    <td><b className="neg">{fmtAr(restCur)}</b></td>
+                    <td colSpan={2} className="bw-sumlabel">Total différence</td>
+                    <td>{sg(diffAll)}</td>
                   </tr>
-                ))}
-                <tr><td className="bw-label bw-rest"><strong>Reste à payer</strong><div className="small muted">semaine en cours</div></td><td className="t-num"><strong className="neg">{fmtAr(restCur)}</strong></td><td colSpan={3} className="t-num small muted">Total différence : {sg(diffAll)}</td></tr>
-                <tr><td className="bw-label bw-prev"><strong>Reste semaine −1</strong><div className="small muted">semaine précédente</div></td><td className="t-num">{fmtAr(restPrev)}</td><td colSpan={3}></td></tr>
-              </tbody>
-              <tfoot><tr className="t-total"><td>Sommes</td><td className="t-num">{fmtAr(total)}</td><td></td><td className="t-num" colSpan={2}>Différence (sommes − vente)</td><td className="t-num">{sg(diff)}</td></tr></tfoot>
-            </table></div>
+                  <tr className="bw-rest-row">
+                    <th scope="row"><span className="bw-chip bw-prev">Reste semaine −1</span><small>figé au comptage</small></th>
+                    <td>{fmtAr(restPrev)}</td>
+                    <td colSpan={3}></td>
+                  </tr>
+                </tbody>
+                <tfoot><tr><th scope="row">Sommes</th><td>{fmtAr(total)}</td><td></td><td colSpan={2} className="bw-sumlabel">Différence (sommes − vente)</td><td>{sg(diff)}</td></tr></tfoot>
+              </table></div>
+            </div>
           </section>
         );
       })()}
