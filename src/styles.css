@@ -1346,3 +1346,4 @@ a.bell { text-decoration: none; }
 .bw-table tfoot th, .bw-table tfoot td { background: var(--brand-deep); color: #fff; font-weight: 700; border-bottom: 0; }
 .bw-table tfoot .bw-sumlabel { color: #E7DFFB; }
 .bw-table tfoot .neg { color: #FFD3E6; }
+.bw-top .bw-top-vers .stat-value { color: var(--p-teal); }

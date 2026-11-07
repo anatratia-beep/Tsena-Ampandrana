@@ -265,7 +265,8 @@ export function WeekVersementReport() {
         </div>
       </div>
       <div className="stat-grid bw-top">
-        <div className="card stat bw-top-sales"><span className="small muted">Ventes de la semaine</span><strong className="stat-value num">{fmtAr(sales)}</strong><span className="small muted">comme le chiffre d’affaires du rapport au patron{Math.round(w.sales) !== Math.round(sales) ? ` · tableau du versement : ${fmtAr(w.sales)}` : ''}</span></div>
+        <div className="card stat bw-top-sales"><span className="small muted">Ventes de la semaine</span><strong className="stat-value num">{fmtAr(sales)}</strong><span className="small muted">comme le chiffre d’affaires du rapport au patron</span></div>
+        <div className="card stat bw-top-vers"><span className="small muted">Total ventes versement</span><strong className="stat-value num">{fmtAr(w.sales)}</strong><span className="small muted">avec les corrections ✏️ des Versements</span><span className="small">Différence : {Math.round(w.sales - sales) === 0 ? <span className="ok-text">✓ juste</span> : sg(w.sales - sales)}</span></div>
         <div className="card stat bw-top-exp"><span className="small muted">Total dépenses de la semaine</span><strong className="stat-value num">{fmtAr(expAll)}</strong><span className="small muted">espèces {fmtAr(rows[0].exp)} · MVola {fmtAr(rows[1].exp)} · Orange {fmtAr(rows[2].exp)}{expOther > 0.5 ? <><br />autres comptes {fmtAr(expOther)}</> : null}</span></div>
         <div className="card stat bw-top-prev"><span className="small muted">Reste impayés semaine −1</span><strong className="stat-value num neg">{fmtAr(prevLive.amount)}</strong><span className="small muted">{prevLive.n} vente(s) du {dd(prevLive.from)} au {dd(prevLive.to)} · baisse dès qu’une vente est payée ou annulée</span></div>
       </div>
