@@ -1347,3 +1347,9 @@ a.bell { text-decoration: none; }
 .bw-table tfoot .bw-sumlabel { color: #E7DFFB; }
 .bw-table tfoot .neg { color: #FFD3E6; }
 .bw-top .bw-top-vers .stat-value { color: var(--p-teal); }
+
+/* Restes impayés par page : commandes du jour avec bouton « Payé ». */
+.rest-orders { flex-basis: 100%; display: flex; flex-direction: column; gap: 4px; margin: 6px 0 2px 12px; }
+.rest-order { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 8px; background: var(--surface-2, rgba(0,0,0,.03)); border-radius: 8px; }
+.rest-order-r { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.rest-order .btn { padding: 4px 10px; min-height: 0; }

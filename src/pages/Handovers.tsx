@@ -15,6 +15,7 @@ import { COUNT_LABELS, FIX_LABELS, mobFixOf, restOkOf, restSeenOf, setRestOk, se
 import { userPages } from '../lib/scope';
 import { Badge, Button, Confirm, Empty, Help, IconButton, Modal, PageHead, TextField, fmtDate, toast } from '../ui/kit';
 import { Icon } from '../ui/icons';
+import { PayModal } from './Orders';
 import { exportTables, type Col } from '../ui/table';
 
 const longDate = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -289,15 +290,17 @@ function MoneyWeek({ date }: { date: string }) {
  * impayés vendeur = écarts de versement pas encore remboursés. Lecture seule.
  */
 function PageRests({ date }: { date: string }) {
-  type Item = { day: string; amount: number; kind: 'client' | 'seller'; ref: string };
+  type Item = { day: string; amount: number; kind: 'client' | 'seller'; ref: string; o?: Order };
   const m = new Map<string, { key: string; name: string; client: number; seller: number; items: Item[] }>();
   const at = (k: string, name: string) => { let r = m.get(k); if (!r) { r = { key: k, name, client: 0, seller: 0, items: [] }; m.set(k, r); } return r; };
   const pageName = (id: string) => get<{ name: string }>('categories', id)?.name ?? 'Sans page';
   const [open, setOpen] = useState<string | null>(null);
+  const [paying, setPaying] = useState<Order | null>(null);
+  const can = useCan();
   for (const r of restLedger('2000-01-01', date)) {
     if (r.rest <= 0.5) continue;
     const pages = r.pages.length ? r.pages : ['_'];
-    for (const pg of pages) { const x = at(pg, pageName(pg)), a = r.rest / pages.length; x.client += a; x.items.push({ day: r.day, amount: a, kind: 'client', ref: r.o.number || '' }); }
+    for (const pg of pages) { const x = at(pg, pageName(pg)), a = r.rest / pages.length; x.client += a; x.items.push({ day: r.day, amount: a, kind: 'client', ref: r.o.number || '', o: r.o }); }
   }
   for (const h of openGaps(date)) {
     const pg = h.userId.startsWith('page:') ? h.userId.slice(5) : '';
@@ -313,9 +316,14 @@ function PageRests({ date }: { date: string }) {
       const cl = items.filter((i) => i.day === day && i.kind === 'client'), se = items.filter((i) => i.day === day && i.kind === 'seller');
       const sum = (xs: Item[]) => xs.reduce((s, i) => s + i.amount, 0);
       return (
-        <div key={day} className="row-between small" style={{ padding: '4px 0', borderBottom: '1px dashed var(--line)' }}>
+        <div key={day} className="row-between small rest-day" style={{ padding: '4px 0', borderBottom: '1px dashed var(--line)', flexWrap: 'wrap' }}>
           <span><strong>Le {dd(day)}</strong>{cl.length ? <> · clients {fmtAr(sum(cl))} <span className="muted">({cl.map((i) => i.ref).filter(Boolean).join(', ')})</span></> : null}{se.length ? <> · impayé vendeur {fmtAr(sum(se))}</> : null}</span>
           <strong className="neg num">{fmtAr(sum(cl) + sum(se))}</strong>
+          {cl.some((i) => i.o) && <div className="rest-orders">{cl.filter((i) => i.o).map((i) => (
+            <div key={i.o!.id} className="rest-order">
+              <span><strong>{i.ref}</strong> {i.o!.name || i.o!.facebook || i.o!.phone}</span>
+              <span className="rest-order-r"><b className="neg num">{fmtAr(i.amount)}</b>{can('orders.create') && <Button variant="ghost" icon="check" onClick={(e) => { e.stopPropagation(); setPaying(i.o!); }}>Payé</Button>}</span>
+            </div>))}</div>}
         </div>
       );
     });
@@ -338,6 +346,7 @@ function PageRests({ date }: { date: string }) {
           <tfoot><tr className="t-total"><td>Total</td><td className="t-num">{fmtAr(t.client)}</td><td className="t-num">{fmtAr(t.seller)}</td><td className="t-num">{fmtAr(t.client + t.seller)}</td></tr></tfoot>
         </table></div>
       )}
+      {paying && <PayModal order={paying} onClose={() => setPaying(null)} />}
     </div>
   );
 }

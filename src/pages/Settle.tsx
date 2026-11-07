@@ -96,3 +96,50 @@ export function SettleModal({ courier, orders, onClose, onDone }: { courier: Cou
     </Modal>
   );
 }
+
+/**
+ * Règlement groupé de plusieurs livreurs d'un coup (même calcul que le règlement d'un livreur, frais gardés par le livreur) :
+ * pour chaque livreur, le montant attendu est enregistré comme versé sur le compte choisi.
+ */
+export function BulkSettleModal({ couriers, orders, onClose, onDone }: { couriers: Courier[]; orders: Order[]; onClose: () => void; onDone?: () => void }) {
+  const [account, setAccount] = useState<AccountId>('cash');
+  const [already, setAlready] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const groups = couriers.map((c) => {
+    const os = orders.filter((o) => o.courierId === c.id), rows = os.map(settleRow), b = courierBalance(c.id);
+    const collect = rows.reduce((t, r) => t + r.x.toCollect, 0), feeOwed = rows.reduce((t, r) => t + r.x.feeOwed, 0);
+    return { c, rows, expected: Math.max(0, b.carry + collect - feeOwed) };
+  }).filter((g) => g.rows.length);
+  const skipped = orders.filter((o) => !o.courierId || !couriers.some((c) => c.id === o.courierId)).length;
+  const total = groups.reduce((t, g) => t + g.expected, 0), n = groups.reduce((t, g) => t + g.rows.length, 0);
+  async function validate() {
+    setBusy(true);
+    try {
+      for (const g of groups) {
+        await settleCourier(g.c, g.rows.map((r) => r.o.id), g.expected, account, `${g.rows.length} commande(s) · frais retenus par le livreur · règlement groupé${already ? ' · argent déjà reçu' : ''}`, { alreadyReceived: already });
+        const feeUpd = g.rows.filter((r) => r.x.fee > 0).map((r) => ({ id: r.o.id, feeStatus: 'kept' as const }));
+        if (feeUpd.length) await save('orders', feeUpd);
+      }
+      toast(`${n} commande(s) réglée(s) avec ${groups.length} livreur(s)`);
+      onDone?.(); onClose();
+    } catch (e: any) { toast(e?.message ?? String(e), 'error'); }
+    setBusy(false);
+  }
+  return (
+    <Modal wide title={`Règlement groupé — ${groups.length} livreur(s), ${n} commande(s)`} onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} icon="check" disabled={!groups.length} onClick={validate}>Tout valider ({fmtAr(total)})</Button></>}>
+      <div className="stack">
+        <div className="table-wrap"><table className="table table-grid">
+          <thead><tr><th>Livreur</th><th className="t-num">Commandes</th><th className="t-num">Doit verser (frais gardés)</th></tr></thead>
+          <tbody>{groups.map((g) => <tr key={g.c.id}><td><strong>{g.c.name}</strong></td><td className="t-num">{g.rows.length}</td><td className="t-num"><strong>{fmtAr(g.expected)}</strong></td></tr>)}</tbody>
+          <tfoot><tr className="t-total"><td>Total</td><td className="t-num">{n}</td><td className="t-num">{fmtAr(total)}</td></tr></tfoot>
+        </table></div>
+        <label className="bulk-already" style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}><input type="checkbox" style={{ flex: 'none', marginTop: 4 }} checked={already} onChange={(e) => setAlready(e.target.checked)} />
+          <span><strong>Argent déjà reçu (ne pas ajouter à la caisse)</strong><br /><span className="small muted">Pour les anciennes commandes dont l’argent a déjà été remis : rien n’entre en caisse aujourd’hui, et chaque paiement compte au jour de la livraison.</span></span></label>
+        {!already && <SelectField label="Argent reçu sur" value={account} onChange={(v) => setAccount(v as AccountId)} options={ACCOUNT_IDS.map((a) => ({ value: a, label: ACCOUNTS[a] }))} />}
+        {skipped > 0 && <p className="small muted">{skipped} commande(s) sans livreur ne sont pas réglées ici.</p>}
+        <div className="notice"><Icon name="alert" /><span>Chaque livreur est réglé avec le montant attendu, frais gardés par le livreur. Les commandes sortent de « À régler » et ne comptent plus comme « chez le livreur ». Pour un montant différent, réglez ce livreur seul (filtre Livreur).</span></div>
+      </div>
+    </Modal>
+  );
+}
