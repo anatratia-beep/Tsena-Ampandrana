@@ -34,4 +34,7 @@ const rows2 = (await p.getByRole('dialog').locator('tbody tr, tfoot tr').allInne
 ok(rows2.length === 2 && /^Total 15 000 Ar/.test(rows2[1]), `après Payé : reste W2, total 15 000 (${rows2.join(' | ')})`);
 await p.keyboard.press('Escape'); await p.waitForTimeout(300);
 ok(/15 000 Ar/.test(await cardTxt()), `case rouge baisse à 15 000 (${await cardTxt()})`);
+await p.locator('.bw-top-prev').click(); await p.waitForTimeout(300);
+await p.getByRole('dialog').locator('tbody tr', { hasText: 'W2' }).dblclick(); await p.waitForTimeout(500);
+ok(p.url().endsWith('#/commandes/W2') && await p.getByRole('dialog').count() === 0, `double-clic : la commande W2 s’ouvre (${p.url()})`);
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);

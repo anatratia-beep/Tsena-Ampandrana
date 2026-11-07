@@ -48,4 +48,6 @@ await dlg.getByRole('button', { name: 'Enregistrer' }).click(); await p.waitForT
 ok(await total() === '45 000 Ar', `après Payé : total impayé 45 000 (${await total()})`);
 ok(await p.evaluate(() => window.__tsena.get('orders', 'N1').payments.length === 2), 'paiement ajouté à N1');
 if (process.env.SHOT3) await card.screenshot({ path: process.env.SHOT3 });
+await card.locator('.rest-order', { hasText: 'N3' }).dblclick(); await p.waitForTimeout(500);
+ok(p.url().endsWith('#/commandes/N3'), `double-clic : la commande N3 s’ouvre (${p.url()})`);
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);

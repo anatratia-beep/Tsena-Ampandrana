@@ -320,9 +320,9 @@ function PageRests({ date }: { date: string }) {
           <span><strong>Le {dd(day)}</strong>{cl.length ? <> · clients {fmtAr(sum(cl))} <span className="muted">({cl.map((i) => i.ref).filter(Boolean).join(', ')})</span></> : null}{se.length ? <> · impayé vendeur {fmtAr(sum(se))}</> : null}</span>
           <strong className="neg num">{fmtAr(sum(cl) + sum(se))}</strong>
           {cl.some((i) => i.o) && <div className="rest-orders">{cl.filter((i) => i.o).map((i) => (
-            <div key={i.o!.id} className="rest-order">
+            <div key={i.o!.id} className="rest-order" title="Double-cliquez pour ouvrir la commande" style={{ cursor: 'pointer' }} onDoubleClick={() => { location.hash = `#/commandes/${i.o!.id}`; }}>
               <span><strong>{i.ref}</strong> {i.o!.name || i.o!.facebook || i.o!.phone}</span>
-              <span className="rest-order-r"><b className="neg num">{fmtAr(i.amount)}</b>{can('orders.create') && <Button variant="ghost" icon="check" onClick={(e) => { e.stopPropagation(); setPaying(i.o!); }}>Payé</Button>}</span>
+              <span className="rest-order-r"><b className="neg num">{fmtAr(i.amount)}</b>{can('orders.create') && <Button variant="ghost" icon="check" onClick={(e) => { e.stopPropagation(); setPaying(i.o!); }} onDoubleClick={(e) => e.stopPropagation()}>Payé</Button>}</span>
             </div>))}</div>}
         </div>
       );
