@@ -9,11 +9,14 @@ import { PKIND, bossMoney, bossReport, restLikeAccueil, periodOf, reportText, sh
 import { a4Table, arA4, h, printA4 } from '../lib/a4';
 import { useCompany } from '../lib/settings';
 import { usdRate } from '../lib/payouts';
-import { Button, Choice, TextField, toast, useRoute } from '../ui/kit';
+import { Button, Choice, Modal, TextField, toast, useRoute } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { SortTable, exportTables, type Col } from '../ui/table';
 import { Delta } from './Reports';
 import { weekVersement } from './Handovers';
+import { PayModal } from './Orders';
+import { restLedger } from '../lib/situation';
+import type { Order } from '../lib/orders';
 
 const pctTxt = (n: number) => (n * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' %';
 
@@ -216,6 +219,32 @@ export function BossReport() {
 
 /** Rapports à envoyer (pour les rappels) : du jour le soir, de la semaine le lundi, du mois le 1er, de l'année le 1er janvier. */
 /** Rapport « Versement de la semaine » (onglet à part, après le rapport au patron) : comme le tableau Excel de la semaine. */
+/** Ventes encore impayées d'une semaine passée (les mêmes que la case rouge), avec « Payé » et l'accès à la commande. */
+function PrevUnpaidModal({ from, to, onClose }: { from: string; to: string; onClose: () => void }) {
+  useTable('orders'); useTable('categories');
+  const dd = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+  const [paying, setPaying] = useState<Order | null>(null);
+  const rows = restLedger(from, to).filter((r) => r.rest > 0.5).sort((a, b) => a.day.localeCompare(b.day));
+  const total = rows.reduce((t, r) => t + r.rest, 0);
+  const page = (id: string) => all<{ id: string; name: string }>('categories').find((c) => c.id === id)?.name ?? '';
+  return (
+    <Modal wide title={`Reste impayés du ${dd(from)} au ${dd(to)} — ${rows.length} vente(s)`} onClose={onClose}>
+      <div className="stack">
+        <p className="small muted" style={{ margin: 0 }}>Comparez avec l’Excel : si une vente est déjà payée, touchez « Payé » ; si elle est annulée, ouvrez la commande pour l’annuler. Le total baisse tout de suite.</p>
+        <div className="table-wrap"><table className="table table-grid">
+          <thead><tr><th>Jour</th><th>Commande</th><th>Page</th><th className="t-num">Reste</th><th></th></tr></thead>
+          <tbody>{rows.map((r) => (
+            <tr key={r.o.id}><td>{dd(r.day)}</td><td><a href={`#/commandes/${r.o.id}`} onClick={onClose}><strong>{r.o.number}</strong></a> {r.o.name || r.o.facebook || r.o.phone}{r.atCourier > 0.5 ? <div className="small muted">dont {fmtAr(r.atCourier)} chez le livreur (pas encore réglé)</div> : null}</td><td>{r.pages.map(page).filter(Boolean).join(', ')}</td><td className="t-num"><strong className="neg">{fmtAr(r.rest)}</strong></td>
+              <td><Button variant="ghost" icon="check" onClick={() => setPaying(r.o)}>Payé</Button></td></tr>
+          ))}</tbody>
+          <tfoot><tr className="t-total"><td colSpan={3}>Total</td><td className="t-num">{fmtAr(total)}</td><td></td></tr></tfoot>
+        </table></div>
+      </div>
+      {paying && <PayModal order={paying} onClose={() => setPaying(null)} />}
+    </Modal>
+  );
+}
+
 export function WeekVersementReport() {
   useTable('orders'); useTable('cashMoves'); useTable('moneyCounts'); useTable('handovers'); useTable('categories'); useTable('variants');
   const lundi = useMeta<Record<string, Partial<Record<'cash' | 'mvola' | 'orange', number>>>>('bossLundi', {}); // « Lundi » saisi à la main, par semaine
@@ -253,6 +282,7 @@ export function WeekVersementReport() {
   };
   const expAll = rows.reduce((t, x) => t + x.exp, 0);
   const prevLive = restLikeAccueil(addDays(w.monday, -7), addDays(w.monday, -1)); // baisse avec les paiements et annulations
+  const [showPrev, setShowPrev] = useState(false);
   return (
     <section className="stack-s boss-week">
       <div className="row-between bw-nav">
@@ -264,11 +294,12 @@ export function WeekVersementReport() {
           {w.sunday < today() && <Button variant="quiet" onClick={() => setWeekPick(today())}>Cette semaine</Button>}
         </div>
       </div>
+      {showPrev && <PrevUnpaidModal from={prevLive.from} to={prevLive.to} onClose={() => setShowPrev(false)} />}
       <div className="stat-grid bw-top">
         <div className="card stat bw-top-sales"><span className="small muted">Ventes de la semaine</span><strong className="stat-value num">{fmtAr(sales)}</strong><span className="small muted">comme le chiffre d’affaires du rapport au patron</span></div>
         <div className="card stat bw-top-vers"><span className="small muted">Total ventes versement</span><strong className="stat-value num">{fmtAr(w.sales)}</strong><span className="small muted">avec les corrections ✏️ des Versements</span><span className="small">Différence : {Math.round(w.sales - sales) === 0 ? <span className="ok-text">✓ juste</span> : sg(w.sales - sales)}</span></div>
         <div className="card stat bw-top-exp"><span className="small muted">Total dépenses de la semaine</span><strong className="stat-value num">{fmtAr(expAll)}</strong><span className="small muted">espèces {fmtAr(rows[0].exp)} · MVola {fmtAr(rows[1].exp)} · Orange {fmtAr(rows[2].exp)}{expOther > 0.5 ? <><br />autres comptes {fmtAr(expOther)}</> : null}</span></div>
-        <div className="card stat bw-top-prev"><span className="small muted">Reste impayés semaine −1</span><strong className="stat-value num neg">{fmtAr(prevLive.amount)}</strong><span className="small muted">{prevLive.n} vente(s) du {dd(prevLive.from)} au {dd(prevLive.to)} · baisse dès qu’une vente est payée ou annulée</span></div>
+        <button type="button" className="card stat bw-top-prev bw-click" onClick={() => setShowPrev(true)}><span className="small muted">Reste impayés semaine −1</span><strong className="stat-value num neg">{fmtAr(prevLive.amount)}</strong><span className="small muted">{prevLive.n} vente(s) du {dd(prevLive.from)} au {dd(prevLive.to)} · baisse dès qu’une vente est payée ou annulée</span><span className="small bw-see">Voir les ventes →</span></button>
       </div>
       <div className="card card-flush bw-card">
         <div className="table-wrap"><table className="bw-table">

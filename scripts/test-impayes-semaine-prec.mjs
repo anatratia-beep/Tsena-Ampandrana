@@ -1,0 +1,37 @@
+// Rapport versement de la semaine : la case rouge « Reste impayés semaine −1 » s’ouvre sur la liste des ventes impayées
+// de la semaine d’avant, avec « Payé » ; le total baisse tout de suite.
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const p = await (await b.newContext({ viewport: { width: 1280, height: 900 }, timezoneId: 'Indian/Antananarivo', deviceScaleFactor: Number(process.env.DPR || 1) })).newPage();
+const N = (t) => t.replace(/[  ]/g, ' ').replace(/\s+/g, ' ').trim();
+let fail = 0; const ok = (c, m) => { console.log((c ? 'OK   ' : 'FAIL ') + m); if (!c) fail++; };
+p.on('pageerror', (e) => { console.log('ERR', e.message); fail++; });
+await p.goto('http://localhost:5173/'); await p.waitForTimeout(600);
+await p.getByLabel("Nom d'utilisateur").fill('super-adm'); await p.locator('input[type=password]').fill('anosy'); await p.keyboard.press('Enter');
+await p.getByRole('button', { name: 'Plus tard' }).click(); await p.waitForTimeout(400);
+await p.evaluate(async () => {
+  const t = window.__tsena; const pad = (n) => String(n).padStart(2, '0');
+  const now = new Date(); const mon = new Date(now); mon.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+  const d = (n) => { const x = new Date(mon); x.setDate(mon.getDate() - n); x.setHours(10, 0, 0, 0); return x.toISOString(); };
+  await t.save('categories', [{ id: 'nv', name: 'Netvision' }]);
+  await t.save('products', [{ id: 'a', code: 'A', name: 'Casque', categoryId: 'nv', priceRetail: 10000, active: true }]);
+  await t.save('variants', [{ id: 'va', productId: 'a', sku: 'A', costAvg: 5000, active: true }]);
+  const o = (id, amount, at, x) => ({ id, number: id, kind: 'order', channel: 'facebook', phone: '0340000000', name: 'Client ' + id, status: 'delivered', lines: [{ id: 'l' + id, variantId: 'va', qty: 1, unitPrice: amount }], payments: [], discount: 0, deliveryFee: 0, createdAt: at, dispatchedAt: at, ...x });
+  await t.save('orders', [o('W1', 30000, d(5)), o('W2', 20000, d(3), { payments: [{ id: 'p', at: d(3), amount: 5000, method: 'cash', receivedBy: 'shop' }] }), o('W3', 10000, d(2), { payments: [{ id: 'q', at: d(2), amount: 10000, method: 'cash', receivedBy: 'shop' }] })]);
+});
+await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(900);
+const cardTxt = async () => N(await p.locator('.bw-top-prev').innerText());
+ok(/45 000 Ar/.test(await cardTxt()) && /2 vente\(s\)/.test(await cardTxt()), `case rouge 45 000, 2 ventes (${await cardTxt()})`);
+await p.locator('.bw-top-prev').click(); await p.waitForTimeout(300);
+const dlg = p.getByRole('dialog');
+const rows = (await dlg.locator('tbody tr, tfoot tr').allInnerTexts()).map(N);
+console.log(rows.join('\n'));
+ok(rows.length === 3 && /W1 Client W1 Netvision 30 000 Ar Payé/.test(rows[0]) && /W2 Client W2 Netvision 15 000 Ar Payé/.test(rows[1]) && /^Total 45 000 Ar/.test(rows[2]), 'liste W1 30 000, W2 15 000, total 45 000 (W3 payée absente)');
+if (process.env.SHOT) await dlg.screenshot({ path: process.env.SHOT });
+await dlg.locator('tr', { hasText: 'W1' }).getByRole('button', { name: 'Payé' }).click(); await p.waitForTimeout(300);
+await p.getByRole('dialog', { name: /Paiement reçu — W1/ }).getByRole('button', { name: 'Enregistrer' }).click(); await p.waitForTimeout(600);
+const rows2 = (await p.getByRole('dialog').locator('tbody tr, tfoot tr').allInnerTexts()).map(N);
+ok(rows2.length === 2 && /^Total 15 000 Ar/.test(rows2[1]), `après Payé : reste W2, total 15 000 (${rows2.join(' | ')})`);
+await p.keyboard.press('Escape'); await p.waitForTimeout(300);
+ok(/15 000 Ar/.test(await cardTxt()), `case rouge baisse à 15 000 (${await cardTxt()})`);
+console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
