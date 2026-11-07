@@ -987,7 +987,7 @@ function EditPaymentModal({ order: o, payment: p, refOnly, onClose }: { order: O
   );
 }
 
-function PayModal({ order: o, onClose }: { order: Order; onClose: () => void }) {
+export function PayModal({ order: o, onClose }: { order: Order; onClose: () => void }) {
   const refund = remaining(o) < 0;
   const due = Math.abs(remaining(o));
   const [lines, setLines] = useState<PayLine[]>([{ method: refund ? 'cash' : 'mvola', amount: String(due), ref: '' }]);
