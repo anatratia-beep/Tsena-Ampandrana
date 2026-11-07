@@ -223,10 +223,10 @@ export function weekVersement(ref: string) {
   const wd = new Date(`${ref}T12:00:00`).getDay();
   const monday = addDays(ref, -((wd + 6) % 7)), sunday = addDays(monday, 6);
   const end = sunday < today() ? sunday : today();
-  const t = { monday, sunday, sales: 0, cashCalc: 0, cashReal: 0, mvCalc: 0, mvReal: 0, orCalc: 0, orReal: 0, fee: 0, days: 0 };
+  const t = { monday, sunday, byDay: [] as { day: string; sales: number }[], sales: 0, cashCalc: 0, cashReal: 0, mvCalc: 0, mvReal: 0, orCalc: 0, orReal: 0, fee: 0, days: 0 };
   for (let d = monday; d <= end; d = addDays(d, 1)) {
     const rows = pagesOfDay(d).filter((x) => x.pageId !== '_');
-    t.sales += rows.reduce((s, x) => s + salesDay(x), 0);
+    const daySales = rows.reduce((s, x) => s + salesDay(x), 0); t.sales += daySales; t.byDay.push({ day: d, sales: daySales });
     const { calc, feeBy } = dayCalc(d); const mc = moneyCountOf(d);
     t.cashCalc += calc.cash; t.mvCalc += calc.mvola; t.orCalc += calc.orange; t.fee += feeBy.mvola + feeBy.orange;
     t.cashReal += mc?.cash ?? 0; t.mvReal += mc?.mvola ?? 0; t.orReal += mc?.orange ?? 0; t.days++;
