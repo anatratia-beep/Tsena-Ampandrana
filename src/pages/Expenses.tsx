@@ -264,10 +264,14 @@ function ExpenseList() {
   const [fix, setFix] = useState<CashMove | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
   const [allCats, setAllCats] = useState(false);
+  const [acc, setAcc] = useState<AccountId | ''>('');
   const name = (id?: string) => cats.find((c) => c.id === id)?.name ?? '—';
   const typeOf = (m: CashMove) => m.typeId ?? (m.recurringId ? 'et-fixe' : 'et-courante');
   const list = useMemo(() => moves.filter((m) => m.type === 'expense' && inPeriod(m.at, period) && (!cat || m.categoryId === cat) && (!type || typeOf(m) === type)
     && (!q.trim() || matchQuery(`${m.label ?? ''} ${m.note ?? ''} ${name(m.categoryId)} ${m.userName ?? ''} ${-m.amount}`, q))), [moves, period, cat, type, q, cats]);
+  // Détail par compte (caisse espèces, MVola, Orange…) : toujours sur toutes les dépenses filtrées ; toucher un compte n'affiche que ses dépenses.
+  const byAccount = ACCOUNT_IDS.map((a) => [a, list.filter((m) => m.account === a).reduce((t, m) => t - m.amount, 0)] as const).filter(([, v]) => v);
+  const shown = acc ? list.filter((m) => m.account === acc) : list;
   const total = list.reduce((t, m) => t - m.amount, 0);
   const group = (key: (m: CashMove) => string) => { const g = new Map<string, number>(); for (const m of list) g.set(key(m), (g.get(key(m)) ?? 0) - m.amount); return [...g.entries()].sort((a, b) => b[1] - a[1]); };
   const byCat = group((m) => name(m.categoryId));
@@ -295,14 +299,20 @@ function ExpenseList() {
           <div className="card stat stat-strong"><span className="small muted">Total des dépenses ({list.length})</span><strong className="stat-value num">{fmtAr(total)}</strong></div>
           {byType.slice(0, 3).map(([n, v]) => <div key={n} className="card stat"><span className="small muted">{n}</span><strong className="stat-value num">{fmtAr(v)}</strong></div>)}
         </div>
+        {byAccount.length > 0 && <div className="stack-s" aria-label="Dépenses par compte">
+          <span className="small muted">Par compte (touchez un compte pour voir ses dépenses)</span>
+          <div className="row" style={{ gap: 8 }}>{byAccount.map(([a, v]) => (
+            <button key={a} type="button" className={`chip${acc === a ? ' active' : ''}`} aria-pressed={acc === a} onClick={() => setAcc(acc === a ? '' : a)}>{ACCOUNTS[a]} <strong className="num">{fmtAr(v)}</strong></button>
+          ))}</div>
+        </div>}
         {byCat.length > 0 && <div className="bars">{(allCats ? byCat : byCat.slice(0, 5)).map(([n, v]) => (
           <div key={n} className="bar-row"><span className="bar-label">{n}</span><span className="bar-track"><span className="bar-fill" style={{ width: `${Math.max(2, (v / byCat[0][1]) * 100)}%` }} /></span><strong className="num">{fmtAr(v)}</strong></div>
         ))}{byCat.length > 5 && <button type="button" className="link-btn" style={{ paddingLeft: 0, justifySelf: 'start' }} onClick={() => setAllCats(!allCats)}>{allCats ? 'Voir moins' : `Voir les ${byCat.length - 5} autres catégories`}</button>}</div>}
       </div>
       <div className="card card-flush">
-        <div className="card-pad row-between"><h2>Liste des dépenses</h2>
+        <div className="card-pad row-between"><h2>Liste des dépenses{acc ? ` · ${ACCOUNTS[acc]}` : ''}</h2>
           <Button variant="ghost" icon="download" disabled={!list.length} onClick={() => exportTables(`depenses_${period.from ?? 'debut'}_${period.to ?? today()}.xlsx`, [{ name: 'Dépenses', cols: cols.slice(0, 7).map((c) => ({ ...c, value: c.key === 'd' ? (m: CashMove) => fmtDateTime(m.at) : c.value })), rows: list }, { name: 'Par catégorie', cols: [{ key: 'n', label: 'Catégorie', value: (r: [string, number]) => r[0], width: 26 }, { key: 'v', label: 'Total', value: (r: [string, number]) => r[1], money: true, total: true, width: 16 }], rows: byCat }])}>Excel</Button></div>
-        <SortTable key={order} rowKey={(m) => m.id} rows={list} cols={cols} initialSort={{ key: 'd', desc: order === 'new' }} limit={100} empty="Aucune dépense sur la période." />
+        <SortTable key={`${order}${acc}`} rowKey={(m) => m.id} rows={shown} cols={cols} initialSort={{ key: 'd', desc: order === 'new' }} limit={100} empty="Aucune dépense sur la période." />
       </div>
       {del && <Confirm title="Supprimer cette dépense ?" danger confirmLabel="Supprimer" onClose={() => setDel(null)} onConfirm={async () => { await deleteMove(del); toast('Dépense supprimée'); }}
         message={<p>{del.label || name(del.categoryId)} — {fmtAr(-del.amount)} ({ACCOUNTS[del.account]}, {fmtDate(dayOf(del.at))}). Le solde du compte remonte d’autant.</p>} />}
