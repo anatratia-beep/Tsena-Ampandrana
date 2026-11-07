@@ -287,7 +287,7 @@ export function courierBalance(courierId: string, until?: string) {
  * (sans articles en choix) est marquée livrée : le client a payé au livreur tout ce qui restait.
  * amount + : le livreur remet l'argent ; − : la boutique lui verse ses frais.
  */
-export async function settleCourier(c: Courier, orderIds: string[], amount: number, account: AccountId, note?: string) {
+export async function settleCourier(c: Courier, orderIds: string[], amount: number, account: AccountId, note?: string, opts?: { alreadyReceived?: boolean }) {
   const blocked = orderIds.map((id) => get<Order>('orders', id)).filter((o): o is Order => !!o && o.status === 'out' && o.lines.some((l) => l.isChoice));
   if (blocked.length) throw new Error(`Choix du client à préciser avant le versement : ${blocked.map((o) => o.number).join(', ')}`);
   for (const id of orderIds) {
@@ -301,10 +301,12 @@ export async function settleCourier(c: Courier, orderIds: string[], amount: numb
   const expected = before.carry + checked.reduce((t, o) => t + deliveryNet(o).net, 0);
   const at = bizNow();
   const [s] = await save('courierSettlements', { courierId: c.id, at, amount, account, balanceBefore: expected, orderIds, note, userName: who() });
-  if (amount) await save('cashMoves', { at, account, amount, type: 'courier_settlement', label: `${amount > 0 ? 'Versement de' : 'Frais versés à'} ${c.name}`, note, refType: 'courierSettlements', refId: s.id, userName: who() });
+  // « Argent déjà reçu » (rattrapage d'anciennes commandes) : pas de mouvement de caisse, et chaque commande est réglée
+  // au jour de sa livraison (retour du livreur) pour que ses paiements comptent ce jour-là.
+  if (amount && !opts?.alreadyReceived) await save('cashMoves', { at, account, amount, type: 'courier_settlement', label: `${amount > 0 ? 'Versement de' : 'Frais versés à'} ${c.name}`, note, refType: 'courierSettlements', refId: s.id, userName: who() });
   // Les commandes réglées ne peuvent plus changer de livreur.
-  if (orderIds.length) await save('orders', orderIds.map((id) => ({ id, courierSettledAt: at })));
-  await audit('Versement livreur', `${c.name} : ${amount >= 0 ? 'remis ' + amount : 'versé ' + -amount} Ar (${ACCOUNTS[account]}) — attendu ${expected} Ar, ${orderIds.length} livraison(s) cochée(s)`, 'courierSettlements', s.id);
+  if (orderIds.length) await save('orders', orderIds.map((id) => { const o = get<Order>('orders', id); return { id, courierSettledAt: opts?.alreadyReceived ? (o?.returnedAt || o?.dispatchedAt || at) : at }; }));
+  await audit('Versement livreur', `${opts?.alreadyReceived ? '(argent déjà reçu, sans caisse) ' : ''}${c.name} : ${amount >= 0 ? 'remis ' + amount : 'versé ' + -amount} Ar (${ACCOUNTS[account]}) — attendu ${expected} Ar, ${orderIds.length} livraison(s) cochée(s)`, 'courierSettlements', s.id);
   return s as CourierSettlement;
 }
 
