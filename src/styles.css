@@ -1353,3 +1353,6 @@ a.bell { text-decoration: none; }
 .rest-order { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 8px; background: var(--surface-2, rgba(0,0,0,.03)); border-radius: 8px; }
 .rest-order-r { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .rest-order .btn { padding: 4px 10px; min-height: 0; }
+.bw-click { text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.bw-click:hover { box-shadow: 0 0 0 2px var(--p-red, #d33) inset; }
+.bw-see { font-weight: 600; color: var(--brand, #5b3cc4); }
