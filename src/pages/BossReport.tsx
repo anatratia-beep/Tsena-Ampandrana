@@ -230,12 +230,12 @@ function PrevUnpaidModal({ from, to, onClose }: { from: string; to: string; onCl
   return (
     <Modal wide title={`Reste impayés du ${dd(from)} au ${dd(to)} — ${rows.length} vente(s)`} onClose={onClose}>
       <div className="stack">
-        <p className="small muted" style={{ margin: 0 }}>Comparez avec l’Excel : si une vente est déjà payée, touchez « Payé » ; si elle est annulée, ouvrez la commande pour l’annuler. Le total baisse tout de suite.</p>
+        <p className="small muted" style={{ margin: 0 }}>Comparez avec l’Excel : si une vente est déjà payée, touchez « Payé » ; si elle est annulée, double-cliquez sur la ligne pour ouvrir la commande et l’annuler. Le total baisse tout de suite.</p>
         <div className="table-wrap"><table className="table table-grid">
           <thead><tr><th>Jour</th><th>Commande</th><th>Page</th><th className="t-num">Reste</th><th></th></tr></thead>
           <tbody>{rows.map((r) => (
-            <tr key={r.o.id}><td>{dd(r.day)}</td><td><a href={`#/commandes/${r.o.id}`} onClick={onClose}><strong>{r.o.number}</strong></a> {r.o.name || r.o.facebook || r.o.phone}{r.atCourier > 0.5 ? <div className="small muted">dont {fmtAr(r.atCourier)} chez le livreur (pas encore réglé)</div> : null}</td><td>{r.pages.map(page).filter(Boolean).join(', ')}</td><td className="t-num"><strong className="neg">{fmtAr(r.rest)}</strong></td>
-              <td><Button variant="ghost" icon="check" onClick={() => setPaying(r.o)}>Payé</Button></td></tr>
+            <tr key={r.o.id} className="row-link" title="Double-cliquez pour ouvrir la commande" onDoubleClick={() => { onClose(); location.hash = `#/commandes/${r.o.id}`; }}><td>{dd(r.day)}</td><td><a href={`#/commandes/${r.o.id}`} onClick={onClose}><strong>{r.o.number}</strong></a> {r.o.name || r.o.facebook || r.o.phone}{r.atCourier > 0.5 ? <div className="small muted">dont {fmtAr(r.atCourier)} chez le livreur (pas encore réglé)</div> : null}</td><td>{r.pages.map(page).filter(Boolean).join(', ')}</td><td className="t-num"><strong className="neg">{fmtAr(r.rest)}</strong></td>
+              <td><Button variant="ghost" icon="check" onClick={() => setPaying(r.o)} onDoubleClick={(e) => e.stopPropagation()}>Payé</Button></td></tr>
           ))}</tbody>
           <tfoot><tr className="t-total"><td colSpan={3}>Total</td><td className="t-num">{fmtAr(total)}</td><td></td></tr></tfoot>
         </table></div>
