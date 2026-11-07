@@ -29,7 +29,7 @@ import { ProspectForm, ProspectList } from './Prospects';
 import { Zones } from './Deliveries';
 import { bucketOf, type Prospect } from '../lib/prospects';
 import { AdjustList, LotPicker, LotTag, lotPhoto } from './Lots';
-import { SettleModal, settleRow } from './Settle';
+import { BulkSettleModal, SettleModal, settleRow } from './Settle';
 import { payDay } from '../lib/situation';
 import { saleDay } from '../lib/handovers';
 import { allPages } from '../lib/boosts';
@@ -185,8 +185,8 @@ function OrderList({ tabKey }: { tabKey?: string }) {
         <div className="card settle-bar">
           <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={selected.length === list.length} onChange={(e) => setSel(e.target.checked ? list.map((o) => o.id) : [])} /> Tout sélectionner</label>
           <span className="small">{selected.length ? <>{selected.length} sélectionnée(s){selCourier ? <> · {selCourier.name} doit verser <strong>{fmtAr(selDue)}</strong></> : null}</> : 'Cochez les commandes que le livreur règle maintenant.'}</span>
-          {selCouriers.length > 1 && <span className="small neg">Plusieurs livreurs : choisissez un livreur dans le filtre.</span>}
-          {can('couriers.settle') ? <Button icon="check" disabled={!selCourier} onClick={() => setSettling(true)}>Régler la sélection</Button> : <span className="small muted">Le règlement est fait par la personne qui a le droit « Faire les règlements des livreurs » (Rôles et accès).</span>}
+          {selCouriers.length > 1 && <span className="small muted">Plusieurs livreurs : règlement groupé, chacun avec son montant attendu.</span>}
+          {can('couriers.settle') ? <Button icon="check" disabled={!selected.length} onClick={() => setSettling(true)}>{selCouriers.length > 1 ? `Régler les ${selCouriers.filter(Boolean).length} livreurs` : 'Régler la sélection'}</Button> : <span className="small muted">Le règlement est fait par la personne qui a le droit « Faire les règlements des livreurs » (Rôles et accès).</span>}
         </div>
       )}
       <div className="card card-flush">
@@ -202,6 +202,7 @@ function OrderList({ tabKey }: { tabKey?: string }) {
         )}
       </div>
       </>}
+      {settling && !selCourier && selected.length > 0 && <BulkSettleModal couriers={couriers.filter((c) => selCouriers.includes(c.id))} orders={selected} onClose={() => setSettling(false)} onDone={() => setSel([])} />}
       {settling && selCourier && <SettleModal courier={selCourier} orders={selected} onClose={() => setSettling(false)} onDone={() => setSel([])} />}
       {creating && <OrderForm onClose={() => setCreating(false)} onSaved={(o) => navigate('/commandes/' + o.id)} />}
       {following && <ProspectForm onClose={() => setFollowing(false)} onSaved={() => navigate('/commandes/suivre')} />}

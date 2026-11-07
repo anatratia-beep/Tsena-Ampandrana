@@ -44,7 +44,7 @@ await p.getByRole('button', { name: 'Effacer les filtres' }).click(); await p.wa
 tx = N(await p.locator('main').innerText());
 ok(tx.includes('Fara Un') && tx.includes('Fara Trois') && !tx.includes('Fara Ancienne'), 'onglet « À régler » : les 3 commandes');
 await p.getByLabel('Tout sélectionner').check(); await p.waitForTimeout(150);
-ok(await p.getByRole('button', { name: 'Régler la sélection' }).isDisabled() && N(await p.locator('main').innerText()).includes('Plusieurs livreurs'), 'plusieurs livreurs : règlement bloqué');
+ok(await p.getByRole('button', { name: 'Régler les 2 livreurs' }).isEnabled() && N(await p.locator('main').innerText()).includes('Plusieurs livreurs : règlement groupé'), 'plusieurs livreurs : règlement groupé possible');
 await p.getByLabel('Livreur', { exact: true }).selectOption('k1'); await p.waitForTimeout(200);
 await p.getByLabel('Tout sélectionner').check(); await p.waitForTimeout(150);
 tx = N(await p.locator('main').innerText());
