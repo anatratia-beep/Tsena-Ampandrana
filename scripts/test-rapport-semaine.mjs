@@ -24,6 +24,8 @@ await p.evaluate(async () => {
   await t.save('orders', [{ ...o, payments: [...o.payments, { id: 'pm', at: now, amount: 20000, method: 'mvola', receivedBy: 'shop' }], lines: [{ ...o.lines[0], qty: 2, qtyKept: 2 }] }]);
 });
 await p.goto('http://localhost:5173/#/versements'); await p.waitForTimeout(800);
+await p.locator('.handover-table tbody tr', { hasText: 'Poignet précieux' }).first().getByRole('button', { name: /Corriger Total ventes/ }).click();
+await p.getByLabel('Total ventes de Poignet précieux').fill('31000'); await p.keyboard.press('Enter'); await p.waitForTimeout(400);
 for (const [l, v] of [['Espèces réellement reçu', '25000'], ['MVola réellement reçu', '21000'], ['Orange Money réellement reçu', '0']]) { await p.getByLabel(l).fill(v); await p.keyboard.press('Tab'); await p.waitForTimeout(250); }
 await p.evaluate(async () => { await window.__tsena.save('cashMoves', [{ id: 'e1', type: 'expense', account: 'cash', amount: -4000, at: new Date().toISOString(), label: 'Sachet', categoryId: 'x' }, { id: 'e3', type: 'expense', account: 'cash', amount: -1000, at: (() => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); d.setHours(10, 0, 0, 0); return d.toISOString(); })(), label: 'Dépense du lundi', categoryId: 'x' }, { id: 'e2', type: 'expense', account: 'bank', amount: -7000, at: new Date().toISOString(), label: 'Banque', categoryId: 'x' }]); });
 await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(900);
@@ -35,6 +37,8 @@ ok(/rapport versement de la semaine du/i.test(txt), 'titre semaine');
 ok(/Ventes de la semaine 45 000 Ar/.test(txt), 'ventes de la semaine en haut 45 000');
 ok(/Total dépenses de la semaine 4 000 Ar espèces 4 000 Ar · MVola 0 Ar · Orange 0 Ar autres comptes 7 000 Ar/.test(txt), 'dépense espèces du lundi (1 000) comptée avec la semaine d’avant : espèces 4 000 ; autres comptes 7 000 à part');
 ok(/comme le chiffre d’affaires du rapport au patron/.test(txt), 'ventes = CA du rapport au patron');
+ok(/Total ventes versement 46 000 Ar avec les corrections ✏️ des Versements Différence : \+ 1 000 Ar/.test(txt), 'case « Total ventes versement » 46 000, différence + 1 000');
+const vc = await sec.locator('.bw-top-vers .stat-value').evaluate((e) => getComputedStyle(e).color); ok(vc === 'rgb(34, 166, 160)', `couleur différente (${vc})`);
 ok(/Reste impayés semaine −1 0 Ar/.test(txt), 'reste impayés −1 en haut');
 const cash = N(await sec.locator('tbody tr').nth(0).innerText());
 ok(/Espèces 25 000 Ar calcul 30 000 Ar/.test(cash), `espèces reçu 25 000 (${cash})`);
@@ -56,7 +60,7 @@ let t2 = await T(); ok(/du 26\/10 au 01\/11/i.test(t2) && /Ventes de la semaine 
 await sec.getByRole('button', { name: 'Cette semaine' }).click(); await p.waitForTimeout(400);
 t2 = await T(); ok(/du 02\/11 au 08\/11/i.test(t2) && /Ventes de la semaine 45 000 Ar/.test(t2), 'retour cette semaine');
 const days = N(await p.locator('.bw-days').innerText());
-ok(/Semaine 45 000 Ar 45 000 Ar —/.test(days), `ventes par jour : total semaine CA = versement (${days.slice(-60)})`);
+ok(/Semaine 45 000 Ar 46 000 Ar \+ 1 000 Ar/.test(days), `ventes par jour : CA 45 000, versement 46 000 (${days.slice(-60)})`);
 ok((await p.locator('.bw-days tbody tr').count()) >= 1, 'une ligne par jour');
 const ow = await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1); ok(ow, 'pas de débordement');
 if (process.env.SHOT2) { await p.waitForTimeout(5000); await p.locator('.tabs').scrollIntoViewIfNeeded(); await p.locator('.tabs').screenshot({ path: process.env.SHOT2 }); }
