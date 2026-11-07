@@ -39,4 +39,9 @@ ok(rows2.length === 2 && /^Total 15 000 Ar/.test(rows2[1]), `après Payé : rest
 await p.keyboard.press('Escape'); await p.waitForTimeout(300);
 ok(/15 000 Ar/.test(await cardTxt()), `case rouge baisse à 15 000 (${await cardTxt()})`);
 ok(/impayé à ce jour 15 000 Ar/.test(await prevRow()), `tableau baisse aussi à 15 000 (${await prevRow()})`);
+await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(700);
+await p.getByRole('button', { name: 'Semaine précédente' }).first().click(); await p.waitForTimeout(500);
+const curRow = N(await p.locator('.bw-table tr', { hasText: 'Reste à payer' }).innerText());
+if (process.env.SHOT7) await p.locator('.bw-card').first().screenshot({ path: process.env.SHOT7 });
+ok(/figé au comptage 45 000 Ar/.test(curRow), `semaine 26/10 : Reste à payer figé au comptage du lundi 45 000, même après le paiement de W1 (${curRow})`);
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
