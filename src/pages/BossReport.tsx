@@ -271,7 +271,9 @@ export function WeekVersementReport() {
   ];
   const lundiOf = (id: Acc) => lundi[w.monday]?.[id];
   const rows = accs.map((x) => { const reste = x.cur - x.exp, l = lundiOf(x.id); return { ...x, reste, lundi: l, diff: (l ?? 0) - reste }; });
-  const restCur = wm.weekCur.amount, restPrev = wm.weekPrev.amount;
+  const prevLive = restLikeAccueil(addDays(w.monday, -7), addDays(w.monday, -1)); // baisse avec les paiements et annulations
+  // Reste semaine −1 : le même que la case rouge (impayé à ce jour, baisse avec les paiements et annulations).
+  const restCur = wm.weekCur.amount, restPrev = prevLive.amount;
   const total = rows.reduce((t, x) => t + x.cur, 0) + restCur + restPrev, diff = total - sales;
   const diffAll = rows.reduce((t, x) => t + x.diff, 0);
   const sg = (n: number) => <strong className={n < -0.5 ? 'neg' : ''}>{n > 0.5 ? '+ ' : n < -0.5 ? '− ' : ''}{fmtAr(Math.abs(n))}</strong>;
@@ -281,7 +283,6 @@ export function WeekVersementReport() {
     setMeta('bossLundi', { ...lundi, [w.monday]: { ...(lundi[w.monday] || {}), [id]: n } });
   };
   const expAll = rows.reduce((t, x) => t + x.exp, 0);
-  const prevLive = restLikeAccueil(addDays(w.monday, -7), addDays(w.monday, -1)); // baisse avec les paiements et annulations
   const [showPrev, setShowPrev] = useState(false);
   return (
     <section className="stack-s boss-week">
@@ -323,7 +324,7 @@ export function WeekVersementReport() {
               <td>{sg(diffAll)}</td>
             </tr>
             <tr className="bw-rest-row">
-              <th scope="row"><span className="bw-chip bw-prev">Reste semaine −1</span><small>figé au comptage</small></th>
+              <th scope="row"><span className="bw-chip bw-prev">Reste semaine −1</span><small>impayé à ce jour</small></th>
               <td>{fmtAr(restPrev)}</td>
               <td colSpan={3}></td>
             </tr>
