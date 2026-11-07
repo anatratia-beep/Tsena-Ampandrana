@@ -96,7 +96,7 @@ const itemsValue = (o: Order) => o.lines.reduce((t, l) => t + (l.isChoice ? 0 : 
 /** Reste impayé d'une semaine tel qu'il était au comptage du lundi `count` : valeur vendue − ce que les clients ont payé
  *  avant le lundi (frais de livraison non comptés ; l'argent remis au livreur compte comme payé).
  *  Un paiement après le comptage ne le baisse pas ; seules une annulation ou un report (la vente sort de la semaine) le font. */
-function frozenUnpaid(from: string, to: string, count: string): WeekUnpaid {
+export function frozenUnpaid(from: string, to: string, count: string): WeekUnpaid {
   const sold = new Map<string, { o: Order; v: number }>();
   for (const l of salesLedger(from, to)) { const e = sold.get(l.order.id) ?? { o: l.order, v: 0 }; e.v += l.amount; sold.set(l.order.id, e); }
   let amount = 0, n = 0;

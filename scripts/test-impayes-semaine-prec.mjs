@@ -22,6 +22,10 @@ await p.evaluate(async () => {
 await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(900);
 const cardTxt = async () => N(await p.locator('.bw-top-prev').innerText());
 ok(/45 000 Ar/.test(await cardTxt()) && /2 vente\(s\)/.test(await cardTxt()), `case rouge 45 000, 2 ventes (${await cardTxt()})`);
+const prevRow = async () => N(await p.locator('.bw-table tr', { hasText: 'Reste semaine −1' }).innerText());
+ok(/impayé à ce jour 45 000 Ar/.test(await prevRow()), `tableau : Reste semaine −1 = case rouge 45 000 (${await prevRow()})`);
+if (process.env.SHOT5) await p.locator('.bw-card').first().screenshot({ path: process.env.SHOT5 });
+if (process.env.SHOT6) await p.locator('.bw-top-prev').screenshot({ path: process.env.SHOT6 });
 await p.locator('.bw-top-prev').click(); await p.waitForTimeout(300);
 const dlg = p.getByRole('dialog');
 const rows = (await dlg.locator('tbody tr, tfoot tr').allInnerTexts()).map(N);
@@ -34,4 +38,10 @@ const rows2 = (await p.getByRole('dialog').locator('tbody tr, tfoot tr').allInne
 ok(rows2.length === 2 && /^Total 15 000 Ar/.test(rows2[1]), `après Payé : reste W2, total 15 000 (${rows2.join(' | ')})`);
 await p.keyboard.press('Escape'); await p.waitForTimeout(300);
 ok(/15 000 Ar/.test(await cardTxt()), `case rouge baisse à 15 000 (${await cardTxt()})`);
+ok(/impayé à ce jour 15 000 Ar/.test(await prevRow()), `tableau baisse aussi à 15 000 (${await prevRow()})`);
+await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(700);
+await p.getByRole('button', { name: 'Semaine précédente' }).first().click(); await p.waitForTimeout(500);
+const curRow = N(await p.locator('.bw-table tr', { hasText: 'Reste à payer' }).innerText());
+if (process.env.SHOT7) await p.locator('.bw-card').first().screenshot({ path: process.env.SHOT7 });
+ok(/figé au comptage 45 000 Ar/.test(curRow), `semaine 26/10 : Reste à payer figé au comptage du lundi 45 000, même après le paiement de W1 (${curRow})`);
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
