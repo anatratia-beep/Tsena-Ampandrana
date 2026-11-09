@@ -14,10 +14,12 @@ await p.evaluate(async () => {
   const now = new Date(); const mon = new Date(now); mon.setDate(now.getDate() - ((now.getDay() + 6) % 7));
   const d = (n) => { const x = new Date(mon); x.setDate(mon.getDate() - n); x.setHours(10, 0, 0, 0); return x.toISOString(); };
   await t.save('categories', [{ id: 'nv', name: 'Netvision' }]);
+  await t.save('users', [{ id: 'u1', username: 'aina', fullName: 'Aina', roleId: 'role-seller', active: true, passwordHash: t.get('users', 'user-superadmin').passwordHash, mustChangePassword: false, pageIds: ['nv'] }]);
   await t.save('products', [{ id: 'a', code: 'A', name: 'Casque', categoryId: 'nv', priceRetail: 10000, active: true }]);
   await t.save('variants', [{ id: 'va', productId: 'a', sku: 'A', costAvg: 5000, active: true }]);
-  const o = (id, amount, at, x) => ({ id, number: id, kind: 'order', channel: 'facebook', phone: '0340000000', name: 'Client ' + id, status: 'delivered', lines: [{ id: 'l' + id, variantId: 'va', qty: 1, unitPrice: amount }], payments: [], discount: 0, deliveryFee: 0, createdAt: at, dispatchedAt: at, ...x });
-  await t.save('orders', [o('W1', 30000, d(5)), o('W2', 20000, d(3), { payments: [{ id: 'p', at: d(3), amount: 5000, method: 'cash', receivedBy: 'shop' }] }), o('W3', 10000, d(2), { payments: [{ id: 'q', at: d(2), amount: 10000, method: 'cash', receivedBy: 'shop' }] })]);
+  const o = (id, amount, at, x) => ({ id, number: id, kind: 'order', channel: 'facebook', phone: '0340000000', name: 'Client ' + id, status: 'delivered', lines: [{ id: 'l' + id, variantId: 'va', qty: 1, unitPrice: amount }], payments: [], discount: 0, deliveryFee: 0, createdBy: 'u1', createdByName: 'Aina', createdAt: at, dispatchedAt: at, ...x });
+  await t.save('orders', [o('W1', 30000, d(5)), o('W2', 20000, d(3), { payments: [{ id: 'p', at: d(3), amount: 5000, method: 'cash', receivedBy: 'shop' }] }), o('W3', 10000, d(2), { payments: [{ id: 'q', at: d(2), amount: 10000, method: 'cash', receivedBy: 'shop' }] }),
+    o('W4', 10000, d(2), { deliveryFee: 3000, payments: [{ id: 'r', at: d(2), amount: 13000, method: 'mvola', receivedBy: 'shop' }] })]);
 });
 await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(900);
 const cardTxt = async () => N(await p.locator('.bw-top-prev').innerText());
@@ -44,6 +46,11 @@ await p.getByRole('dialog').locator('tbody tr', { hasText: 'W2' }).dblclick(); a
 ok(p.url().endsWith('#/commandes/W2') && await p.getByRole('dialog').count() === 0, `double-clic : la commande W2 s’ouvre (${p.url()})`);
 await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(700);
 await p.getByRole('button', { name: 'Semaine précédente' }).first().click(); await p.waitForTimeout(500);
+const cashTr = p.locator('.bw-table tr', { hasText: 'Espèces' });
+ok(!/total dépenses/.test(N(await cashTr.innerText())), 'détail du reste caché avant le clic');
+await cashTr.locator('td.bw-reste').click(); await p.waitForTimeout(150);
+const cashRow = N(await cashTr.innerText());
+ok(/-3 000 Ar total dépenses 0 Ar total frais de livraison 3 000 Ar/.test(cashRow), `espèces : frais de livraison payés en MVola (3 000) dans les dépenses (${cashRow})`);
 const curRow = N(await p.locator('.bw-table tr', { hasText: 'Reste à payer' }).innerText());
 if (process.env.SHOT7) await p.locator('.bw-card').first().screenshot({ path: process.env.SHOT7 });
 ok(/figé au comptage 45 000 Ar/.test(curRow), `semaine 26/10 : Reste à payer figé au comptage du lundi 45 000, même après le paiement de W1 (${curRow})`);
