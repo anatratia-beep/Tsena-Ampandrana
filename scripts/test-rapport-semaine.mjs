@@ -40,9 +40,10 @@ ok(/comme le chiffre d’affaires du rapport au patron/.test(txt), 'ventes = CA 
 ok(/Total ventes versement 46 000 Ar avec les corrections ✏️ des Versements Différence : \+ 1 000 Ar/.test(txt), 'case « Total ventes versement » 46 000, différence + 1 000');
 const vc = await sec.locator('.bw-top-vers .stat-value').evaluate((e) => getComputedStyle(e).color); ok(vc === 'rgb(34, 166, 160)', `couleur différente (${vc})`);
 ok(/Reste impayés semaine −1 0 Ar/.test(txt), 'reste impayés −1 en haut');
+await sec.locator('tbody tr').nth(0).locator('td.bw-reste').click(); await p.waitForTimeout(150); // détail du reste au clic
 const cash = N(await sec.locator('tbody tr').nth(0).innerText());
 ok(/Espèces 25 000 Ar calcul 30 000 Ar/.test(cash), `espèces reçu 25 000 (${cash})`);
-ok(/ 21 000 Ar − dépenses 4 000 Ar/.test(cash), `reste espèces = 25 000 − 4 000 = 21 000 (${cash})`);
+ok(/ 21 000 Ar total dépenses 4 000 Ar/.test(cash), `reste espèces = 25 000 − 4 000 = 21 000 (${cash})`);
 ok(/− 1 000 Ar$/.test(cash), `différence = lundi 20 000 − reste 21 000 = − 1 000 (${cash})`);
 ok(await sec.getByLabel('Lundi Espèces').inputValue() === '20000', 'lundi gardé');
 const mv = N(await sec.locator('tbody tr').nth(1).innerText());
