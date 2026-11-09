@@ -286,6 +286,7 @@ export function WeekVersementReport() {
   };
   const expAll = rows.reduce((t, x) => t + x.exp + (x.fee ?? 0), 0);
   const [showPrev, setShowPrev] = useState(false);
+  const [openReste, setOpenReste] = useState<string | null>(null);
   return (
     <section className="stack-s boss-week">
       <div className="row-between bw-nav">
@@ -315,7 +316,7 @@ export function WeekVersementReport() {
                 {i === 0 && <td className="bw-sales" rowSpan={5}><span>Vente</span><strong>{fmtAr(sales)}</strong></td>}
                 <td><input key={`${w.monday}-${x.id}-${x.lundi ?? ''}`} className="cell-input num-input" inputMode="numeric" aria-label={`Lundi ${x.label}`} placeholder="à saisir"
                   defaultValue={x.lundi == null ? '' : String(x.lundi)} onBlur={(e) => saveLundi(x.id, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} /></td>
-                <td><b className={x.reste < -0.5 ? 'neg' : ''}>{fmtAr(x.reste)}</b><small>− dépenses {fmtAr(x.exp)}</small>{x.fee ? <><small>− frais de livraison {fmtAr(x.fee)}</small><small className="bw-fee-days">{w.byDay.filter((d) => d.fee > 0.5).map((d) => `${new Date(`${d.day}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'short' })} ${fmtAr(d.fee)}`).join(' · ')}</small></> : null}</td>
+                <td className="bw-reste" title="Touchez pour voir le détail" onClick={() => setOpenReste(openReste === x.id ? null : x.id)}><b className={x.reste < -0.5 ? 'neg' : ''}>{fmtAr(x.reste)}</b>{openReste === x.id && <><small>total dépenses {fmtAr(x.exp)}</small>{x.fee ? <small>total frais de livraison {fmtAr(x.fee)}</small> : null}</>}</td>
                 <td>{sg(x.diff)}</td>
               </tr>
             ))}

@@ -1357,3 +1357,4 @@ a.bell { text-decoration: none; }
 .bw-click:hover { box-shadow: 0 0 0 2px var(--p-red, #d33) inset; }
 .bw-see { font-weight: 600; color: var(--brand, #5b3cc4); }
 .bw-table td small.bw-fee-days { opacity: .75; font-size: .72rem; }
+.bw-reste { cursor: pointer; }

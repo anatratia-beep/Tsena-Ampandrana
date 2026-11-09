@@ -46,8 +46,11 @@ await p.getByRole('dialog').locator('tbody tr', { hasText: 'W2' }).dblclick(); a
 ok(p.url().endsWith('#/commandes/W2') && await p.getByRole('dialog').count() === 0, `double-clic : la commande W2 s’ouvre (${p.url()})`);
 await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(700);
 await p.getByRole('button', { name: 'Semaine précédente' }).first().click(); await p.waitForTimeout(500);
-const cashRow = N(await p.locator('.bw-table tr', { hasText: 'Espèces' }).innerText());
-ok(/− dépenses 0 Ar − frais de livraison 3 000 Ar/.test(cashRow) && /-3 000 Ar/.test(cashRow), `espèces : frais de livraison payés en MVola (3 000) dans les dépenses (${cashRow})`);
+const cashTr = p.locator('.bw-table tr', { hasText: 'Espèces' });
+ok(!/total dépenses/.test(N(await cashTr.innerText())), 'détail du reste caché avant le clic');
+await cashTr.locator('td.bw-reste').click(); await p.waitForTimeout(150);
+const cashRow = N(await cashTr.innerText());
+ok(/-3 000 Ar total dépenses 0 Ar total frais de livraison 3 000 Ar/.test(cashRow), `espèces : frais de livraison payés en MVola (3 000) dans les dépenses (${cashRow})`);
 const curRow = N(await p.locator('.bw-table tr', { hasText: 'Reste à payer' }).innerText());
 if (process.env.SHOT7) await p.locator('.bw-card').first().screenshot({ path: process.env.SHOT7 });
 ok(/figé au comptage 45 000 Ar/.test(curRow), `semaine 26/10 : Reste à payer figé au comptage du lundi 45 000, même après le paiement de W1 (${curRow})`);
