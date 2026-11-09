@@ -285,6 +285,7 @@ export function WeekVersementReport() {
   };
   const expAll = rows.reduce((t, x) => t + x.exp, 0);
   const [showPrev, setShowPrev] = useState(false);
+  const [showCur, setShowCur] = useState(false);
   return (
     <section className="stack-s boss-week">
       <div className="row-between bw-nav">
@@ -297,6 +298,7 @@ export function WeekVersementReport() {
         </div>
       </div>
       {showPrev && <PrevUnpaidModal from={prevLive.from} to={prevLive.to} onClose={() => setShowPrev(false)} />}
+      {showCur && <PrevUnpaidModal from={w.monday} to={w.sunday} onClose={() => setShowCur(false)} />}
       <div className="stat-grid bw-top">
         <div className="card stat bw-top-sales"><span className="small muted">Ventes de la semaine</span><strong className="stat-value num">{fmtAr(sales)}</strong><span className="small muted">comme le chiffre d’affaires du rapport au patron</span></div>
         <div className="card stat bw-top-vers"><span className="small muted">Total ventes versement</span><strong className="stat-value num">{fmtAr(w.sales)}</strong><span className="small muted">avec les corrections ✏️ des Versements</span><span className="small">Différence : {Math.round(w.sales - sales) === 0 ? <span className="ok-text">✓ juste</span> : sg(w.sales - sales)}</span></div>
@@ -318,8 +320,8 @@ export function WeekVersementReport() {
                 <td>{sg(x.diff)}</td>
               </tr>
             ))}
-            <tr className="bw-rest-row">
-              <th scope="row"><span className="bw-chip bw-rest">Reste à payer</span><small>semaine en cours · figé au comptage</small></th>
+            <tr className="bw-rest-row bw-click-row" title="Voir les ventes impayées de la semaine" onClick={() => setShowCur(true)}>
+              <th scope="row"><span className="bw-chip bw-rest">Reste à payer</span><small>semaine en cours · figé au comptage</small><small className="bw-see">Voir les ventes →</small></th>
               <td><b className="neg">{fmtAr(restCur)}</b></td>
               <td colSpan={2} className="bw-sumlabel">Total différence</td>
               <td>{sg(diffAll)}</td>

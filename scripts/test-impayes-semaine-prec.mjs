@@ -46,5 +46,10 @@ await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.wait
 await p.getByRole('button', { name: 'Semaine précédente' }).first().click(); await p.waitForTimeout(500);
 const curRow = N(await p.locator('.bw-table tr', { hasText: 'Reste à payer' }).innerText());
 if (process.env.SHOT7) await p.locator('.bw-card').first().screenshot({ path: process.env.SHOT7 });
-ok(/figé au comptage 45 000 Ar/.test(curRow), `semaine 26/10 : Reste à payer figé au comptage du lundi 45 000, même après le paiement de W1 (${curRow})`);
+ok(/figé au comptage.*45 000 Ar/.test(curRow), `semaine 26/10 : Reste à payer figé au comptage du lundi 45 000, même après le paiement de W1 (${curRow})`);
+await p.locator('.bw-table tr', { hasText: 'Reste à payer' }).locator('th').click(); await p.waitForTimeout(300);
+const dlg3 = p.getByRole('dialog');
+const rows3 = (await dlg3.locator('tbody tr, tfoot tr').allInnerTexts()).map(N);
+ok(/Reste impayés du 02\/11 au 08\/11|Reste impayés du/.test(N(await dlg3.innerText())) && rows3.length === 2 && /W2 Client W2 Netvision 15 000 Ar Payé/.test(rows3[0]), `Reste à payer : liste des ventes impayées de la semaine (${rows3.join(' | ')})`);
+if (process.env.SHOT8) await dlg3.screenshot({ path: process.env.SHOT8 });
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
