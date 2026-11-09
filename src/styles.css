@@ -1356,5 +1356,8 @@ a.bell { text-decoration: none; }
 .bw-click { text-align: left; cursor: pointer; font: inherit; color: inherit; }
 .bw-click:hover { box-shadow: 0 0 0 2px var(--p-red, #d33) inset; }
 .bw-see { font-weight: 600; color: var(--brand, #5b3cc4); }
+.bw-click-row { cursor: pointer; }
+.bw-click-row:hover th, .bw-click-row:hover td { background: rgba(211, 51, 51, .06); }
+.bw-table th small.bw-see { display: block; }
 .bw-table td small.bw-fee-days { opacity: .75; font-size: .72rem; }
 .bw-reste { cursor: pointer; }
