@@ -39,6 +39,9 @@ ok(rows2.length === 2 && /^Total 15 000 Ar/.test(rows2[1]), `après Payé : rest
 await p.keyboard.press('Escape'); await p.waitForTimeout(300);
 ok(/15 000 Ar/.test(await cardTxt()), `case rouge baisse à 15 000 (${await cardTxt()})`);
 ok(/impayé à ce jour 15 000 Ar/.test(await prevRow()), `tableau baisse aussi à 15 000 (${await prevRow()})`);
+await p.locator('.bw-top-prev').click(); await p.waitForTimeout(300);
+await p.getByRole('dialog').locator('tbody tr', { hasText: 'W2' }).dblclick(); await p.waitForTimeout(500);
+ok(p.url().endsWith('#/commandes/W2') && await p.getByRole('dialog').count() === 0, `double-clic : la commande W2 s’ouvre (${p.url()})`);
 await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(700);
 await p.getByRole('button', { name: 'Semaine précédente' }).first().click(); await p.waitForTimeout(500);
 const curRow = N(await p.locator('.bw-table tr', { hasText: 'Reste à payer' }).innerText());
