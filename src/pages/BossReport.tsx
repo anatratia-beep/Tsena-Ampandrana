@@ -264,8 +264,9 @@ export function WeekVersementReport() {
   }
   const expOther = Object.entries(expBy).filter(([k]) => !['cash', 'mvola', 'orange'].includes(k)).reduce((t, [, v]) => t + v, 0);
   type Acc = 'cash' | 'mvola' | 'orange';
-  const accs: { id: Acc; label: string; cur: number; calc: number; exp: number }[] = [
-    { id: 'cash', label: 'Espèces', cur: w.cashReal, calc: w.cashCalc, exp: wm.cash.expenses },
+  const accs: { id: Acc; label: string; cur: number; calc: number; exp: number; fee?: number }[] = [
+    // Frais de livraison payés par les clients en MVola / Orange Money : rendus aux livreurs en espèces (comme dans l'Excel).
+    { id: 'cash', label: 'Espèces', cur: w.cashReal, calc: w.cashCalc, exp: wm.cash.expenses + w.fee, fee: w.fee },
     { id: 'mvola', label: 'MVola', cur: w.mvReal, calc: w.mvCalc, exp: expBy.mvola ?? 0 },
     { id: 'orange', label: 'Orange Money', cur: w.orReal, calc: w.orCalc, exp: expBy.orange ?? 0 },
   ];
@@ -314,7 +315,7 @@ export function WeekVersementReport() {
                 {i === 0 && <td className="bw-sales" rowSpan={5}><span>Vente</span><strong>{fmtAr(sales)}</strong></td>}
                 <td><input key={`${w.monday}-${x.id}-${x.lundi ?? ''}`} className="cell-input num-input" inputMode="numeric" aria-label={`Lundi ${x.label}`} placeholder="à saisir"
                   defaultValue={x.lundi == null ? '' : String(x.lundi)} onBlur={(e) => saveLundi(x.id, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} /></td>
-                <td><b className={x.reste < -0.5 ? 'neg' : ''}>{fmtAr(x.reste)}</b><small>− dépenses {fmtAr(x.exp)}</small></td>
+                <td><b className={x.reste < -0.5 ? 'neg' : ''}>{fmtAr(x.reste)}</b><small>− dépenses {fmtAr(x.exp)}</small>{x.fee ? <small>dont frais livraison MVola / Orange {fmtAr(x.fee)}</small> : null}</td>
                 <td>{sg(x.diff)}</td>
               </tr>
             ))}
