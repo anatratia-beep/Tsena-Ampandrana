@@ -5,7 +5,7 @@ import { all, setMeta, useMeta, useTable } from '../lib/db';
 import { fmtAr } from '../lib/catalog';
 import { fmtPhone, normPhone } from '../lib/orders';
 import { addDays, dayOf, today } from '../lib/money';
-import { PKIND, bossMoney, bossReport, restLikeAccueil, periodOf, reportText, shiftAnchor, type PKind, type PageRow, type Report, type StockRow } from '../lib/report';
+import { PKIND, bossMoney, bossReport, frozenUnpaid, restLikeAccueil, periodOf, reportText, shiftAnchor, type PKind, type PageRow, type Report, type StockRow } from '../lib/report';
 import { a4Table, arA4, h, printA4 } from '../lib/a4';
 import { useCompany } from '../lib/settings';
 import { usdRate } from '../lib/payouts';
@@ -271,7 +271,10 @@ export function WeekVersementReport() {
   ];
   const lundiOf = (id: Acc) => lundi[w.monday]?.[id];
   const rows = accs.map((x) => { const reste = x.cur - x.exp, l = lundiOf(x.id); return { ...x, reste, lundi: l, diff: (l ?? 0) - reste }; });
-  const restCur = wm.weekCur.amount, restPrev = wm.weekPrev.amount;
+  const prevLive = restLikeAccueil(addDays(w.monday, -7), addDays(w.monday, -1)); // baisse avec les paiements et annulations
+  // Reste semaine −1 : le même que la case rouge (impayé à ce jour, baisse avec les paiements et annulations).
+  // Reste à payer de la semaine : figé au comptage du lundi suivant (tant que ce lundi n'est pas arrivé : impayé à ce jour).
+  const restCur = frozenUnpaid(w.monday, w.sunday, addDays(w.monday, 7)).amount, restPrev = prevLive.amount;
   const total = rows.reduce((t, x) => t + x.cur, 0) + restCur + restPrev, diff = total - sales;
   const diffAll = rows.reduce((t, x) => t + x.diff, 0);
   const sg = (n: number) => <strong className={n < -0.5 ? 'neg' : ''}>{n > 0.5 ? '+ ' : n < -0.5 ? '− ' : ''}{fmtAr(Math.abs(n))}</strong>;
@@ -281,7 +284,6 @@ export function WeekVersementReport() {
     setMeta('bossLundi', { ...lundi, [w.monday]: { ...(lundi[w.monday] || {}), [id]: n } });
   };
   const expAll = rows.reduce((t, x) => t + x.exp, 0);
-  const prevLive = restLikeAccueil(addDays(w.monday, -7), addDays(w.monday, -1)); // baisse avec les paiements et annulations
   const [showPrev, setShowPrev] = useState(false);
   return (
     <section className="stack-s boss-week">
@@ -317,13 +319,13 @@ export function WeekVersementReport() {
               </tr>
             ))}
             <tr className="bw-rest-row">
-              <th scope="row"><span className="bw-chip bw-rest">Reste à payer</span><small>semaine en cours</small></th>
+              <th scope="row"><span className="bw-chip bw-rest">Reste à payer</span><small>semaine en cours · figé au comptage</small></th>
               <td><b className="neg">{fmtAr(restCur)}</b></td>
               <td colSpan={2} className="bw-sumlabel">Total différence</td>
               <td>{sg(diffAll)}</td>
             </tr>
             <tr className="bw-rest-row">
-              <th scope="row"><span className="bw-chip bw-prev">Reste semaine −1</span><small>figé au comptage</small></th>
+              <th scope="row"><span className="bw-chip bw-prev">Reste semaine −1</span><small>impayé à ce jour</small></th>
               <td>{fmtAr(restPrev)}</td>
               <td colSpan={3}></td>
             </tr>
