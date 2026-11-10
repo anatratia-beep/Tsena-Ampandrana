@@ -274,9 +274,10 @@ export function WeekVersementReport() {
   const rows = accs.map((x) => { const reste = x.cur - x.exp - (x.fee ?? 0), l = lundiOf(x.id); return { ...x, reste, lundi: l, diff: (l ?? 0) - reste }; });
   // Case rouge semaine −1 : figée au comptage de ce lundi ; baisse seulement quand une vente est annulée.
   // Reste semaine −1 (tableau) : total payé depuis le comptage sur ces ventes.
-  const prevW = prevWeekBreakdown(addDays(w.monday, -7), addDays(w.monday, -1), w.monday);
-  // Reste à payer de la semaine : figé au comptage du lundi suivant (tant que ce lundi n'est pas arrivé : impayé à ce jour).
-  const restCur = frozenUnpaid(w.monday, w.sunday, addDays(w.monday, 7)).amount, restPrev = prevW.paid;
+  // Le comptage se fait le samedi soir : ce qui est payé à partir du dimanche ne baisse plus le reste.
+  const prevW = prevWeekBreakdown(addDays(w.monday, -7), addDays(w.monday, -1), addDays(w.monday, -1));
+  // Reste à payer de la semaine (lundi → samedi) : figé au comptage du samedi (avant : impayé à ce jour).
+  const restCur = frozenUnpaid(w.monday, w.sunday, w.sunday).amount, restPrev = prevW.paid;
   const total = rows.reduce((t, x) => t + x.cur, 0) + restCur + restPrev, diff = total - sales;
   const diffAll = rows.reduce((t, x) => t + x.diff, 0);
   const sg = (n: number) => <strong className={n < -0.5 ? 'neg' : ''}>{n > 0.5 ? '+ ' : n < -0.5 ? '− ' : ''}{fmtAr(Math.abs(n))}</strong>;
@@ -306,7 +307,7 @@ export function WeekVersementReport() {
         <div className="card stat bw-top-sales"><span className="small muted">Ventes de la semaine</span><strong className="stat-value num">{fmtAr(sales)}</strong><span className="small muted">comme le chiffre d’affaires du rapport au patron</span></div>
         <div className="card stat bw-top-vers"><span className="small muted">Total ventes versement</span><strong className="stat-value num">{fmtAr(w.sales)}</strong><span className="small muted">avec les corrections ✏️ des Versements</span><span className="small">Différence : {Math.round(w.sales - sales) === 0 ? <span className="ok-text">✓ juste</span> : sg(w.sales - sales)}</span></div>
         <div className="card stat bw-top-exp"><span className="small muted">Total dépenses de la semaine</span><strong className="stat-value num">{fmtAr(expAll)}</strong><span className="small muted">espèces {fmtAr(rows[0].exp)}{w.fee > 0.5 ? <> · frais de livraison {fmtAr(w.fee)}</> : null} · MVola {fmtAr(rows[1].exp)} · Orange {fmtAr(rows[2].exp)}{expOther > 0.5 ? <><br />autres comptes {fmtAr(expOther)}</> : null}</span></div>
-        <button type="button" className="card stat bw-top-prev bw-click" onClick={() => setShowPrev(true)}><span className="small muted">Reste impayés semaine −1</span><strong className="stat-value num neg">{fmtAr(prevW.rest)}</strong><span className="small muted">{prevW.n} vente(s) du {dd(prevW.from)} au {dd(prevW.to)} · figé au comptage</span><span className="small">payé depuis : <b>{fmtAr(prevW.paid)}</b></span><span className="small bw-cancel">annulé : <b>{fmtAr(prevW.cancelled)}</b>{prevW.cancelledN ? ` (${prevW.cancelledN} vente${prevW.cancelledN > 1 ? 's' : ''})` : ''}</span><span className="small bw-see">Voir les ventes →</span></button>
+        <button type="button" className="card stat bw-top-prev bw-click" onClick={() => setShowPrev(true)}><span className="small muted">Reste impayés semaine −1</span><strong className="stat-value num neg">{fmtAr(prevW.rest)}</strong><span className="small muted">{prevW.n} vente(s) du {dd(prevW.from)} au {dd(prevW.to)} · figé au compte du samedi</span><span className="bw-cancel bw-paid">total payé : <b>{fmtAr(prevW.paid)}</b></span><span className="small bw-cancel">annulé : <b>{fmtAr(prevW.cancelled)}</b>{prevW.cancelledN ? ` (${prevW.cancelledN} vente${prevW.cancelledN > 1 ? 's' : ''})` : ''}</span><span className="small bw-see">Voir les ventes →</span></button>
       </div>
       <div className="card card-flush bw-card">
         <div className="table-wrap"><table className="bw-table">
@@ -324,7 +325,7 @@ export function WeekVersementReport() {
               </tr>
             ))}
             <tr className="bw-rest-row bw-click-row" title="Voir les ventes impayées de la semaine" onClick={() => setShowCur(true)}>
-              <th scope="row"><span className="bw-chip bw-rest">Reste à payer</span><small>semaine en cours · figé au comptage</small><small className="bw-see">Voir les ventes →</small></th>
+              <th scope="row"><span className="bw-chip bw-rest">Reste à payer</span><small>semaine en cours · figé au compte du samedi</small><small className="bw-see">Voir les ventes →</small></th>
               <td><b className="neg">{fmtAr(restCur)}</b></td>
               <td colSpan={2} className="bw-sumlabel">Total différence</td>
               <td>{sg(diffAll)}</td>

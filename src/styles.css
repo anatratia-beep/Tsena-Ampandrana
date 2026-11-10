@@ -1363,3 +1363,4 @@ a.bell { text-decoration: none; }
 .bw-reste { cursor: pointer; }
 
 .bw-cancel { color: var(--ok); }
+.bw-paid { font-size: 1rem; }
