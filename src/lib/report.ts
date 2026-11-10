@@ -67,7 +67,7 @@ export interface BossMoney {
   orange: { sales: number; expenses: number; toPay: number };
   /** Payé par carte sur le site web (Stripe, versé ensuite sur le compte bancaire). */
   card: number;
-  /** Ventes internes (employés, au prix d'achat), hors ventes et hors « Total à verser » : case à part. */
+/** Ventes internes (employés, au prix d'achat), hors ventes et hors « Total à verser » : case à part. */
   staffBuy: { amount: number; n: number };
   /** Reste impayé des ventes de la semaine en cours et de la semaine précédente (lundi → dimanche), par rapport à la fin
    *  de la période ; les ventes annulées ou reportées ne comptent pas. Celui de la semaine en cours = « Reste à payer » de
@@ -107,6 +107,32 @@ export function frozenUnpaid(from: string, to: string, count: string): WeekUnpai
     if (x > 0.5) { amount += x; n++; }
   }
   return { from, to, amount, n };
+}
+
+/** Semaine −1 au comptage du lundi `count` : reste figé (baisse seulement avec une annulation), total payé depuis le
+ *  comptage (sur ces ventes), et total des ventes annulées de la semaine (reste qui était dû). */
+export function prevWeekBreakdown(from: string, to: string, count: string) {
+  const fr = frozenUnpaid(from, to, count);
+  const sold = new Map<string, { o: Order; v: number }>();
+  for (const l of salesLedger(from, to)) { const e = sold.get(l.order.id) ?? { o: l.order, v: 0 }; e.v += l.amount; sold.set(l.order.id, e); }
+  let paid = 0, paidN = 0;
+  for (const { o, v } of sold.values()) {
+    if (o.status === 'cancelled' || v <= 0.5) continue;
+    const ins = cashIns(o), before = ins.filter((c) => c.day < count).reduce((t, c) => t + c.amount, 0);
+    const x = v - Math.min(before, v); if (x <= 0.5) continue;
+    const after = ins.filter((c) => c.day >= count).reduce((t, c) => t + c.amount, 0), a = Math.min(after, x);
+    if (a > 0.5) { paid += a; paidN++; }
+  }
+  let cancelled = 0, cancelledN = 0;
+  for (const o of all<Order>('orders')) {
+    if (o.status !== 'cancelled' || isStaffBuy(o)) continue;
+    const at = isWalkIn(o) ? o.createdAt : o.dispatchedAt; if (!at) continue;
+    const d = dayOf(at); if (d < from || d > to) continue;
+    const v = Math.max(0, itemsValue(o)), before = cashIns(o).filter((c) => c.day < count).reduce((t, c) => t + c.amount, 0);
+    const x = v - Math.min(before, v);
+    if (x > 0.5) { cancelled += x; cancelledN++; }
+  }
+  return { from, to, rest: fr.amount, n: fr.n, paid, paidN, cancelled, cancelledN };
 }
 
 /** Ventes internes (employés, au prix d'achat) de la période (valeur des articles). */
