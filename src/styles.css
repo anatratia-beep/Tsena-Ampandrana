@@ -1361,3 +1361,7 @@ a.bell { text-decoration: none; }
 .bw-table th small.bw-see { display: block; }
 .bw-table td small.bw-fee-days { opacity: .75; font-size: .72rem; }
 .bw-reste { cursor: pointer; }
+
+.bw-cancel { color: var(--ok); }
+.bw-paid { font-size: 1rem; }
+.bw-annule { color: var(--ink); font-weight: 700; }
