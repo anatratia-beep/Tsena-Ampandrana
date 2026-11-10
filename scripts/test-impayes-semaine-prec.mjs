@@ -25,7 +25,7 @@ await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.wait
 const cardTxt = async () => N(await p.locator('.bw-top-prev').innerText());
 ok(/45 000 Ar/.test(await cardTxt()) && /2 vente\(s\)/.test(await cardTxt()), `case rouge 45 000, 2 ventes (${await cardTxt()})`);
 const prevRow = async () => N(await p.locator('.bw-table tr', { hasText: 'Reste semaine −1' }).innerText());
-ok(/total payé : 0 Ar annulé : 15 000 Ar \(1 vente\)/.test(await cardTxt()) && await p.locator('.bw-top-prev .bw-cancel').count() === 2, `case rouge : payé 0, annulé 15 000 en vert (${await cardTxt()})`);
+ok(/total payé : 0 Ar annulé : 15 000 Ar \(1 vente\)/.test(await cardTxt()) && await p.locator('.bw-top-prev .bw-cancel').count() === 1 && await p.locator('.bw-top-prev .bw-annule').count() === 1, `case rouge : payé 0, annulé 15 000 en vert (${await cardTxt()})`);
 ok(/total payé cette semaine \(0 vente\) 0 Ar/.test(await prevRow()), `tableau : Reste semaine −1 = payé 0 (${await prevRow()})`);
 if (process.env.SHOT5) await p.locator('.bw-card').first().screenshot({ path: process.env.SHOT5 });
 if (process.env.SHOT6) await p.locator('.bw-top-prev').screenshot({ path: process.env.SHOT6 });
