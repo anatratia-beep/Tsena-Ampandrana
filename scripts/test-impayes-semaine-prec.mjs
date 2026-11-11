@@ -25,7 +25,7 @@ await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.wait
 const cardTxt = async () => N(await p.locator('.bw-top-prev').innerText());
 ok(/45 000 Ar/.test(await cardTxt()) && /2 vente\(s\)/.test(await cardTxt()), `case rouge 45 000, 2 ventes (${await cardTxt()})`);
 const prevRow = async () => N(await p.locator('.bw-table tr', { hasText: 'Reste semaine −1' }).innerText());
-ok(/total payé : 0 Ar annulé : 15 000 Ar \(1 vente\)/.test(await cardTxt()) && await p.locator('.bw-top-prev .bw-cancel').count() === 1 && await p.locator('.bw-top-prev .bw-annule').count() === 1, `case rouge : payé 0, annulé 15 000 en vert (${await cardTxt()})`);
+ok(/total payé : 0 Ar reste à payer : 45 000 Ar annulé : 15 000 Ar \(1 vente\)/.test(await cardTxt()) && await p.locator('.bw-top-prev .bw-cancel').count() === 1 && await p.locator('.bw-top-prev .bw-annule').count() === 1, `case rouge : payé 0, annulé 15 000 en vert (${await cardTxt()})`);
 ok(/total payé cette semaine \(0 vente\) 0 Ar/.test(await prevRow()), `tableau : Reste semaine −1 = payé 0 (${await prevRow()})`);
 if (process.env.SHOT5) await p.locator('.bw-card').first().screenshot({ path: process.env.SHOT5 });
 if (process.env.SHOT6) await p.locator('.bw-top-prev').screenshot({ path: process.env.SHOT6 });
@@ -40,7 +40,7 @@ await p.getByRole('dialog', { name: /Paiement reçu — W1/ }).getByRole('button
 const rows2 = (await p.getByRole('dialog').locator('tbody tr, tfoot tr').allInnerTexts()).map(N);
 ok(rows2.length === 2 && /^Total 15 000 Ar/.test(rows2[1]), `après Payé : reste W2, total 15 000 (${rows2.join(' | ')})`);
 await p.keyboard.press('Escape'); await p.waitForTimeout(300);
-ok(/^Reste impayés semaine −1 45 000 Ar .*total payé : 30 000 Ar/.test(await cardTxt()), `case rouge reste 45 000, payé depuis 30 000 (${await cardTxt()})`);
+ok(/^Reste impayés semaine −1 45 000 Ar .*total payé : 30 000 Ar reste à payer : 15 000 Ar/.test(await cardTxt()), `case rouge reste 45 000, payé depuis 30 000 (${await cardTxt()})`);
 ok(/total payé cette semaine \(1 vente\) 30 000 Ar/.test(await prevRow()), `tableau : Reste semaine −1 = total payé 30 000 (${await prevRow()})`);
 if (process.env.SHOT9) await p.waitForTimeout(4500);
 if (process.env.SHOT9) await p.locator('.bw-top').screenshot({ path: process.env.SHOT9 });
