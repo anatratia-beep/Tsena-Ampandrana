@@ -1365,3 +1365,5 @@ a.bell { text-decoration: none; }
 .bw-cancel { color: var(--ok); }
 .bw-paid { font-size: 1rem; }
 .bw-annule { color: var(--ink); font-weight: 700; }
+.rectif-links { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 6px; }
+.rectif-links a { font-weight: 700; }
