@@ -41,6 +41,8 @@ export interface Rectification {
 }
 
 export const isSuper = (u?: User) => u?.roleId === SUPERADMIN_ROLE;
+/** Peut valider ou refuser une demande de rectification (semaine clôturée) : super-admin, gérant, responsable. */
+export const canApproveRectify = (u = currentUser()) => !!u && (isSuper(u) || can(u, 'records.correct') || can(u, 'handover.receive'));
 const localDay = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 /** Jour de la vente (celui des rapports) : création pour une vente sur place, départ avec le livreur sinon. */
 const saleIso = (o: Order) => (isWalkIn(o) ? o.createdAt : o.dispatchedAt || o.statusDates?.cancelled || o.createdAt);
@@ -191,16 +193,16 @@ export async function requestRectify(o: Order, r: RectifyInput) {
 
 /** Le super-admin valide la demande : la rectification est faite telle que demandée. */
 export async function approveRectify(o: Order, dates?: RectifyDates) {
-  if (!isSuper(currentUser())) throw new Error('Seul le super-admin peut valider cette rectification.');
+  if (!canApproveRectify()) throw new Error('Seuls le super-admin, le gérant ou le responsable peuvent valider cette rectification.');
   const req = o.rectifyRequest;
   if (!req) throw new Error('Aucune demande de rectification.');
   await apply(o, req, req, dates);
 }
 
 export async function rejectRectify(o: Order, why: string) {
-  if (!isSuper(currentUser())) throw new Error('Seul le super-admin peut refuser cette rectification.');
+  if (!canApproveRectify()) throw new Error('Seuls le super-admin, le gérant ou le responsable peuvent refuser cette rectification.');
   const at = bizNow();
   const u = currentUser();
-  await save('orders', { id: o.id, rectifyRequest: null as unknown as undefined, events: [...(o.events || []), { at, text: `Rectification refusée par le super-admin${why ? ` — ${why}` : ''}`, user: u?.fullName }] });
+  await save('orders', { id: o.id, rectifyRequest: null as unknown as undefined, events: [...(o.events || []), { at, text: `Rectification refusée par ${u?.fullName || 'le super-admin'}${why ? ` — ${why}` : ''}`, user: u?.fullName }] });
   await audit('Rectification refusée', `${o.number}${why ? ` — ${why}` : ''}`, 'orders', o.id);
 }
