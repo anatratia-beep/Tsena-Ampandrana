@@ -1099,7 +1099,7 @@ function RectifyModal({ order: o, onClose }: { order: Order; onClose: () => void
   const [ref, setRef] = useState('');
   const amountVal = amount == null ? Math.max(0, plan.rest) : parseAr(amount) ?? 0;
   const restAfter = plan.rest - amountVal;
-  const sup = isSuper(currentUser());
+  const sup = canApproveRectify();
   const [dates, setDates] = useState<RectifyDates>(() => ({ saleDay: rectifySaleDay(o), payDay: todayYmdLocal() }));
   const refunds = (o.payments || []).filter((p) => p.amount < 0);
   const who = cancelledBy(o).name;
@@ -1173,7 +1173,7 @@ function RectifyDatesFields({ order: o, value, onChange, withPay }: { order: Ord
   const closed = [value.saleDay, withPay ? value.payDay : undefined, orig].filter((d): d is string => !!d).map((d) => closedBy(d)).filter(Boolean);
   return (
     <div className="card stack-s settle-box">
-      <h3>Date de comptabilisation (super-admin)</h3>
+      <h3>Date de comptabilisation</h3>
       <div className="grid-2">
         {!isWalkIn(o) && <TextField label="La vente compte le" type="date" value={value.saleDay || orig} onChange={(v) => onChange({ ...value, saleDay: v })} hint={`Date d’origine : ${fmtDate(orig)}`} />}
         {withPay && <TextField label="L’argent reçu compte le" type="date" value={value.payDay || ''} onChange={(v) => onChange({ ...value, payDay: v })} hint="Par défaut aujourd’hui (1er / 2ème paiement du reste)" />}
@@ -1187,12 +1187,11 @@ function RectifyDatesFields({ order: o, value, onChange, withPay }: { order: Ord
 function ApproveRectifyModal({ order: o, onClose }: { order: Order; onClose: () => void }) {
   const rq = o.rectifyRequest;
   const [dates, setDates] = useState<RectifyDates>(() => ({ saleDay: rectifySaleDay(o), payDay: todayYmdLocal() }));
-  const sup = isSuper(currentUser()); // seul le super-admin choisit les dates de comptabilisation
   if (!rq) return null;
   return (
     <Confirm title={`Valider la rectification — ${o.number}`} confirmLabel="Valider la rectification" onClose={onClose}
-      message={<div className="stack"><p>Demandée par {rq.byName || '?'} — {rq.reason}.</p>{sup && <RectifyDatesFields order={o} value={dates} onChange={setDates} withPay={!!rq.collected?.amount} />}</div>}
-      onConfirm={async () => { await approveRectify(o, sup ? dates : undefined); toast('Rectification validée : commande rouverte'); }} />
+      message={<div className="stack"><p>Demandée par {rq.byName || '?'} — {rq.reason}.</p><RectifyDatesFields order={o} value={dates} onChange={setDates} withPay={!!rq.collected?.amount} /></div>}
+      onConfirm={async () => { await approveRectify(o, dates); toast('Rectification validée : commande rouverte'); }} />
   );
 }
 

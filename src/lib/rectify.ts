@@ -114,7 +114,7 @@ async function apply(o: Order, r: RectifyInput, req?: RectifyRequest, dates?: Re
     const fresh = get<Order>('orders', o.id);
     if (!fresh || fresh.status !== 'cancelled') throw new Error('Cette commande n’est plus annulée : elle a déjà été rectifiée.');
     const reason = r.reason.trim() || DEFAULT_REASON;
-    if (dates && (dates.saleDay || dates.payDay) && !isSuper(currentUser())) throw new Error('Seul le super-admin peut choisir la date de comptabilisation.');
+    if (dates && (dates.saleDay || dates.payDay) && !canApproveRectify()) throw new Error('Seuls le super-admin, le gérant ou le responsable peuvent choisir la date de comptabilisation.');
     if (dates?.saleDay && !isYmd(dates.saleDay)) throw new Error('Date de la vente invalide.');
     if (dates?.payDay && !isYmd(dates.payDay)) throw new Error('Date du paiement invalide.');
     const plan = planRectify(fresh, r);

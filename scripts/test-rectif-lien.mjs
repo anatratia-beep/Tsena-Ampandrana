@@ -35,6 +35,8 @@ ok(await p.locator('.rectif-notice').count() === 1, 'responsable : notice affich
 await p.locator('.rectif-notice').getByRole('link', { name: /C-K0206/ }).click(); await p.waitForTimeout(700);
 if (process.env.SHOT3) await p.locator('.notice', { hasText: 'Rectification demandée' }).screenshot({ path: process.env.SHOT3 });
 await p.getByRole('button', { name: 'Valider la rectification' }).click(); await p.waitForTimeout(400);
+ok(/Date de comptabilisation/.test(await p.getByRole('dialog').innerText()), 'responsable : choix de la date de comptabilisation');
+if (process.env.SHOT4) await p.getByRole('dialog').screenshot({ path: process.env.SHOT4 });
 await p.getByRole('dialog').getByRole('button', { name: 'Valider la rectification' }).click(); await p.waitForTimeout(800);
 const st = await p.evaluate(() => { const o = window.__tsena.get('orders', 'K206'); return `${o.status} ${o.lines[0].qtyKept} ${o.rectifyRequest ? 'req' : 'none'}`; });
 ok(st === 'partial 1 none', `responsable : rectification validée (${st})`);
