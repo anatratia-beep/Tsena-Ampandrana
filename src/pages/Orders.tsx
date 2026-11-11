@@ -13,7 +13,7 @@ import {
 } from '../lib/orders';
 import { useCompany } from '../lib/settings';
 import { correctWalkInSale, netMoves, refundSuggested, voidOrder } from '../lib/corrections';
-import { approveRectify, cancelledBy, isSuper, planRectify, rectifyCancellation, rectifyRight, rectifySaleDay, rejectRectify, requestRectify, type RectifyDates } from '../lib/rectify';
+import { approveRectify, canApproveRectify, cancelledBy, isSuper, planRectify, rectifyCancellation, rectifyRight, rectifySaleDay, rejectRectify, requestRectify, type RectifyDates } from '../lib/rectify';
 import { closedBy } from '../lib/closed';
 import { manualMethods } from '../ui/payments';
 import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, feeState, payDeferredFees, settleCourier, type AccountId } from '../lib/money';
@@ -157,7 +157,7 @@ function OrderList({ tabKey }: { tabKey?: string }) {
       <PageHead title="Commandes" subtitle="Commandes Facebook, téléphone et autres, jusqu’à la livraison et au règlement du livreur."
         actions={can('orders.create') && <><Button variant="ghost" icon="users" onClick={() => setFollowing(true)}>Client à suivre</Button><Button icon="plus" onClick={() => setCreating(true)}>Nouvelle commande</Button></>} />
       <ScopeBar scope={scope} mineLabel="Mes commandes" text={scope.locked ? 'Vous voyez seulement les commandes de vos pages (toutes les livraisons sont dans « Livraisons »)' : "Vous voyez les commandes que vous avez enregistrées. Les livraisons du jour restent visibles par tous dans Livraisons."} />
-      {isSuper(currentUser()) && (() => { const pend = orders.filter((o) => o.status === 'cancelled' && o.rectifyRequest), n = pend.length; return n ? <div className="notice rectif-notice"><Icon name="alert" /><span style={{ flex: 1 }}><strong>{n} rectification(s) d’annulation à valider</strong> (semaine déjà clôturée) : touchez une commande pour l’ouvrir et valider.<span className="rectif-links">{pend.map((o) => <a key={o.id} href={`#/commandes/${o.id}`}>{o.number}{o.name ? ` · ${o.name}` : ''}</a>)}</span></span></div> : null; })()}
+      {canApproveRectify() && (() => { const pend = orders.filter((o) => o.status === 'cancelled' && o.rectifyRequest), n = pend.length; return n ? <div className="notice rectif-notice"><Icon name="alert" /><span style={{ flex: 1 }}><strong>{n} rectification(s) d’annulation à valider</strong> (semaine déjà clôturée) : touchez une commande pour l’ouvrir et valider.<span className="rectif-links">{pend.map((o) => <a key={o.id} href={`#/commandes/${o.id}`}>{o.number}{o.name ? ` · ${o.name}` : ''}</a>)}</span></span></div> : null; })()}
       <div className="tabs" role="tablist">
         {(() => { const n = prospects.filter((x) => x.status === 'open' && scope.mine({ createdBy: x.ownerId, createdByName: x.ownerName }) && bucketOf(x) !== 'later').length; return <button role="tab" aria-selected={tabKey === 'suivre'} onClick={() => switchTab('suivre')}>À suivre{n ? <span className="tab-count tab-count-hot">{n}</span> : null}</button>; })()}
         {TABS.map((t) => {
@@ -679,9 +679,9 @@ function OrderDetail({ id }: { id: string }) {
         </div>
         {o.status === 'cancelled' && o.rectifyRequest && (() => { const rq = o.rectifyRequest; const pl = planRectify(o, rq); return (
           <div className="notice"><Icon name="alert" /><div className="stack-s" style={{ flex: 1 }}>
-            <span><strong>Rectification demandée</strong> par {rq.byName || '?'} le {fmtDateTime(rq.at)} — {rq.reason}. Semaine clôturée : en attente de la validation du super-admin.</span>
+            <span><strong>Rectification demandée</strong> par {rq.byName || '?'} le {fmtDateTime(rq.at)} — {rq.reason}. Semaine clôturée : en attente de la validation (super-admin, gérant ou responsable).</span>
             <span className="small">Après validation : {ORDER_STATUS[pl.status].label}, {pl.lines.reduce((t, l) => t + (l.qtyKept ?? 0), 0)} pièce(s) livrée(s), {pl.lines.reduce((t, l) => t + (l.qtyReturned ?? 0), 0)} annulée(s), total {fmtAr(pl.total)}, reste à payer {fmtAr(Math.max(0, pl.rest))}.</span>
-            {isSuper(currentUser()) && <div className="row"><Button icon="check" onClick={() => setModal('approveRect')}>Valider la rectification</Button><Button variant="ghost" onClick={() => setModal('rejectRect')}>Refuser</Button></div>}
+            {canApproveRectify() && <div className="row"><Button icon="check" onClick={() => setModal('approveRect')}>Valider la rectification</Button><Button variant="ghost" onClick={() => setModal('rejectRect')}>Refuser</Button></div>}
           </div></div>
         ); })()}
       </div>
@@ -1099,7 +1099,7 @@ function RectifyModal({ order: o, onClose }: { order: Order; onClose: () => void
   const [ref, setRef] = useState('');
   const amountVal = amount == null ? Math.max(0, plan.rest) : parseAr(amount) ?? 0;
   const restAfter = plan.rest - amountVal;
-  const sup = isSuper(currentUser());
+  const sup = canApproveRectify();
   const [dates, setDates] = useState<RectifyDates>(() => ({ saleDay: rectifySaleDay(o), payDay: todayYmdLocal() }));
   const refunds = (o.payments || []).filter((p) => p.amount < 0);
   const who = cancelledBy(o).name;
@@ -1173,7 +1173,7 @@ function RectifyDatesFields({ order: o, value, onChange, withPay }: { order: Ord
   const closed = [value.saleDay, withPay ? value.payDay : undefined, orig].filter((d): d is string => !!d).map((d) => closedBy(d)).filter(Boolean);
   return (
     <div className="card stack-s settle-box">
-      <h3>Date de comptabilisation (super-admin)</h3>
+      <h3>Date de comptabilisation</h3>
       <div className="grid-2">
         {!isWalkIn(o) && <TextField label="La vente compte le" type="date" value={value.saleDay || orig} onChange={(v) => onChange({ ...value, saleDay: v })} hint={`Date d’origine : ${fmtDate(orig)}`} />}
         {withPay && <TextField label="L’argent reçu compte le" type="date" value={value.payDay || ''} onChange={(v) => onChange({ ...value, payDay: v })} hint="Par défaut aujourd’hui (1er / 2ème paiement du reste)" />}

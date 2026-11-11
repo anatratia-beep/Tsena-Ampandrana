@@ -130,7 +130,7 @@ const yest = await p.evaluate(() => { const d = new Date(); d.setDate(d.getDate(
 await p.goto('http://localhost:5173/#/commandes/I1'); await p.waitForTimeout(500);
 await p.getByRole('button', { name: 'Rectifier une annulation' }).click(); await p.waitForTimeout(300);
 dlg = p.getByRole('dialog');
-ok(N(await dlg.innerText()).includes('Date de comptabilisation (super-admin)') && N(await dlg.innerText()).includes('Semaine déjà clôturée'), 'super-admin : choix de la date, semaine clôturée signalée');
+ok(N(await dlg.innerText()).includes('Date de comptabilisation') && N(await dlg.innerText()).includes('Semaine déjà clôturée'), 'super-admin : choix de la date, semaine clôturée signalée');
 await dlg.getByLabel('La vente compte le').fill(yest);
 await dlg.getByLabel('L’argent reçu compte le').fill(yest);
 await dlg.getByRole('button', { name: 'Rectifier', exact: true }).click(); await p.waitForTimeout(600);
