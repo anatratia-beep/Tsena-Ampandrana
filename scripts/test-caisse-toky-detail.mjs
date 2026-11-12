@@ -20,13 +20,24 @@ await p.evaluate(async () => { const t = window.__tsena;
     lines: [{ id: 'l' + id, variantId: 'va', qty: 1, unitPrice: 95000, qtyKept: 1 }], deliveryFee: fee, feeCharged: fee, discount: 0, createdAt: at, dispatchedAt: at, returnedAt: back,
     payments: [{ id: 'p' + id, at: back, amount: 95000 + fee, method: id === 'T2' ? 'mvola' : 'cash', receivedBy: 'courier', courierId: 'ct' }] });
   await t.save('orders', [o('T1', 3000, 'Anja'), o('T2', 4000, 'Diary'), o('T3', 5000, 'Richel')]);
+  // Semaine passée (dimanche dernier) : une dépense, et un frais déjà payé
+  const sun = new Date(d); sun.setDate(d.getDate() - ((d.getDay() + 6) % 7) - 1); const old = `${sun.getFullYear()}-${String(sun.getMonth() + 1).padStart(2, '0')}-${String(sun.getDate()).padStart(2, '0')}`;
+  window.__old = old;
+  await t.save('courierFund', [{ id: 'm-old', courierId: 'ct', day: old, kind: 'expense', amount: -1000, label: 'Carburant ancien' }, { id: 'm-new', courierId: 'ct', day, kind: 'expense', amount: -500, label: 'Carburant semaine' }]);
+  await t.save('orders', [{ ...o('T0', 2000, 'Anja'), createdAt: `${old}T09:00:00+03:00`, dispatchedAt: `${old}T09:00:00+03:00`, fundFee: { status: 'paid', by: 'Anja' } }]);
 });
 await p.goto('http://localhost:5173/#/livraisons/recap'); await p.waitForTimeout(800);
 await p.getByRole('tab', { name: 'Caisse frais Toky' }).click(); await p.waitForTimeout(700);
 const card = p.locator('.synth', { hasText: 'Caisse frais Toky' });
 const row = (id) => card.locator('tr.fund-order', { hasText: id });
 const tab = async (n) => { await card.getByRole('button', { name: new RegExp('^' + n) }).click(); await p.waitForTimeout(300); };
+await card.locator('select, [aria-label]').first().count();
 let tx = N(await card.innerText());
+ok(/Carburant semaine/.test(tx) && !/Carburant ancien/.test(tx) && await row('T0').count() === 0, 'À traiter : dépense de la semaine, pas l’ancienne ni le frais déjà payé');
+await tab('Historique');
+const th = N(await card.innerText());
+ok(/Carburant ancien/.test(th) && !/Carburant semaine/.test(th) && await row('T0').count() === 1, `Historique : semaine passée (dépense + T0 payé) (${th.slice(300, 700)})`);
+await tab('À traiter'); tx = N(await card.innerText());
 ok(/Frais de 3 livraison\(s\) 12 000 Ar/.test(tx), `ligne du jour 12 000 (${tx.slice(0, 400)})`);
 ok(/T1 · Client T1 Commande de Anja 3 000 Ar \(Espèces\) En attente/.test(N(await row('T1').innerText())), `T1 : commande de Anja, 3 000, en attente (${N(await row('T1').innerText())})`);
 await row('T1').getByRole('button', { name: 'Payé' }).click(); await p.waitForTimeout(400);
@@ -35,10 +46,11 @@ await tab('Historique'); ok(/Payé/.test(N(await row('T1').innerText())), 'T1 da
 await row('T2').getByRole('button', { name: 'Modifier' }).click(); await p.waitForTimeout(300);
 await p.getByRole('dialog').getByLabel('Frais reçu (Ar)').fill('2000'); await p.getByRole('dialog').getByRole('button', { name: 'Enregistrer' }).click(); await p.waitForTimeout(400);
 ok(/2 000 Ar \(MVola\)/.test(N(await row('T2').innerText())) && /au départ 4 000/.test(N(await row('T2').innerText())), `T2 corrigé à 2 000 (${N(await row('T2').innerText())})`);
+if (process.env.SHOTA) { await p.waitForTimeout(4500); await card.screenshot({ path: process.env.SHOTA }); }
 await row('T3').getByRole('button', { name: 'Annuler' }).click(); await p.waitForTimeout(400);
 tx = N(await card.innerText());
 await tab('Historique'); ok(/Annulé/.test(N(await row('T3').innerText())) && /Frais de 2 livraison\(s\) 5 000 Ar/.test(tx), `T3 annulé : ligne du jour 3 000 + 2 000 = 5 000 (${tx.slice(0, 300)})`);
-ok(/Solde 5 000 Ar/.test(tx), 'solde 5 000');
+ok(/Solde 5 500 Ar/.test(tx), 'solde 5 500 (frais 5 000 + T0 2 000 − 1 500 de dépenses)');
 const st = await p.evaluate(() => window.__tsena.get('orders', 'T2').feeCharged);
 ok(st === 4000, 'la commande T2 garde son frais (4 000) : seule la caisse frais change');
 if (process.env.SHOT) await p.waitForTimeout(4500);
