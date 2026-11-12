@@ -1,7 +1,7 @@
 // Livraisons : commandes prêtes par axe, en cours par livreur, comptes des livreurs, zones et frais.
 import { allPages } from '../lib/boosts';
 import { variantPage } from '../lib/scope';
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { audit, useCan } from '../lib/auth';
 import { get, remove, save, useTable } from '../lib/db';
 import { fmtAr, fmtNum, parseNum, parseAr } from '../lib/catalog';
@@ -14,7 +14,7 @@ import { ReassignModal, ReturnModal, OrderRow, ValidationDay, todayYmdLocal } fr
 import { CourierReturn } from './CourierReturn';
 import { FeeBoard } from './Recap';
 import { daySynthesis } from '../lib/synthesis';
-import { FUND_KINDS, addFundMove, fundStatement, removeFundMove, type FundKind, type FundMove } from '../lib/courierFund';
+import { FUND_KINDS, addFundMove, fundFeeOf, fundStatement, removeFundMove, setFundFee, type FundKind, type FundMove } from '../lib/courierFund';
 import { useCompany } from '../lib/settings';
 import { useMyScope } from '../lib/scope';
 import { ScopeBar } from '../ui/scope';
@@ -136,6 +136,7 @@ function CourierFundCard({ courier, from, to }: { courier: Courier; from: string
   const st = fundStatement(courier.id, from, to);
   const [form, setForm] = useState(false);
   const [del, setDel] = useState<FundMove | null>(null);
+  const [editFee, setEditFee] = useState<Order | null>(null);
   const fr = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR');
   const label = from === '0000-01-01' ? `jusqu’au ${fr(to)}` : from === to ? fr(from) : `du ${fr(from)} au ${fr(to)}`;
   const today = todayYmdLocal();
@@ -155,15 +156,55 @@ function CourierFundCard({ courier, from, to }: { courier: Courier; from: string
         <div className="card-pad"><div className="table-wrap fee-board"><table className="table">
           <thead><tr><th>Jour</th><th>Libellé</th><th className="t-num">Entrée</th><th className="t-num">Sortie</th><th></th></tr></thead>
           <tbody>
-            {st.lines.map((l, i) => <tr key={i}><td>{fmtDate(`${l.day}T12:00:00`)}</td><td>{l.label}{l.move?.userName && <div className="small muted">{l.move.userName}</div>}</td>
+            {st.lines.map((l, i) => <Fragment key={i}><tr><td>{fmtDate(`${l.day}T12:00:00`)}</td><td>{l.label}{l.move?.userName && <div className="small muted">{l.move.userName}</div>}</td>
               <td className="t-num num fee-main">{l.amount > 0 ? fmtAr(l.amount) : ''}</td><td className="t-num num fee-mvola">{l.amount < 0 ? fmtAr(-l.amount) : ''}</td>
-              <td>{l.move && can('couriers.settle') && <IconButton icon="trash" label="Supprimer ce mouvement" onClick={() => setDel(l.move!)} />}</td></tr>)}
+              <td>{l.move && can('couriers.settle') && <IconButton icon="trash" label="Supprimer ce mouvement" onClick={() => setDel(l.move!)} />}</td></tr>
+              {l.orders?.map((o) => <FundFeeRow key={o.id} order={o} courier={courier} canEdit={can('couriers.settle')} onEdit={() => setEditFee(o)} />)}</Fragment>)}
           </tbody>
         </table></div></div>
       )}
+      {editFee && <FundFeeEdit order={editFee} courier={courier} onClose={() => setEditFee(null)} />}
       {form && <FundForm courier={courier} date={today >= from && today <= to ? today : to} onClose={() => setForm(false)} />}
       {del && <Confirm title="Supprimer ce mouvement" danger confirmLabel="Supprimer" message={<p>{FUND_KINDS[del.kind]} de {fmtAr(Math.abs(del.amount))} du {fmtDate(`${del.day}T12:00:00`)}.</p>} onClose={() => setDel(null)} onConfirm={async () => { await removeFundMove(del, courier.name); toast('Mouvement supprimé'); }} />}
     </div>
+  );
+}
+
+/** Une commande sous « Frais de N livraison(s) » : qui l'a faite, le frais, et Payé / Modifier / Annuler. */
+function FundFeeRow({ order: o, courier, canEdit, onEdit }: { order: Order; courier: Courier; canEdit: boolean; onEdit: () => void }) {
+  const st = o.fundFee?.status, fee = fundFeeOf(o);
+  return (
+    <tr className={`fund-order${st === 'cancelled' ? ' fund-cancelled' : ''}`} onDoubleClick={() => navigate('/commandes/' + o.id)}>
+      <td></td>
+      <td><a href={`#/commandes/${o.id}`} onClick={(e) => e.stopPropagation()}>{o.number}</a> · {o.name || o.phone}<div className="small muted">Commande de <b>{o.createdByName || '?'}</b>{o.fundFee?.amount != null ? ` · frais corrigé (au départ ${fmtAr(o.feeCharged ?? o.deliveryFee ?? 0)})` : ''}</div></td>
+      <td className="t-num num">{st === 'cancelled' ? <s>{fmtAr(fee)}</s> : fmtAr(fee)}</td>
+      <td>{st === 'paid' ? <Badge tone="ok">Payé{o.fundFee?.by ? ` · ${o.fundFee.by}` : ''}</Badge> : st === 'cancelled' ? <Badge tone="neutral">Annulé</Badge> : <Badge tone="warn">En attente</Badge>}</td>
+      <td>{canEdit && <div className="row fund-btns" onDoubleClick={(e) => e.stopPropagation()}>
+        {st ? <Button variant="ghost" className="btn-sm" onClick={() => setFundFee(o, { status: null }, courier.name)}>Remettre en attente</Button>
+          : <><Button className="btn-sm" icon="check" onClick={() => setFundFee(o, { status: 'paid' }, courier.name).then(() => toast('Frais payé'))}>Payé</Button>
+            <Button variant="ghost" className="btn-sm" onClick={onEdit}>Modifier</Button>
+            <Button variant="ghost" className="btn-sm" onClick={() => setFundFee(o, { status: 'cancelled' }, courier.name).then(() => toast('Frais annulé'))}>Annuler</Button></>}
+      </div>}</td>
+    </tr>
+  );
+}
+
+function FundFeeEdit({ order: o, courier, onClose }: { order: Order; courier: Courier; onClose: () => void }) {
+  const [amount, setAmount] = useState(String(fundFeeOf(o)));
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <Modal title={`Modifier le frais — ${o.number}`} onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Fermer</Button><Button onClick={async () => {
+        const a = parseNum(amount);
+        if (a == null || a < 0) return setError('Montant invalide.');
+        await setFundFee(o, { amount: a }, courier.name); toast('Frais modifié'); onClose();
+      }}>Enregistrer</Button></>}>
+      <div className="stack">
+        <p className="small muted" style={{ margin: 0 }}>Seulement pour la caisse frais {courier.name} : la commande ne change pas. Frais de la commande : {fmtAr(o.feeCharged ?? o.deliveryFee ?? 0)}.</p>
+        <TextField label="Frais reçu (Ar)" value={amount} onChange={setAmount} inputMode="numeric" autoFocus />
+        {error && <div className="notice notice-danger"><Icon name="alert" /><span>{error}</span></div>}
+      </div>
+    </Modal>
   );
 }
 

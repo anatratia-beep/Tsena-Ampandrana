@@ -87,6 +87,8 @@ export interface Order extends BaseRecord {
   returnedAt?: string;
   cashGiven?: number;             // espèces données par le client (vente sur place), pour la monnaie sur le ticket
   courierSettledAt?: string;      // versement du livreur validé (étape 6) : plus de changement de livreur
+  /** Caisse frais à part (ex. Toky) : frais reçus par la caisse, annulés ou corrigés (sans toucher la commande). */
+  fundFee?: { status?: 'paid' | 'cancelled'; amount?: number; at?: string; by?: string };
   feeStatus?: 'kept' | 'paid' | 'deferred'; // frais du livreur : gardés sur le versement, payés à part, ou différés
   feePaidAt?: string; feePaidHow?: string;
   events?: { at: string; text: string; user?: string }[];
