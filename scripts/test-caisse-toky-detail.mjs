@@ -25,33 +25,36 @@ await p.goto('http://localhost:5173/#/livraisons/recap'); await p.waitForTimeout
 await p.getByRole('tab', { name: 'Caisse frais Toky' }).click(); await p.waitForTimeout(700);
 const card = p.locator('.synth', { hasText: 'Caisse frais Toky' });
 const row = (id) => card.locator('tr.fund-order', { hasText: id });
+const tab = async (n) => { await card.getByRole('button', { name: new RegExp('^' + n) }).click(); await p.waitForTimeout(300); };
 let tx = N(await card.innerText());
 ok(/Frais de 3 livraison\(s\) 12 000 Ar/.test(tx), `ligne du jour 12 000 (${tx.slice(0, 400)})`);
 ok(/T1 · Client T1 Commande de Anja 3 000 Ar \(Espèces\) En attente/.test(N(await row('T1').innerText())), `T1 : commande de Anja, 3 000, en attente (${N(await row('T1').innerText())})`);
 await row('T1').getByRole('button', { name: 'Payé' }).click(); await p.waitForTimeout(400);
-ok(/Payé/.test(N(await row('T1').innerText())), 'T1 payé');
+ok(await row('T1').count() === 0, 'T1 payé : sort de « À traiter »');
+await tab('Historique'); ok(/Payé/.test(N(await row('T1').innerText())), 'T1 dans l’historique, payé'); await tab('À traiter');
 await row('T2').getByRole('button', { name: 'Modifier' }).click(); await p.waitForTimeout(300);
 await p.getByRole('dialog').getByLabel('Frais reçu (Ar)').fill('2000'); await p.getByRole('dialog').getByRole('button', { name: 'Enregistrer' }).click(); await p.waitForTimeout(400);
 ok(/2 000 Ar \(MVola\)/.test(N(await row('T2').innerText())) && /au départ 4 000/.test(N(await row('T2').innerText())), `T2 corrigé à 2 000 (${N(await row('T2').innerText())})`);
 await row('T3').getByRole('button', { name: 'Annuler' }).click(); await p.waitForTimeout(400);
 tx = N(await card.innerText());
-ok(/Annulé/.test(N(await row('T3').innerText())) && /Frais de 2 livraison\(s\) 5 000 Ar/.test(tx), `T3 annulé : ligne du jour 3 000 + 2 000 = 5 000 (${tx.slice(0, 300)})`);
+await tab('Historique'); ok(/Annulé/.test(N(await row('T3').innerText())) && /Frais de 2 livraison\(s\) 5 000 Ar/.test(tx), `T3 annulé : ligne du jour 3 000 + 2 000 = 5 000 (${tx.slice(0, 300)})`);
 ok(/Solde 5 000 Ar/.test(tx), 'solde 5 000');
 const st = await p.evaluate(() => window.__tsena.get('orders', 'T2').feeCharged);
 ok(st === 4000, 'la commande T2 garde son frais (4 000) : seule la caisse frais change');
 if (process.env.SHOT) await p.waitForTimeout(4500);
 if (process.env.SHOT) await card.screenshot({ path: process.env.SHOT });
 await row('T3').getByRole('button', { name: 'Remettre en attente' }).click(); await p.waitForTimeout(400);
-ok(/Frais de 3 livraison\(s\) 10 000 Ar/.test(N(await card.innerText())), 'T3 remis en attente : 10 000');
+ok(/Frais de 3 livraison\(s\) 10 000 Ar/.test(N(await card.innerText())) && await row('T3').count() === 0, 'T3 remis en attente : 10 000, sort de l’historique');
 // Responsable (Anja) : peut remettre en attente et marquer payé
 await p.goto('http://localhost:5173/#/compte'); await p.waitForTimeout(400); await p.locator('main').getByRole('button', { name: 'Se déconnecter' }).click(); await p.waitForTimeout(400);
 await p.getByLabel("Nom d'utilisateur").fill('anja'); await p.locator('input[type=password]').fill('anosy'); await p.keyboard.press('Enter'); await p.waitForTimeout(600);
 { const later = p.getByRole('button', { name: 'Plus tard' }); if (await later.count()) { await later.click(); await p.waitForTimeout(300); } }
 await p.goto('http://localhost:5173/#/livraisons/caisse-frais'); await p.waitForTimeout(800);
+await tab('Historique');
 ok(await row('T1').count() === 1, 'responsable : voit la caisse frais Toky et les commandes');
 await row('T1').getByRole('button', { name: 'Remettre en attente' }).click(); await p.waitForTimeout(400);
-ok(/En attente/.test(N(await row('T1').innerText())), 'responsable : T1 remis en attente');
+await tab('À traiter'); ok(/En attente/.test(N(await row('T1').innerText())), 'responsable : T1 remis en attente');
 await row('T1').getByRole('button', { name: 'Payé' }).click(); await p.waitForTimeout(400);
-ok(/Payé · Anja/.test(N(await row('T1').innerText())), `responsable : T1 payé par Anja (${N(await row('T1').innerText())})`);
+await tab('Historique'); ok(/Payé · Anja/.test(N(await row('T1').innerText())), `responsable : T1 payé par Anja (${N(await row('T1').innerText())})`);
 if (process.env.SHOT2) { await p.waitForTimeout(4500); await card.screenshot({ path: process.env.SHOT2 }); }
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);

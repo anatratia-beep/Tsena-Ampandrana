@@ -137,6 +137,7 @@ function CourierFundCard({ courier, from, to }: { courier: Courier; from: string
   const [form, setForm] = useState(false);
   const [del, setDel] = useState<FundMove | null>(null);
   const [editFee, setEditFee] = useState<Order | null>(null);
+  const [hist, setHist] = useState(false);
   const fr = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR');
   const label = from === '0000-01-01' ? `jusqu’au ${fr(to)}` : from === to ? fr(from) : `du ${fr(from)} au ${fr(to)}`;
   const today = todayYmdLocal();
@@ -153,13 +154,18 @@ function CourierFundCard({ courier, from, to }: { courier: Courier; from: string
         <div className="fund-end"><span className="small">Solde</span><strong className="num">{fmtAr(st.end)}</strong></div>
       </div>
       {st.lines.length === 0 ? <p className="card-pad small muted">Aucun mouvement sur cette période.</p> : (
-        <div className="card-pad"><div className="table-wrap fee-board"><table className="table">
+        <div className="card-pad stack-s">{(() => { const all = st.lines.flatMap((l) => l.orders || []), done = all.filter((o) => !!o.fundFee?.status).length; return (
+          <div className="segmented fund-tabs" role="group" aria-label="Commandes">
+            <button type="button" aria-pressed={!hist} onClick={() => setHist(false)}>À traiter ({all.length - done})</button>
+            <button type="button" aria-pressed={hist} onClick={() => setHist(true)}>Historique ({done})</button>
+          </div>); })()}
+        <div className="table-wrap fee-board"><table className="table">
           <thead><tr><th>Jour</th><th>Libellé</th><th className="t-num">Entrée</th><th className="t-num">Sortie</th><th></th></tr></thead>
           <tbody>
             {st.lines.map((l, i) => <Fragment key={i}><tr><td>{fmtDate(`${l.day}T12:00:00`)}</td><td>{l.label}{l.move?.userName && <div className="small muted">{l.move.userName}</div>}</td>
               <td className="t-num num fee-main">{l.amount > 0 ? fmtAr(l.amount) : ''}</td><td className="t-num num fee-mvola">{l.amount < 0 ? fmtAr(-l.amount) : ''}</td>
               <td>{l.move && can('couriers.settle') && <IconButton icon="trash" label="Supprimer ce mouvement" onClick={() => setDel(l.move!)} />}</td></tr>
-              {l.orders?.map((o) => <FundFeeRow key={o.id} order={o} courier={courier} canEdit={can('couriers.settle') || can('handover.receive')} onEdit={() => setEditFee(o)} />)}</Fragment>)}
+              {l.orders?.filter((o) => !!o.fundFee?.status === hist).map((o) => <FundFeeRow key={o.id} order={o} courier={courier} canEdit={can('couriers.settle') || can('handover.receive')} onEdit={() => setEditFee(o)} />)}</Fragment>)}
           </tbody>
         </table></div></div>
       )}

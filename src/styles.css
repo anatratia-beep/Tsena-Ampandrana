@@ -1372,3 +1372,4 @@ a.bell { text-decoration: none; }
 .fee-board tr.fund-cancelled { opacity: .6; }
 .fund-btns { gap: 6px; flex-wrap: nowrap; justify-content: flex-end; }
 .fee-board tr.fund-order td .fund-how { font-weight: 400; font-size: .8rem; }
+.fund-tabs { align-self: flex-start; }
