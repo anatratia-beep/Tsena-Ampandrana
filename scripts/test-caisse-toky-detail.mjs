@@ -18,7 +18,7 @@ await p.evaluate(async () => { const t = window.__tsena;
   await t.save('couriers', [{ id: 'ct', name: 'Toky', active: true, feeToShop: true }]);
   const o = (id, fee, who) => ({ id, number: id, name: 'Client ' + id, kind: 'order', channel: 'online', phone: '0340000000', status: 'delivered', courierId: 'ct', zoneId: 'z1', createdByName: who,
     lines: [{ id: 'l' + id, variantId: 'va', qty: 1, unitPrice: 95000, qtyKept: 1 }], deliveryFee: fee, feeCharged: fee, discount: 0, createdAt: at, dispatchedAt: at, returnedAt: back,
-    payments: [{ id: 'p' + id, at: back, amount: 95000 + fee, method: 'cash', receivedBy: 'courier', courierId: 'ct' }] });
+    payments: [{ id: 'p' + id, at: back, amount: 95000 + fee, method: id === 'T2' ? 'mvola' : 'cash', receivedBy: 'courier', courierId: 'ct' }] });
   await t.save('orders', [o('T1', 3000, 'Anja'), o('T2', 4000, 'Diary'), o('T3', 5000, 'Richel')]);
 });
 await p.goto('http://localhost:5173/#/livraisons/recap'); await p.waitForTimeout(800);
@@ -27,12 +27,12 @@ const card = p.locator('.synth', { hasText: 'Caisse frais Toky' });
 const row = (id) => card.locator('tr.fund-order', { hasText: id });
 let tx = N(await card.innerText());
 ok(/Frais de 3 livraison\(s\) 12 000 Ar/.test(tx), `ligne du jour 12 000 (${tx.slice(0, 400)})`);
-ok(/T1 · Client T1 Commande de Anja 3 000 Ar En attente/.test(N(await row('T1').innerText())), `T1 : commande de Anja, 3 000, en attente (${N(await row('T1').innerText())})`);
+ok(/T1 · Client T1 Commande de Anja 3 000 Ar \(Espèces\) En attente/.test(N(await row('T1').innerText())), `T1 : commande de Anja, 3 000, en attente (${N(await row('T1').innerText())})`);
 await row('T1').getByRole('button', { name: 'Payé' }).click(); await p.waitForTimeout(400);
 ok(/Payé/.test(N(await row('T1').innerText())), 'T1 payé');
 await row('T2').getByRole('button', { name: 'Modifier' }).click(); await p.waitForTimeout(300);
 await p.getByRole('dialog').getByLabel('Frais reçu (Ar)').fill('2000'); await p.getByRole('dialog').getByRole('button', { name: 'Enregistrer' }).click(); await p.waitForTimeout(400);
-ok(/2 000 Ar/.test(N(await row('T2').innerText())) && /au départ 4 000/.test(N(await row('T2').innerText())), `T2 corrigé à 2 000 (${N(await row('T2').innerText())})`);
+ok(/2 000 Ar \(MVola\)/.test(N(await row('T2').innerText())) && /au départ 4 000/.test(N(await row('T2').innerText())), `T2 corrigé à 2 000 (${N(await row('T2').innerText())})`);
 await row('T3').getByRole('button', { name: 'Annuler' }).click(); await p.waitForTimeout(400);
 tx = N(await card.innerText());
 ok(/Annulé/.test(N(await row('T3').innerText())) && /Frais de 2 livraison\(s\) 5 000 Ar/.test(tx), `T3 annulé : ligne du jour 3 000 + 2 000 = 5 000 (${tx.slice(0, 300)})`);

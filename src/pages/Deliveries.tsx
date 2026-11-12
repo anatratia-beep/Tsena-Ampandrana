@@ -5,7 +5,7 @@ import { Fragment, useMemo, useState } from 'react';
 import { audit, useCan } from '../lib/auth';
 import { get, remove, save, useTable } from '../lib/db';
 import { fmtAr, fmtNum, parseNum, parseAr } from '../lib/catalog';
-import { dispatchOrder, orderText, choiceQty, hasPendingChoice, courierAccount, courierSplit, fmtPhone, isPickupZone, orderLabel, remaining, totalQty, type Courier, type Order, type Zone } from '../lib/orders';
+import { PAY_METHODS, dispatchOrder, orderText, choiceQty, hasPendingChoice, courierAccount, courierSplit, fmtPhone, isPickupZone, orderLabel, remaining, totalQty, type Courier, type Order, type Zone } from '../lib/orders';
 import { Help, Badge, FilterSelect, MultiPick, Button, Confirm, Empty, IconButton, Modal, PageHead, SelectField, TextField, Toggle, fmtDate, fmtDateTime, navigate, toast, useRoute } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { PeriodPicker, defaultPeriod, inPeriod, type Period } from '../ui/period';
@@ -173,11 +173,12 @@ function CourierFundCard({ courier, from, to }: { courier: Courier; from: string
 /** Une commande sous « Frais de N livraison(s) » : qui l'a faite, le frais, et Payé / Modifier / Annuler. */
 function FundFeeRow({ order: o, courier, canEdit, onEdit }: { order: Order; courier: Courier; canEdit: boolean; onEdit: () => void }) {
   const st = o.fundFee?.status, fee = fundFeeOf(o);
+  const how = [...new Set((o.payments || []).filter((x) => x.amount > 0).map((x) => PAY_METHODS[x.method] ?? x.method))].join(', ');
   return (
     <tr className={`fund-order${st === 'cancelled' ? ' fund-cancelled' : ''}`} onDoubleClick={() => navigate('/commandes/' + o.id)}>
       <td></td>
       <td><a href={`#/commandes/${o.id}`} onClick={(e) => e.stopPropagation()}>{o.number}</a> · {o.name || o.phone}<div className="small muted">Commande de <b>{o.createdByName || '?'}</b>{o.fundFee?.amount != null ? ` · frais corrigé (au départ ${fmtAr(o.feeCharged ?? o.deliveryFee ?? 0)})` : ''}</div></td>
-      <td className="t-num num">{st === 'cancelled' ? <s>{fmtAr(fee)}</s> : fmtAr(fee)}</td>
+      <td className="t-num num">{st === 'cancelled' ? <s>{fmtAr(fee)}</s> : fmtAr(fee)}<div className="small muted fund-how">({how || 'pas encore payé'})</div></td>
       <td>{st === 'paid' ? <Badge tone="ok">Payé{o.fundFee?.by ? ` · ${o.fundFee.by}` : ''}</Badge> : st === 'cancelled' ? <Badge tone="neutral">Annulé</Badge> : <Badge tone="warn">En attente</Badge>}</td>
       <td>{canEdit && <div className="row fund-btns" onDoubleClick={(e) => e.stopPropagation()}>
         {st ? <Button variant="ghost" className="btn-sm" onClick={() => setFundFee(o, { status: null }, courier.name)}>Remettre en attente</Button>
