@@ -1367,3 +1367,7 @@ a.bell { text-decoration: none; }
 .bw-annule { color: var(--ink); font-weight: 700; }
 .rectif-links { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 6px; }
 .rectif-links a { font-weight: 700; }
+.fee-board tbody tr.fund-order:nth-child(n) > td { font-size: .9rem; font-weight: 400; background: var(--surface); }
+.fee-board tr.fund-order td.num { font-weight: 600; }
+.fee-board tr.fund-cancelled { opacity: .6; }
+.fund-btns { gap: 6px; flex-wrap: nowrap; justify-content: flex-end; }

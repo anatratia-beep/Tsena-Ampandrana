@@ -13,14 +13,16 @@ export interface FundMove { id: string; courierId: string; day: string; kind: Fu
 
 const CLOSED = ['delivered', 'partial', 'refused'];
 /** Frais facturés par jour de départ (livraisons terminées), du jour `from` au jour `to` inclus. */
+export const fundFeeOf = (o: Order) => o.fundFee?.amount ?? o.feeCharged ?? o.deliveryFee ?? 0;
 export function fundFees(courierId: string, from: string, to: string) {
-  const days = new Map<string, { count: number; fees: number }>();
+  const days = new Map<string, { count: number; fees: number; orders: Order[] }>();
   for (const o of all<Order>('orders')) {
     if (o.courierId !== courierId || !o.dispatchedAt || !CLOSED.includes(o.status) || isWalkIn(o) || isPickupZone(o.zoneId)) continue;
     const d = dayOf(o.dispatchedAt);
     if (d < from || d > to) continue;
-    const fee = o.feeCharged ?? o.deliveryFee ?? 0;
-    const e = days.get(d) ?? { count: 0, fees: 0 }; e.count++; e.fees += fee; days.set(d, e);
+    const e = days.get(d) ?? { count: 0, fees: 0, orders: [] }; e.orders.push(o);
+    if (o.fundFee?.status === 'cancelled') { days.set(d, e); continue; } // frais annulé : affiché, compté 0
+    e.count++; e.fees += fundFeeOf(o); days.set(d, e);
   }
   return days;
 }
@@ -31,8 +33,8 @@ export const fundMoves = (courierId: string, from: string, to: string) =>
 export function fundStatement(courierId: string, from: string, to: string) {
   const sum = (f: string, t: string) => { let x = 0; for (const v of fundFees(courierId, f, t).values()) x += v.fees; for (const m of fundMoves(courierId, f, t)) x += m.amount; return x; };
   const start = sum('0000-01-01', prevDay(from));
-  const lines: { day: string; label: string; amount: number; move?: FundMove }[] = [];
-  for (const [day, v] of fundFees(courierId, from, to)) lines.push({ day, label: `Frais de ${v.count} livraison(s)`, amount: v.fees });
+  const lines: { day: string; label: string; amount: number; move?: FundMove; orders?: Order[] }[] = [];
+  for (const [day, v] of fundFees(courierId, from, to)) lines.push({ day, label: `Frais de ${v.count} livraison(s)`, amount: v.fees, orders: v.orders });
   for (const m of fundMoves(courierId, from, to)) lines.push({ day: m.day, label: `${FUND_KINDS[m.kind]}${m.label ? ` : ${m.label}` : ''}`, amount: m.amount, move: m });
   lines.sort((a, b) => a.day.localeCompare(b.day) || (a.move ? 1 : 0) - (b.move ? 1 : 0));
   const inn = lines.filter((l) => l.amount > 0).reduce((t, l) => t + l.amount, 0), out = lines.filter((l) => l.amount < 0).reduce((t, l) => t - l.amount, 0);
@@ -47,4 +49,15 @@ export async function addFundMove(m: Omit<FundMove, 'id' | 'userName'>, courierN
 export async function removeFundMove(m: FundMove, courierName: string) {
   await remove('courierFund', m.id);
   await audit('Caisse frais livreur', `${courierName} : mouvement supprimé (${FUND_KINDS[m.kind]} ${m.amount} Ar, ${m.day})`);
+}
+
+/** Frais d'une commande dans la caisse frais : reçu (payé), annulé, montant corrigé, ou remis « en attente ». */
+export async function setFundFee(o: Order, change: { status?: 'paid' | 'cancelled' | null; amount?: number | null }, courierName: string) {
+  const cur = o.fundFee || {};
+  const next = { ...cur, at: new Date().toISOString(), by: currentUser()?.fullName } as NonNullable<Order['fundFee']>;
+  if (change.status !== undefined) next.status = change.status ?? undefined;
+  if (change.amount !== undefined) next.amount = change.amount ?? undefined;
+  await save('orders', { id: o.id, fundFee: next });
+  const what = change.amount != null ? `frais corrigé à ${change.amount} Ar` : change.status === 'paid' ? 'frais reçu' : change.status === 'cancelled' ? 'frais annulé' : 'frais remis en attente';
+  await audit('Caisse frais livreur', `${courierName} : ${o.number} — ${what}`, 'orders', o.id);
 }
