@@ -14,6 +14,7 @@ await p.evaluate(async () => { const t = window.__tsena;
   await t.save('categories', [{ id: 'ind', name: 'Induction' }]);
   await t.save('products', [{ id: 'a', code: 'A', name: 'Plaque', categoryId: 'ind', priceRetail: 95000, active: true }]);
   await t.save('variants', [{ id: 'va', productId: 'a', sku: 'A', costAvg: 50000, active: true }]);
+  await t.save('users', [{ id: 'u-anja', username: 'anja', fullName: 'Anja', roleId: 'role-manager', active: true, passwordHash: t.get('users', 'user-superadmin').passwordHash, mustChangePassword: false, pageIds: ['ind'] }]);
   await t.save('couriers', [{ id: 'ct', name: 'Toky', active: true, feeToShop: true }]);
   const o = (id, fee, who) => ({ id, number: id, name: 'Client ' + id, kind: 'order', channel: 'online', phone: '0340000000', status: 'delivered', courierId: 'ct', zoneId: 'z1', createdByName: who,
     lines: [{ id: 'l' + id, variantId: 'va', qty: 1, unitPrice: 95000, qtyKept: 1 }], deliveryFee: fee, feeCharged: fee, discount: 0, createdAt: at, dispatchedAt: at, returnedAt: back,
@@ -42,4 +43,15 @@ if (process.env.SHOT) await p.waitForTimeout(4500);
 if (process.env.SHOT) await card.screenshot({ path: process.env.SHOT });
 await row('T3').getByRole('button', { name: 'Remettre en attente' }).click(); await p.waitForTimeout(400);
 ok(/Frais de 3 livraison\(s\) 10 000 Ar/.test(N(await card.innerText())), 'T3 remis en attente : 10 000');
+// Responsable (Anja) : peut remettre en attente et marquer payé
+await p.goto('http://localhost:5173/#/compte'); await p.waitForTimeout(400); await p.locator('main').getByRole('button', { name: 'Se déconnecter' }).click(); await p.waitForTimeout(400);
+await p.getByLabel("Nom d'utilisateur").fill('anja'); await p.locator('input[type=password]').fill('anosy'); await p.keyboard.press('Enter'); await p.waitForTimeout(600);
+{ const later = p.getByRole('button', { name: 'Plus tard' }); if (await later.count()) { await later.click(); await p.waitForTimeout(300); } }
+await p.goto('http://localhost:5173/#/livraisons/caisse-frais'); await p.waitForTimeout(800);
+ok(await row('T1').count() === 1, 'responsable : voit la caisse frais Toky et les commandes');
+await row('T1').getByRole('button', { name: 'Remettre en attente' }).click(); await p.waitForTimeout(400);
+ok(/En attente/.test(N(await row('T1').innerText())), 'responsable : T1 remis en attente');
+await row('T1').getByRole('button', { name: 'Payé' }).click(); await p.waitForTimeout(400);
+ok(/Payé · Anja/.test(N(await row('T1').innerText())), `responsable : T1 payé par Anja (${N(await row('T1').innerText())})`);
+if (process.env.SHOT2) { await p.waitForTimeout(4500); await card.screenshot({ path: process.env.SHOT2 }); }
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);

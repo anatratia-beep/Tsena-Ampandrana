@@ -159,7 +159,7 @@ function CourierFundCard({ courier, from, to }: { courier: Courier; from: string
             {st.lines.map((l, i) => <Fragment key={i}><tr><td>{fmtDate(`${l.day}T12:00:00`)}</td><td>{l.label}{l.move?.userName && <div className="small muted">{l.move.userName}</div>}</td>
               <td className="t-num num fee-main">{l.amount > 0 ? fmtAr(l.amount) : ''}</td><td className="t-num num fee-mvola">{l.amount < 0 ? fmtAr(-l.amount) : ''}</td>
               <td>{l.move && can('couriers.settle') && <IconButton icon="trash" label="Supprimer ce mouvement" onClick={() => setDel(l.move!)} />}</td></tr>
-              {l.orders?.map((o) => <FundFeeRow key={o.id} order={o} courier={courier} canEdit={can('couriers.settle')} onEdit={() => setEditFee(o)} />)}</Fragment>)}
+              {l.orders?.map((o) => <FundFeeRow key={o.id} order={o} courier={courier} canEdit={can('couriers.settle') || can('handover.receive')} onEdit={() => setEditFee(o)} />)}</Fragment>)}
           </tbody>
         </table></div></div>
       )}
