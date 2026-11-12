@@ -20,7 +20,7 @@ import { useMyScope } from '../lib/scope';
 import { ScopeBar } from '../ui/scope';
 import { deliveryNoteDoc, joinDocs, parcelLabelDoc, routeSheetDoc } from '../lib/print';
 import { PrintButton } from '../ui/print';
-import { addDays, ACCOUNTS, ACCOUNT_IDS, FEE_STATE, courierBalance, courierRemovalBlockers, removeCourier, deferredOrders, deliveryNet, feeState, payDeferredFees, settleCourier, type AccountId, type CourierSettlement } from '../lib/money';
+import { addDays, mondayOf, ACCOUNTS, ACCOUNT_IDS, FEE_STATE, courierBalance, courierRemovalBlockers, removeCourier, deferredOrders, deliveryNet, feeState, payDeferredFees, settleCourier, type AccountId, type CourierSettlement } from '../lib/money';
 
 const TABS = [
   { key: 'livreurs', label: 'Comptes livreurs', perm: 'couriers.view' },
@@ -138,6 +138,15 @@ function CourierFundCard({ courier, from, to }: { courier: Courier; from: string
   const [del, setDel] = useState<FundMove | null>(null);
   const [editFee, setEditFee] = useState<Order | null>(null);
   const [hist, setHist] = useState(false);
+  // À traiter : les frais encore en attente (même d'une semaine passée) et les dépenses / sorties de la semaine en cours.
+  // Historique : les frais payés ou annulés, et les dépenses / sorties des semaines déjà passées.
+  const weekStart = mondayOf(todayYmdLocal());
+  const shown = (h: boolean) => st.lines.map((l) => {
+    const past = l.day < weekStart;
+    const orders = (l.orders || []).filter((o) => !!o.fundFee?.status === h);
+    const keep = l.orders ? orders.length > 0 : h === past;
+    return { l, orders, keep };
+  }).filter((x) => x.keep);
   const fr = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR');
   const label = from === '0000-01-01' ? `jusqu’au ${fr(to)}` : from === to ? fr(from) : `du ${fr(from)} au ${fr(to)}`;
   const today = todayYmdLocal();
@@ -154,18 +163,18 @@ function CourierFundCard({ courier, from, to }: { courier: Courier; from: string
         <div className="fund-end"><span className="small">Solde</span><strong className="num">{fmtAr(st.end)}</strong></div>
       </div>
       {st.lines.length === 0 ? <p className="card-pad small muted">Aucun mouvement sur cette période.</p> : (
-        <div className="card-pad stack-s">{(() => { const all = st.lines.flatMap((l) => l.orders || []), done = all.filter((o) => !!o.fundFee?.status).length; return (
+        <div className="card-pad stack-s">{(() => { const nOpen = shown(false).reduce((t, x) => t + x.orders.length + (x.l.move ? 1 : 0), 0), nHist = shown(true).reduce((t, x) => t + x.orders.length + (x.l.move ? 1 : 0), 0); return (
           <div className="segmented fund-tabs" role="group" aria-label="Commandes">
-            <button type="button" aria-pressed={!hist} onClick={() => setHist(false)}>À traiter ({all.length - done})</button>
-            <button type="button" aria-pressed={hist} onClick={() => setHist(true)}>Historique ({done})</button>
+            <button type="button" aria-pressed={!hist} onClick={() => setHist(false)}>À traiter ({nOpen})</button>
+            <button type="button" aria-pressed={hist} onClick={() => setHist(true)}>Historique ({nHist})</button>
           </div>); })()}
         <div className="table-wrap fee-board"><table className="table">
           <thead><tr><th>Jour</th><th>Libellé</th><th className="t-num">Entrée</th><th className="t-num">Sortie</th><th></th></tr></thead>
           <tbody>
-            {st.lines.map((l, i) => <Fragment key={i}><tr><td>{fmtDate(`${l.day}T12:00:00`)}</td><td>{l.label}{l.move?.userName && <div className="small muted">{l.move.userName}</div>}</td>
+            {shown(hist).map(({ l, orders }, i) => <Fragment key={i}><tr><td>{fmtDate(`${l.day}T12:00:00`)}</td><td>{l.label}{l.move?.userName && <div className="small muted">{l.move.userName}</div>}</td>
               <td className="t-num num fee-main">{l.amount > 0 ? fmtAr(l.amount) : ''}</td><td className="t-num num fee-mvola">{l.amount < 0 ? fmtAr(-l.amount) : ''}</td>
               <td>{l.move && can('couriers.settle') && <IconButton icon="trash" label="Supprimer ce mouvement" onClick={() => setDel(l.move!)} />}</td></tr>
-              {l.orders?.filter((o) => !!o.fundFee?.status === hist).map((o) => <FundFeeRow key={o.id} order={o} courier={courier} canEdit={can('couriers.settle') || can('handover.receive')} onEdit={() => setEditFee(o)} />)}</Fragment>)}
+              {orders.map((o) => <FundFeeRow key={o.id} order={o} courier={courier} canEdit={can('couriers.settle') || can('handover.receive')} onEdit={() => setEditFee(o)} />)}</Fragment>)}
           </tbody>
         </table></div></div>
       )}
