@@ -20,6 +20,7 @@ import { useMyScope } from '../lib/scope';
 import { ScopeBar } from '../ui/scope';
 import { deliveryNoteDoc, joinDocs, parcelLabelDoc, routeSheetDoc } from '../lib/print';
 import { PrintButton } from '../ui/print';
+import { AlefaCell, AlefaToolbar } from '../ui/alefa';
 import { addDays, mondayOf, ACCOUNTS, ACCOUNT_IDS, FEE_STATE, courierBalance, courierRemovalBlockers, removeCourier, deferredOrders, deliveryNet, feeState, payDeferredFees, settleCourier, type AccountId, type CourierSettlement } from '../lib/money';
 
 const TABS = [
@@ -287,6 +288,7 @@ function ToDeliver() {
         <div className="row-between">
           <p className="small" style={{ margin: 0 }}>{ready.length} commande(s) en attente de livraison{preparing ? ` · ${preparing} enregistrée(s), pas encore préparée(s)` : ''}. Choisissez le livreur de chaque commande (ou de toute une zone) directement ici, puis validez tout d’un coup.</p>
           <div className="row" style={{ gap: 6 }}>
+            <AlefaToolbar orders={sel.length ? chosen : ready} />
             {ready.length > 0 && <PrintButton label={sel.length ? `Étiquettes (${sel.length})` : 'Toutes les étiquettes'} docs={[{ key: 'etq', label: `Étiquettes colis 58 mm (${(sel.length ? chosen : ready).length})`, build: () => joinDocs('Étiquettes colis', (sel.length ? chosen : ready).map((o) => parcelLabelDoc(o, company))) }]} />}
             <Button icon="truck" disabled={!chosen.length} onClick={() => setConfirm(true)}>{chosen.length ? `Valider : remettre ${chosen.length} commande(s)` : 'Remettre au livreur'}</Button>
           </div>
@@ -313,6 +315,7 @@ function ToDeliver() {
                   <span className="list-item-title">{orderLabel(o)}</span>
                   <p className="small muted">{o.number} · {fmtPhone(o.phone)} · {o.place || 'lieu non précisé'} · {fmtNum(totalQty(o))} article(s){o.lines.some((l) => l.isChoice) ? ' + choix' : ''}</p>
                 </a>
+                <AlefaCell order={o} />
                 <select className="cell-input courier-pick" aria-label={`Livreur ${o.number}`} value={o.courierId && couriers.some((c) => c.id === o.courierId) ? o.courierId : ''} onChange={(e) => void plan([o], e.target.value)}>
                   {courierOpts.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
                 </select>

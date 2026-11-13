@@ -4,6 +4,7 @@ import { audit, useCan } from '../lib/auth';
 import { getMeta, requeueAll, save, setMeta, useMeta, useTable, type BaseRecord } from '../lib/db';
 import { boostDeadlineTime } from '../lib/boosts';
 import { BRAND_SWATCHES, DEFAULT_COMPANY, resizeImage, useCompany, type ThemeMode } from '../lib/settings';
+import { AlefaSettingsCard } from '../ui/alefa';
 import { disconnectCloud, connectCloud, getCloud, reloginCloud, syncNow, useSyncStatus, type SyncLogLine } from '../lib/sync';
 import { backupFolderName, backupKey, canPickFolder, canShareFile, pickBackupFolder, saveBackupFile, setBackupPassword, unlockBackupPassword, type SavedBackup, cloudBackup, cloudCopyBlocker, copyLooksIncomplete, dataStats, labelCount, statsText, downloadBackup, factoryReset, fetchCloudBackup, listCloudBackups, readBackup, restoreBackup } from '../lib/backup';
 import { Help, Badge, Button, Confirm, Empty, Modal, PageHead, PasswordField, Req, SelectField, TextField, fmtDateTime, timeAgo, toast, useRoute, navigate , IconButton } from '../ui/kit';
@@ -154,6 +155,7 @@ function CompanyTab() {
           toast('Informations enregistrées — envoyées aux autres appareils');
         }}>Enregistrer</Button>
       </div>
+      <AlefaSettingsCard />
     </div>
   );
 }
