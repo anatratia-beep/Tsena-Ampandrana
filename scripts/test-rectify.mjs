@@ -40,8 +40,15 @@ const order = (id) => p.evaluate((x) => window.__tsena.get('orders', x), id);
 await logout(); await login('aina');
 // 1. Le vendeur annule toute la commande par erreur
 await p.goto('http://localhost:5173/#/commandes/C1'); await p.waitForTimeout(500);
-await p.getByRole('button', { name: 'Annuler / supprimer' }).click(); await p.waitForTimeout(200);
-await p.getByRole('dialog').getByRole('button', { name: 'Annuler la commande' }).click(); await p.waitForTimeout(500);
+// En livraison : le vendeur demande l'annulation, le super-admin la valide (annulée au nom du vendeur).
+await p.getByRole('button', { name: 'Demander l’annulation' }).click(); await p.waitForTimeout(200);
+await p.getByRole('dialog').getByRole('button', { name: 'Envoyer la demande' }).click(); await p.waitForTimeout(500);
+ok((await order('C1')).status === 'out', 'vendeur : demande envoyée, commande encore en livraison');
+await logout(); await login('super-adm');
+await p.goto('http://localhost:5173/#/commandes/C1'); await p.waitForTimeout(500);
+await p.getByRole('button', { name: 'Valider l’annulation' }).click(); await p.waitForTimeout(600);
+await logout(); await login('aina');
+await p.goto('http://localhost:5173/#/commandes/C1'); await p.waitForTimeout(500);
 let o = await order('C1');
 ok(o.status === 'cancelled' && o.cancelledById === 'u1' && await stock('va') === 10 && await stock('vc') === 10, 'commande annulée par Aina : 3 pièces remises en stock');
 // 2. Il rectifie : 2 articles livrés, 1 annulé
@@ -70,8 +77,13 @@ ok(/= Ventes\s+20 000 Ar/.test(si) && /MVola\s+20 000 Ar/.test(si) && /− Annul
 ok(!(await p.getByRole('button', { name: 'Rectifier une annulation' }).count()), 'plus de bouton « Rectifier » : pas de double rectification');
 // 3. Semaine clôturée : demande au super-admin
 await p.goto('http://localhost:5173/#/commandes/C2'); await p.waitForTimeout(500);
-await p.getByRole('button', { name: 'Annuler / supprimer' }).click(); await p.waitForTimeout(200);
-await p.getByRole('dialog').getByRole('button', { name: 'Annuler la commande' }).click(); await p.waitForTimeout(500);
+await p.getByRole('button', { name: 'Demander l’annulation' }).click(); await p.waitForTimeout(200);
+await p.getByRole('dialog').getByRole('button', { name: 'Envoyer la demande' }).click(); await p.waitForTimeout(500);
+await logout(); await login('super-adm');
+await p.goto('http://localhost:5173/#/commandes/C2'); await p.waitForTimeout(500);
+await p.getByRole('button', { name: 'Valider l’annulation' }).click(); await p.waitForTimeout(600);
+await logout(); await login('aina');
+await p.goto('http://localhost:5173/#/commandes/C2'); await p.waitForTimeout(500);
 ok(await stock('vd') === 10, 'C-2 annulée : 2 pièces remises');
 await p.getByRole('button', { name: 'Rectifier une annulation' }).click(); await p.waitForTimeout(300);
 dlg = p.getByRole('dialog');

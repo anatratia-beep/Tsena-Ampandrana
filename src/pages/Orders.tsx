@@ -15,6 +15,7 @@ import { useCompany } from '../lib/settings';
 import { correctWalkInSale, netMoves, refundSuggested, voidOrder } from '../lib/corrections';
 import { approveRectify, canApproveRectify, cancelledBy, isSuper, planRectify, rectifyCancellation, rectifyRight, rectifySaleDay, rejectRectify, requestRectify, type RectifyDates } from '../lib/rectify';
 import { closedBy } from '../lib/closed';
+import { approveCancel, cancelNeedsApproval, canCancelDirect, cancelOrRequest, cancelledWithPayment, markPaidCancelChecked, rejectCancel } from '../lib/cancelRequest';
 import { manualMethods } from '../ui/payments';
 import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, feeState, payDeferredFees, settleCourier, type AccountId } from '../lib/money';
 import { Help, DiscountField, Badge, Button, Confirm, Empty, FilterSelect, IconButton, Modal, MoreMatches, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute, DateSort, type DateOrder, useKeep } from '../ui/kit';
@@ -97,6 +98,7 @@ export function OrderStatusBadge({ o }: { o: Order }) {
     <Badge tone={st.tone}>{o.kind === 'exchange' ? `Échange · ${st.label}` : st.label}</Badge>
     {hasPendingChoice(o) && <Badge tone="danger">Choix à préciser ({choiceQty(o)})</Badge>}
     {o.status === 'cancelled' && o.rectifyRequest && <Badge tone="warn">Rectification à valider</Badge>}
+    {o.status !== 'cancelled' && o.cancelRequest && <Badge tone="warn">Annulation à valider</Badge>}
     {o.status !== 'cancelled' && (o.rectifications || []).length > 0 && <Badge>Annulation rectifiée</Badge>}
     {reportCount(o) > 0 && o.status !== 'cancelled' && <Badge tone={reportCount(o) >= MAX_REPORTS ? 'danger' : 'warn'}>Reportée {reportCount(o)}/{MAX_REPORTS}{o.wantedDate && ['new', 'confirmed', 'ready'].includes(o.status) ? ` · au ${new Date(`${o.wantedDate}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}` : ''}</Badge>}
   </>;
@@ -158,6 +160,8 @@ function OrderList({ tabKey }: { tabKey?: string }) {
         actions={can('orders.create') && <><Button variant="ghost" icon="users" onClick={() => setFollowing(true)}>Client à suivre</Button><Button icon="plus" onClick={() => setCreating(true)}>Nouvelle commande</Button></>} />
       <ScopeBar scope={scope} mineLabel="Mes commandes" text={scope.locked ? 'Vous voyez seulement les commandes de vos pages (toutes les livraisons sont dans « Livraisons »)' : "Vous voyez les commandes que vous avez enregistrées. Les livraisons du jour restent visibles par tous dans Livraisons."} />
       {canApproveRectify() && (() => { const pend = orders.filter((o) => o.status === 'cancelled' && o.rectifyRequest), n = pend.length; return n ? <div className="notice rectif-notice"><Icon name="alert" /><span style={{ flex: 1 }}><strong>{n} rectification(s) d’annulation à valider</strong> (semaine déjà clôturée) : touchez une commande pour l’ouvrir et valider.<span className="rectif-links">{pend.map((o) => <a key={o.id} href={`#/commandes/${o.id}`}>{o.number}{o.name ? ` · ${o.name}` : ''}</a>)}</span></span></div> : null; })()}
+      {canApproveRectify() && (() => { const pend = orders.filter((o) => o.status !== 'cancelled' && o.cancelRequest), n = pend.length; return n ? <div className="notice rectif-notice"><Icon name="alert" /><span style={{ flex: 1 }}><strong>{n} annulation(s) à valider</strong> (commande en livraison ou déjà payée) : touchez une commande pour valider ou refuser.<span className="rectif-links">{pend.map((o) => <a key={o.id} href={`#/commandes/${o.id}`}>{o.number}{o.name ? ` · ${o.name}` : ''}{o.cancelRequest?.byName ? ` (${o.cancelRequest.byName})` : ''}</a>)}</span></span></div> : null; })()}
+      {canApproveRectify() && (() => { const pend = cancelledWithPayment(orders), n = pend.length; return n ? <div className="notice notice-danger rectif-notice"><Icon name="alert" /><span style={{ flex: 1 }}><strong>{n} commande(s) annulée(s) avec de l’argent déjà payé</strong> : vérifiez (rembourser le client ou rectifier l’annulation).<span className="rectif-links">{pend.map((o) => <a key={o.id} href={`#/commandes/${o.id}`}>{o.number}{o.name ? ` · ${o.name}` : ''} · payé {fmtAr(paidTotal(o))} · annulée par {cancelledBy(o).name || '?'}</a>)}</span></span></div> : null; })()}
       <div className="tabs" role="tablist">
         {(() => { const n = prospects.filter((x) => x.status === 'open' && scope.mine({ createdBy: x.ownerId, createdByName: x.ownerName }) && bucketOf(x) !== 'later').length; return <button role="tab" aria-selected={tabKey === 'suivre'} onClick={() => switchTab('suivre')}>À suivre{n ? <span className="tab-count tab-count-hot">{n}</span> : null}</button>; })()}
         {TABS.map((t) => {
@@ -668,7 +672,7 @@ function OrderDetail({ id }: { id: string }) {
           {((!closed && o.status !== 'cancelled') || rest !== 0) && o.status !== 'cancelled' && can('orders.create') && <Button variant="ghost" icon="plus" onClick={() => setModal('pay')}>{rest < 0 ? 'Rendre l’argent au client' : 'Paiement reçu'}</Button>}
           {closed && o.status !== 'refused' && can('returns.manage') && <Button variant="ghost" icon="refresh" onClick={() => setModal('exchange')}>Retour / échange</Button>}
           {canPostpone(o) && (can('orders.create') || can('deliveries.manage')) && <Button variant="ghost" icon="clock" onClick={() => setModal('postpone')}>{reportCount(o) >= MAX_REPORTS ? `Reportée ${MAX_REPORTS} fois : annuler ?` : `À reporter (${reportCount(o)}/${MAX_REPORTS})`}</Button>}
-          {!closed && o.status !== 'cancelled' && can('orders.create') && <Button variant="danger" icon="trash" onClick={() => setModal('cancel')}>Annuler / supprimer</Button>}
+          {!closed && o.status !== 'cancelled' && !o.cancelRequest && can('orders.create') && <Button variant="danger" icon="trash" onClick={() => setModal('cancel')}>{canCancelDirect(o) ? 'Annuler / supprimer' : 'Demander l’annulation'}</Button>}
           {closed && isWalkIn(o) && can('records.correct') && <Button variant="ghost" icon="edit" onClick={() => setModal('correct')}>Modifier / corriger la vente</Button>}
           {closed && can('records.correct') && <Button variant="danger" icon="trash" onClick={() => setModal('void')}>Annuler / supprimer la vente</Button>}
           {closed && !can('records.correct') && <span className="small muted">Erreur sur cette vente ? Le gérant ou le super-admin peut la corriger ou l’annuler.</span>}
@@ -677,6 +681,18 @@ function OrderDetail({ id }: { id: string }) {
             ? <Button variant="ghost" icon="refresh" onClick={() => setModal('rectify')}>Rectifier une annulation</Button>
             : r.why && o.kind !== 'exchange' ? <span className="small muted">{r.why}</span> : null; })()}
         </div>
+        {o.status !== 'cancelled' && o.cancelRequest && (() => { const rq = o.cancelRequest; return (
+          <div className="notice cancel-req"><Icon name="alert" /><div className="stack-s" style={{ flex: 1 }}>
+            <span><strong>Annulation demandée</strong> par {rq.byName || '?'} le {fmtDateTime(rq.at)} — {rq.reason}. En attente de la validation (super-admin, gérant ou responsable).{paidTotal(o) > 0.5 ? <> Déjà payé : <strong>{fmtAr(paidTotal(o))}</strong>.</> : null}</span>
+            {canApproveRectify() && <div className="row"><Button variant="danger" icon="check" onClick={act(async () => { await approveCancel(o); }, 'Annulation validée : commande annulée')}>Valider l’annulation</Button><Button variant="ghost" onClick={act(async () => { await rejectCancel(o); }, 'Annulation refusée : la commande continue')}>Refuser</Button></div>}
+          </div></div>
+        ); })()}
+        {o.status === 'cancelled' && paidTotal(o) > 0.5 && o.kind !== 'exchange' && (
+          <div className={`notice ${o.paidCancelChecked ? '' : 'notice-danger'}`}><Icon name="alert" /><div className="stack-s" style={{ flex: 1 }}>
+            <span><strong>Commande annulée avec {fmtAr(paidTotal(o))} déjà payé</strong> (annulée par {cancelledBy(o).name || '?'}). Si le client a vraiment payé, l’annulation est sans doute une erreur : « Rectifier une annulation ». Sinon, rendez l’argent au client.{o.paidCancelChecked ? ` Vérifié par ${o.paidCancelChecked.by || '?'} le ${fmtDateTime(o.paidCancelChecked.at)}.` : ''}</span>
+            {!o.paidCancelChecked && canApproveRectify() && <div className="row"><Button variant="ghost" icon="check" onClick={act(async () => { await markPaidCancelChecked(o); }, 'Marqué comme vérifié')}>Vérifié</Button></div>}
+          </div></div>
+        )}
         {o.status === 'cancelled' && o.rectifyRequest && (() => { const rq = o.rectifyRequest; const pl = planRectify(o, rq); return (
           <div className="notice"><Icon name="alert" /><div className="stack-s" style={{ flex: 1 }}>
             <span><strong>Rectification demandée</strong> par {rq.byName || '?'} le {fmtDateTime(rq.at)} — {rq.reason}. Semaine clôturée : en attente de la validation (super-admin, gérant ou responsable).</span>
@@ -1024,7 +1040,7 @@ export function PostponeModal({ order: o, onClose, onDone }: { order: Order; onC
     <Confirm title={`${o.number} : déjà reportée ${n} fois`} danger confirmLabel="Annuler la commande" onClose={onClose}
       message={<div className="stack-s"><p>Le client a déjà fait reporter cette livraison <strong>{n} fois</strong> sans prendre sa commande. Elle doit maintenant être <strong>annulée</strong> : les articles reviennent exactement en stock.</p><ul className="stack-s" style={{ margin: 0, paddingLeft: 16 }}>{history}</ul>
         <TextField label="Remarque (facultatif)" value={other} onChange={setOther} /></div>}
-      onConfirm={async () => { await cancelAfterReports(o, other.trim()); toast(`Commande annulée après ${n} reports`); onDone?.(); }} />
+      onConfirm={async () => { if (canCancelDirect(o)) { await cancelAfterReports(o, other.trim()); toast(`Commande annulée après ${n} reports`); } else { await cancelOrRequest(o, `Reportée ${n} fois, le client n’a pas pris la commande${other.trim() ? ` (${other.trim()})` : ''}`); toast('Demande d’annulation envoyée au gérant / responsable'); } onDone?.(); }} />
   );
   return (
     <Modal title={`Reporter la livraison — ${o.number}`} onClose={onClose}
@@ -1047,11 +1063,13 @@ export function PostponeModal({ order: o, onClose, onDone }: { order: Order; onC
 
 function CancelModal({ order: o, onClose }: { order: Order; onClose: () => void }) {
   const [reason, setReason] = useState('Client injoignable');
+  const direct = canCancelDirect(o);
   return (
-    <Confirm title={`Annuler ${o.number}`} danger confirmLabel="Annuler la commande" onClose={onClose}
-      message={<div className="stack"><p>{o.status === 'out' ? 'Les articles partis avec le livreur seront remis en stock.' : 'La commande ne réservera plus de stock.'}</p>
+    <Confirm title={direct ? `Annuler ${o.number}` : `Demander l’annulation de ${o.number}`} danger confirmLabel={direct ? 'Annuler la commande' : 'Envoyer la demande'} onClose={onClose}
+      message={<div className="stack">{direct ? <p>{o.status === 'out' ? 'Les articles partis avec le livreur seront remis en stock.' : 'La commande ne réservera plus de stock.'}{cancelNeedsApproval(o) && paidTotal(o) > 0.5 ? <> Attention : le client a déjà payé <strong>{fmtAr(paidTotal(o))}</strong>.</> : null}</p>
+        : <div className="notice"><Icon name="alert" /><span>Cette commande est {o.status === 'out' ? 'en livraison' : 'déjà payée en partie'}{paidTotal(o) > 0.5 ? ` (payé ${fmtAr(paidTotal(o))})` : ''} : l’annulation doit être <strong>validée par le gérant ou le responsable</strong>. Rien ne change avant leur validation.</span></div>}
         <SelectField label="Motif" value={reason} onChange={setReason} options={['Client injoignable', 'Client a annulé', 'Article indisponible', 'Erreur de saisie', 'Doublon', 'Autre'].map((r) => ({ value: r, label: r }))} /></div>}
-      onConfirm={async () => { await cancelOrder(o, reason); toast('Commande annulée'); }} />
+      onConfirm={async () => { const r = await cancelOrRequest(o, reason); toast(r === 'done' ? 'Commande annulée' : 'Demande d’annulation envoyée au gérant / responsable'); }} />
   );
 }
 
