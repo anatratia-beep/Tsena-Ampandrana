@@ -67,8 +67,11 @@ export function rectifyRight(o: Order, u = currentUser()): { mode: 'direct' | 'r
   if (o.kind === 'exchange') return { mode: 'none', why: 'Un échange annulé ne se rectifie pas : refaites l’échange depuis la commande d’origine.' };
   if (!u) return { mode: 'none' };
   if (isSuper(u)) return { mode: 'direct' };
-  const mine = cancelledBy(o).id === u.id || can(u, 'records.correct');
-  if (!mine) return { mode: 'none', why: `Seul le vendeur qui a annulé (${cancelledBy(o).name || '?'}), le gérant ou le super-admin peut rectifier cette annulation.` };
+  // Gérant et responsable : rectifient toute annulation, quel que soit le vendeur qui a annulé.
+  const mine = cancelledBy(o).id === u.id || can(u, 'records.correct') || canApproveRectify(u);
+  if (!mine) return { mode: 'none', why: `Seul le vendeur qui a annulé (${cancelledBy(o).name || '?'}), le gérant, le responsable ou le super-admin peut rectifier cette annulation.` };
+  // Après la clôture, le gérant ou le responsable qui rectifie valide lui-même (il peut valider les demandes).
+  if (rectifyClosed(o) && canApproveRectify(u)) return { mode: 'direct' };
   if (rectifyClosed(o)) return { mode: 'request', why: 'La semaine de cette vente est clôturée (versement au patron validé) : la rectification doit être validée par le super-admin.' };
   return { mode: 'direct' };
 }
