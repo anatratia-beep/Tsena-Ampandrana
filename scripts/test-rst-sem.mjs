@@ -26,8 +26,11 @@ await p.evaluate(async () => {
   ]);
 });
 await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(900);
+const hidden = N(await p.locator('.bw-table tr', { hasText: 'Reste semaine −1' }).innerText());
+ok(!/paiement vendredi/.test(hidden), `détail caché par défaut (${hidden})`);
+await p.locator('.bw-table th', { hasText: 'Reste semaine −1' }).dblclick(); await p.waitForTimeout(200);
 const row = N(await p.locator('.bw-table tr', { hasText: 'Reste semaine −1' }).innerText());
-ok(/2ème paiement vendredi 30 000 Ar · 1er paiement samedi 15 000 Ar · 2ème paiement samedi 25 000 Ar · autres jours de la semaine 12 000 Ar 82 000 Ar/.test(row), `RST SEM −1 = 30 000 + 15 000 + 25 000 + 12 000 = 82 000 (${row})`);
+ok(/2ème paiement vendredi 30 000 Ar 1er paiement samedi 15 000 Ar 2ème paiement samedi 25 000 Ar autres jours de la semaine 12 000 Ar 82 000 Ar/.test(row), `RST SEM −1 = 30 000 + 15 000 + 25 000 + 12 000 = 82 000 (${row})`);
 const card = N(await p.locator('.bw-top-prev').innerText());
 ok(/total payé : 82 000 Ar/.test(card), `case rouge : total payé vert = RST SEM −1 82 000 (${card})`);
 if (process.env.SHOT2) await p.locator('.bw-top-prev').screenshot({ path: process.env.SHOT2 });
