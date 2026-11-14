@@ -333,7 +333,7 @@ export function WeekVersementReport() {
               <td>{sg(diffAll)}</td>
             </tr>
             <tr className="bw-rest-row">
-              <th scope="row"><span className="bw-chip bw-prev">Reste semaine −1</span><small>2ème paiement vendredi {fmtAr(rst.fri2)} · 1er paiement samedi {fmtAr(rst.sat1)} · 2ème paiement samedi {fmtAr(rst.sat2)}{rst.other > 0.5 ? <> · autres jours de la semaine {fmtAr(rst.other)}</> : null}</small></th>
+              <th scope="row"><span className="bw-chip bw-prev">Reste semaine −1</span><small>2ème paiement vendredi {fmtAr(rst.fri2)}</small><small>1er paiement samedi {fmtAr(rst.sat1)}</small><small>2ème paiement samedi {fmtAr(rst.sat2)}</small>{rst.other > 0.5 ? <small>autres jours de la semaine {fmtAr(rst.other)}</small> : null}</th>
               <td>{fmtAr(restPrev)}</td>
               <td colSpan={3}></td>
             </tr>
