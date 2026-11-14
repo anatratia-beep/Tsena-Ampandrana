@@ -20,6 +20,7 @@ await p.evaluate(async () => {
     discount: 0, deliveryFee: 0, feeCharged: 0, createdAt: at, dispatchedAt: at, returnedAt: at, statusDates: { delivered: at } }]);
 });
 await p.goto('http://localhost:5173/#/commandes/O1'); await p.waitForTimeout(700);
+if (process.env.SHOT2) { const bt = p.getByRole('button', { name: 'Changer l’article' }); await bt.scrollIntoViewIfNeeded(); await bt.evaluate((e) => { e.style.outline = '3px solid red'; e.style.outlineOffset = '2px'; }); await p.screenshot({ path: process.env.SHOT2 }); }
 await p.getByRole('button', { name: 'Changer l’article' }).click(); await p.waitForTimeout(300);
 const dlg = p.getByRole('dialog'); const t = N(await dlg.innerText());
 ok(/Powerbank 10000.*Blanc/.test(t) && !/PB20/.test(t), `même prix seulement : Blanc proposé, PB20 (60 000) non (${t.slice(0, 200)})`);
