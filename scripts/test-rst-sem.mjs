@@ -28,5 +28,8 @@ await p.evaluate(async () => {
 await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(900);
 const row = N(await p.locator('.bw-table tr', { hasText: 'Reste semaine −1' }).innerText());
 ok(/2ème paiement vendredi 30 000 Ar · 1er paiement samedi 15 000 Ar · 2ème paiement samedi 25 000 Ar · autres jours de la semaine 12 000 Ar 82 000 Ar/.test(row), `RST SEM −1 = 30 000 + 15 000 + 25 000 + 12 000 = 82 000 (${row})`);
+const card = N(await p.locator('.bw-top-prev').innerText());
+ok(/total payé : 82 000 Ar/.test(card), `case rouge : total payé vert = RST SEM −1 82 000 (${card})`);
+if (process.env.SHOT2) await p.locator('.bw-top-prev').screenshot({ path: process.env.SHOT2 });
 if (process.env.SHOT) await p.locator('.bw-card').first().screenshot({ path: process.env.SHOT });
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
