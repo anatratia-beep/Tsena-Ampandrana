@@ -16,6 +16,7 @@ await p.evaluate(async () => {
   const t = window.__tsena; const h = t.get('users', 'user-superadmin').passwordHash; const at = new Date(Date.now() - 864e5).toISOString();
   await t.save('categories', [{ id: 'in', name: 'Induction.mg' }]);
   await t.save('users', [{ id: 'u-g', username: 'gerante', fullName: 'Anja', roleId: 'role-admin', active: true, passwordHash: h, mustChangePassword: false },
+    { id: 'u-r', username: 'resp', fullName: 'Anja R', roleId: 'role-manager', active: true, passwordHash: h, mustChangePassword: false, pageIds: ['in'] },
     { id: 'u-s', username: 'solo', fullName: 'Solo', roleId: 'role-seller', active: true, passwordHash: h, mustChangePassword: false, pageIds: ['in'] }]);
   await t.save('products', [{ id: 'a', code: 'IND', name: 'Plaque induction', categoryId: 'in', priceRetail: 190000, active: true }]);
   await t.save('variants', [{ id: 'va', productId: 'a', sku: 'IND', costAvg: 100000, active: true }]);
@@ -49,4 +50,8 @@ await p.getByRole('dialog').getByLabel('Remise (Ar)').fill('10000'); await p.get
 ok(await p.evaluate(() => window.__tsena.get('orders', 'I2').discount) === 10000, 'en livraison : remise 10 000 enregistrée par le gérant');
 await logout(); await login('solo'); await p.goto('http://localhost:5173/#/commandes/I2'); await p.waitForTimeout(700);
 ok(await p.getByRole('button', { name: 'Corriger la remise' }).count() === 0, 'en livraison : vendeur sans bouton');
+// Responsable : voit aussi le bouton.
+await logout(); await login('resp'); await p.goto('http://localhost:5173/#/commandes/I2'); await p.waitForTimeout(700);
+if (process.env.SHOT4) { const bt = p.getByRole('button', { name: 'Corriger la remise' }); if (await bt.count()) await bt.evaluate((e) => { e.style.outline = '3px solid red'; e.style.outlineOffset = '2px'; }); await p.screenshot({ path: process.env.SHOT4 }); }
+ok(await p.getByRole('button', { name: 'Corriger la remise' }).count() === 1, 'responsable : bouton « Corriger la remise » visible');
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
