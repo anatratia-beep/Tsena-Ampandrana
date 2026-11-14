@@ -43,6 +43,7 @@ import { MyDeliveriesPage } from './pages/MyDeliveries';
 import { ExpensesPage } from './pages/Expenses';
 import { MyDayReportPage } from './pages/DayReport';
 import { NotifBar, NotifBell, NotificationsPage, useNotifCount } from './ui/notifications';
+import { useAlefaBackground } from './ui/alefa';
 function NavNotifCount() { const n = useNotifCount(); return n ? <span className="nav-count">{n}</span> : null; }
 
 interface NavItem { path: string; label: string; short?: string; icon: IconName; perm?: string; group: string; page: () => ReactNode; mobile?: boolean }
@@ -113,6 +114,8 @@ export function App() {
   const company = useCompany();
   const [locked, setLocked] = useState(false);
   const setupSkipped = useMeta<boolean>('setupSkipped', false);
+  // Alefa : envoi automatique des commandes à livrer + suivi de la livraison (si une clé API est configurée).
+  useAlefaBackground(!!user);
 
   // Verrouillage automatique après inactivité.
   useEffect(() => {
