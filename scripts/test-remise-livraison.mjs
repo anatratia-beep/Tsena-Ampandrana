@@ -21,7 +21,9 @@ await p.evaluate(async () => {
   await t.save('variants', [{ id: 'va', productId: 'a', sku: 'IND', costAvg: 100000, active: true }]);
   await t.save('orders', [{ id: 'I1', number: 'C-M0050', kind: 'order', channel: 'facebook', phone: '0341234567', name: 'Client Induction', status: 'delivered', zoneId: 'zone-centre', courierId: 'k1',
     lines: [{ id: 'l1', variantId: 'va', qty: 1, unitPrice: 190000, qtyKept: 1, qtyReturned: 0 }], payments: [{ id: 'p', at, amount: 170000, method: 'cash', receivedBy: 'courier', courierId: 'k1' }],
-    discount: 0, deliveryFee: 0, feeCharged: 0, createdBy: 'u-s', createdByName: 'Solo', createdAt: at, dispatchedAt: at, returnedAt: at, statusDates: { delivered: at } }]);
+    discount: 0, deliveryFee: 0, feeCharged: 0, createdBy: 'u-s', createdByName: 'Solo', createdAt: at, dispatchedAt: at, returnedAt: at, statusDates: { delivered: at } },
+    { id: 'I2', number: 'C-H0064', kind: 'order', channel: 'facebook', phone: '0323784326', name: 'rado', status: 'out', zoneId: 'zone-centre', courierId: 'k1',
+    lines: [{ id: 'l2', variantId: 'va', qty: 1, unitPrice: 190000 }], payments: [], discount: 0, deliveryFee: 0, feeCharged: 0, createdBy: 'u-s', createdByName: 'Solo', createdAt: at, dispatchedAt: at, statusDates: { out: at } }]);
 });
 await logout(); await login('solo');
 await p.goto('http://localhost:5173/#/commandes/I1'); await p.waitForTimeout(700);
@@ -29,6 +31,7 @@ ok(await p.getByRole('button', { name: 'Corriger la remise' }).count() === 0, 'v
 await logout(); await login('gerante');
 await p.goto('http://localhost:5173/#/commandes/I1'); await p.waitForTimeout(700);
 ok(/Reste à encaisser.*20 000 Ar/.test(N(await p.locator('main').innerText())) || true, 'avant : reste 20 000');
+if (process.env.SHOT2) { await p.getByRole('button', { name: 'Corriger la remise' }).scrollIntoViewIfNeeded(); await p.getByRole('button', { name: 'Corriger la remise' }).evaluate((e) => { e.style.outline = '3px solid red'; e.style.outlineOffset = '2px'; }); await p.screenshot({ path: process.env.SHOT2 }); }
 await p.getByRole('button', { name: 'Corriger la remise' }).click(); await p.waitForTimeout(300);
 const dlg = p.getByRole('dialog');
 await dlg.getByLabel('Remise (Ar)').fill('20000'); await p.waitForTimeout(150);
@@ -38,4 +41,12 @@ if (process.env.SHOT) await dlg.screenshot({ path: process.env.SHOT });
 await dlg.getByRole('button', { name: 'Enregistrer' }).click(); await p.waitForTimeout(700);
 const o = await p.evaluate(() => { const o = window.__tsena.get('orders', 'I1'); return { d: o.discount, ev: o.events?.at(-1)?.text }; });
 ok(o.d === 20000 && /Remise corrigée : 0 Ar → 20 000 Ar/.test(N(o.ev || '')), `remise enregistrée 20 000, historique (${o.ev})`);
+// Commande encore « En livraison » : le gérant voit aussi le bouton.
+await p.goto('http://localhost:5173/#/commandes/I2'); await p.waitForTimeout(700);
+if (process.env.SHOT3) { const bt = p.getByRole('button', { name: 'Corriger la remise' }); if (await bt.count()) await bt.evaluate((e) => { e.style.outline = '3px solid red'; e.style.outlineOffset = '2px'; }); await p.screenshot({ path: process.env.SHOT3 }); }
+await p.getByRole('button', { name: 'Corriger la remise' }).click({ timeout: 5000 }); await p.waitForTimeout(300);
+await p.getByRole('dialog').getByLabel('Remise (Ar)').fill('10000'); await p.getByRole('dialog').getByRole('button', { name: 'Enregistrer' }).click(); await p.waitForTimeout(700);
+ok(await p.evaluate(() => window.__tsena.get('orders', 'I2').discount) === 10000, 'en livraison : remise 10 000 enregistrée par le gérant');
+await logout(); await login('solo'); await p.goto('http://localhost:5173/#/commandes/I2'); await p.waitForTimeout(700);
+ok(await p.getByRole('button', { name: 'Corriger la remise' }).count() === 0, 'en livraison : vendeur sans bouton');
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
