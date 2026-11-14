@@ -1,8 +1,8 @@
 // Rapports → « Rapport au patron » : jour (par défaut aujourd'hui), semaine (lundi → samedi), mois, année, période libre.
 // Résultat, CA par page, stock (début + entrées − fin = sorti) et stock par page ; envoi WhatsApp, PDF A4, Excel.
 import { useMemo, useState } from 'react';
-import { all, setMeta, useMeta, useTable } from '../lib/db';
-import { fmtAr } from '../lib/catalog';
+import { all, get, setMeta, useMeta, useTable } from '../lib/db';
+import { fmtAr, type Product, type Variant } from '../lib/catalog';
 import { fmtPhone, normPhone } from '../lib/orders';
 import { addDays, dayOf, today } from '../lib/money';
 import { PKIND, bossMoney, bossReport, frozenUnpaid, prevWeekBreakdown, periodOf, reportText, shiftAnchor, type PKind, type PageRow, type Report, type StockRow } from '../lib/report';
@@ -219,6 +219,32 @@ export function BossReport() {
 
 /** Rapports à envoyer (pour les rappels) : du jour le soir, de la semaine le lundi, du mois le 1er, de l'année le 1er janvier. */
 /** Rapport « Versement de la semaine » (onglet à part, après le rapport au patron) : comme le tableau Excel de la semaine. */
+/** Détail du « total payé » de la semaine −1 : ventes impayées au compte du samedi, payées depuis (pour comparer avec l'Excel). */
+function PrevPaidModal({ b, onClose }: { b: ReturnType<typeof prevWeekBreakdown>; onClose: () => void }) {
+  useTable('categories');
+  const dd = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+  const rows = [...b.paidList].sort((x, y) => x.day.localeCompare(y.day) || x.o.number.localeCompare(y.o.number));
+  const page = (o: Order) => [...new Set(o.lines.map((l) => get<Product>('products', get<Variant>('variants', l.variantId)?.productId ?? '')?.categoryId).filter(Boolean))].map((id) => all<{ id: string; name: string }>('categories').find((c) => c.id === id)?.name).filter(Boolean).join(', ');
+  const meth: Record<string, string> = { cash: 'Espèces', mvola: 'MVola', orange: 'Orange Money' };
+  return (
+    <Modal wide title={`Total payé — ventes du ${dd(b.from)} au ${dd(b.to)} payées après le compte (${rows.length})`} onClose={onClose}>
+      <div className="stack">
+        <p className="small muted" style={{ margin: 0 }}>Ventes encore impayées au compte du samedi et payées depuis (« Payé » touché après le compte). Comparez avec le RST SEM −1 de l’Excel : une vente payée avant le samedi dans l’Excel a été marquée « Payé » en retard dans l’application.</p>
+        <div className="table-wrap"><table className="table table-grid">
+          <thead><tr><th>Jour vente</th><th>Commande</th><th>Page</th><th className="t-num">Reste au compte</th><th>Payé le</th><th className="t-num">Payé</th></tr></thead>
+          <tbody>{rows.map((r) => (
+            <tr key={r.o.id} className="row-link" title="Double-cliquez pour ouvrir la commande" onDoubleClick={() => { onClose(); location.hash = `#/commandes/${r.o.id}`; }}>
+              <td>{dd(r.day)}</td><td><a href={`#/commandes/${r.o.id}`} onClick={onClose}><strong>{r.o.number}</strong></a> {r.o.name || r.o.facebook || r.o.phone}</td><td>{page(r.o)}</td>
+              <td className="t-num">{fmtAr(r.due)}</td><td className="small">{r.pays.map((p, i) => <div key={i}>{dd(p.day)} · {meth[p.method ?? ''] ?? p.method} {fmtAr(p.amount)}</div>)}</td>
+              <td className="t-num"><strong className="pos">{fmtAr(r.paid)}</strong></td></tr>
+          ))}</tbody>
+          <tfoot><tr className="t-total"><td colSpan={5}>Total payé</td><td className="t-num">{fmtAr(b.paid)}</td></tr></tfoot>
+        </table></div>
+      </div>
+    </Modal>
+  );
+}
+
 /** Ventes encore impayées d'une semaine passée (les mêmes que la case rouge), avec « Payé » et l'accès à la commande. */
 function PrevUnpaidModal({ from, to, onClose }: { from: string; to: string; onClose: () => void }) {
   useTable('orders'); useTable('categories');
@@ -288,6 +314,7 @@ export function WeekVersementReport() {
   };
   const expAll = rows.reduce((t, x) => t + x.exp + (x.fee ?? 0), 0);
   const [showPrev, setShowPrev] = useState(false);
+  const [showPaid, setShowPaid] = useState(false);
   const [showCur, setShowCur] = useState(false);
   const [openReste, setOpenReste] = useState<string | null>(null);
   return (
@@ -301,13 +328,14 @@ export function WeekVersementReport() {
           {w.sunday < today() && <Button variant="quiet" onClick={() => setWeekPick(today())}>Cette semaine</Button>}
         </div>
       </div>
+      {showPaid && <PrevPaidModal b={prevW} onClose={() => setShowPaid(false)} />}
       {showPrev && <PrevUnpaidModal from={prevW.from} to={prevW.to} onClose={() => setShowPrev(false)} />}
       {showCur && <PrevUnpaidModal from={w.monday} to={w.sunday} onClose={() => setShowCur(false)} />}
       <div className="stat-grid bw-top">
         <div className="card stat bw-top-sales"><span className="small muted">Ventes de la semaine</span><strong className="stat-value num">{fmtAr(sales)}</strong><span className="small muted">comme le chiffre d’affaires du rapport au patron</span></div>
         <div className="card stat bw-top-vers"><span className="small muted">Total ventes versement</span><strong className="stat-value num">{fmtAr(w.sales)}</strong><span className="small muted">avec les corrections ✏️ des Versements</span><span className="small">Différence : {Math.round(w.sales - sales) === 0 ? <span className="ok-text">✓ juste</span> : sg(w.sales - sales)}</span></div>
         <div className="card stat bw-top-exp"><span className="small muted">Total dépenses de la semaine</span><strong className="stat-value num">{fmtAr(expAll)}</strong><span className="small muted">espèces {fmtAr(rows[0].exp)}{w.fee > 0.5 ? <> · frais de livraison {fmtAr(w.fee)}</> : null} · MVola {fmtAr(rows[1].exp)} · Orange {fmtAr(rows[2].exp)}{expOther > 0.5 ? <><br />autres comptes {fmtAr(expOther)}</> : null}</span></div>
-        <button type="button" className="card stat bw-top-prev bw-click" onClick={() => setShowPrev(true)}><span className="small muted">Reste impayés semaine −1</span><strong className="stat-value num neg">{fmtAr(prevW.rest)}</strong><span className="small muted">{prevW.n} vente(s) du {dd(prevW.from)} au {dd(prevW.to)} · figé au compte du samedi</span><span className="bw-cancel bw-paid">total payé : <b>{fmtAr(prevW.paid)}</b></span><span className="small bw-annule">annulé : <b>{fmtAr(prevW.cancelled)}</b>{prevW.cancelledN ? ` (${prevW.cancelledN} vente${prevW.cancelledN > 1 ? 's' : ''})` : ''}</span><span className="small bw-see">Voir les ventes →</span></button>
+        <button type="button" className="card stat bw-top-prev bw-click" onClick={() => setShowPrev(true)}><span className="small muted">Reste impayés semaine −1</span><strong className="stat-value num neg">{fmtAr(prevW.rest)}</strong><span className="small muted">{prevW.n} vente(s) du {dd(prevW.from)} au {dd(prevW.to)} · figé au compte du samedi</span><span className="bw-cancel bw-paid bw-paid-link" role="link" title="Voir les ventes payées" onClick={(e) => { e.stopPropagation(); setShowPaid(true); }}>total payé : <b>{fmtAr(prevW.paid)}</b> ›</span><span className="small bw-annule">annulé : <b>{fmtAr(prevW.cancelled)}</b>{prevW.cancelledN ? ` (${prevW.cancelledN} vente${prevW.cancelledN > 1 ? 's' : ''})` : ''}</span><span className="small bw-see">Voir les ventes →</span></button>
       </div>
       <div className="card card-flush bw-card">
         <div className="table-wrap"><table className="bw-table">
@@ -330,8 +358,8 @@ export function WeekVersementReport() {
               <td colSpan={2} className="bw-sumlabel">Total différence</td>
               <td>{sg(diffAll)}</td>
             </tr>
-            <tr className="bw-rest-row">
-              <th scope="row"><span className="bw-chip bw-prev">Reste semaine −1</span><small>total payé cette semaine ({prevW.paidN} vente{prevW.paidN > 1 ? 's' : ''})</small></th>
+            <tr className="bw-rest-row bw-click-row" title="Voir les ventes payées" onClick={() => setShowPaid(true)}>
+              <th scope="row"><span className="bw-chip bw-prev">Reste semaine −1</span><small>total payé cette semaine ({prevW.paidN} vente{prevW.paidN > 1 ? 's' : ''})</small><small className="bw-see">Voir les ventes →</small></th>
               <td>{fmtAr(restPrev)}</td>
               <td colSpan={3}></td>
             </tr>

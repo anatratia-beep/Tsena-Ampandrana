@@ -1373,3 +1373,4 @@ a.bell { text-decoration: none; }
 .fund-btns { gap: 6px; flex-wrap: nowrap; justify-content: flex-end; }
 .fee-board tr.fund-order td .fund-how { font-weight: 400; font-size: .8rem; }
 .fund-tabs { align-self: flex-start; }
+.bw-paid-link { cursor: pointer; text-decoration: underline dotted; }

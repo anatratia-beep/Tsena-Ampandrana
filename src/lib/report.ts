@@ -113,15 +113,21 @@ export function frozenUnpaid(from: string, to: string, count: string): WeekUnpai
  *  comptage (sur ces ventes), et total des ventes annulées de la semaine (reste qui était dû). */
 export function prevWeekBreakdown(from: string, to: string, count: string) {
   const fr = frozenUnpaid(from, to, count);
-  const sold = new Map<string, { o: Order; v: number }>();
-  for (const l of salesLedger(from, to)) { const e = sold.get(l.order.id) ?? { o: l.order, v: 0 }; e.v += l.amount; sold.set(l.order.id, e); }
+  const sold = new Map<string, { o: Order; v: number }>(), saleDayOf = new Map<string, string>();
+  for (const l of salesLedger(from, to)) { const e = sold.get(l.order.id) ?? { o: l.order, v: 0 }; e.v += l.amount; sold.set(l.order.id, e); if (!saleDayOf.has(l.order.id)) saleDayOf.set(l.order.id, l.day); }
   let paid = 0, paidN = 0;
+  /** Détail du total payé (affichage seulement) : vente, reste dû au compte, payé après le compte, paiements. */
+  const paidList: { o: Order; day: string; due: number; paid: number; pays: { day: string; amount: number; method?: string }[] }[] = [];
   for (const { o, v } of sold.values()) {
     if (o.status === 'cancelled' || v <= 0.5) continue;
     const ins = cashIns(o), before = ins.filter((c) => c.day < count).reduce((t, c) => t + c.amount, 0);
     const x = v - Math.min(before, v); if (x <= 0.5) continue;
     const after = ins.filter((c) => c.day >= count).reduce((t, c) => t + c.amount, 0), a = Math.min(after, x);
-    if (a > 0.5) { paid += a; paidN++; }
+    if (a > 0.5) {
+      paid += a; paidN++;
+      const day = saleDayOf.get(o.id) ?? from;
+      paidList.push({ o, day, due: x, paid: a, pays: (o.payments || []).filter((p) => dayOf(p.at) >= count).map((p) => ({ day: dayOf(p.at), amount: p.amount, method: p.method })) });
+    }
   }
   let cancelled = 0, cancelledN = 0;
   for (const o of all<Order>('orders')) {
@@ -132,7 +138,7 @@ export function prevWeekBreakdown(from: string, to: string, count: string) {
     const x = v - Math.min(before, v);
     if (x > 0.5) { cancelled += x; cancelledN++; }
   }
-  return { from, to, rest: fr.amount, n: fr.n, paid, paidN, cancelled, cancelledN };
+  return { from, to, rest: fr.amount, n: fr.n, paid, paidN, cancelled, cancelledN, paidList };
 }
 
 /** Ventes internes (employés, au prix d'achat) de la période (valeur des articles). */
