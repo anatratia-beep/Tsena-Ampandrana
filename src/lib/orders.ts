@@ -40,6 +40,9 @@ export interface OrderLine {
   lotN?: number;            // nombre de lots
   lotPrice?: number;        // prix d'un lot au moment de la vente
   gift?: boolean;           // offert (promotion)
+  /** Modification d'une commande déjà enregistrée : prix d'origine de la ligne (non enregistré), gardé même si le prix de l'article a changé depuis. */
+  keptPrice?: number;
+  keptWholesale?: boolean;
 }
 export interface Payment {
   id: string;
@@ -263,8 +266,11 @@ export function linePrice(variantId: string, wholesale: boolean) {
 }
 /** Prix de chaque ligne : détail par défaut, gros si la ligne est cochée « Prix de gros » (article par article). */
 export function repriceLines(lines: OrderLine[], _legacy?: boolean) {
-  return lines.map((l) => (l.priceManual ? l : { ...l, unitPrice: linePrice(l.variantId, !!l.wholesale) }));
+  return lines.map((l) => (l.priceManual ? l : { ...l, unitPrice: l.keptPrice != null && !!l.wholesale === !!l.keptWholesale ? l.keptPrice : linePrice(l.variantId, !!l.wholesale) }));
 }
+/** Commande déjà enregistrée qu'on modifie : chaque ligne garde le prix du jour de la vente (un changement de prix de l'article ne vaut que pour les nouvelles ventes). */
+export const keepLinePrices = (lines: OrderLine[]) => lines.map((l) => ({ ...l, keptPrice: l.unitPrice, keptWholesale: !!l.wholesale }));
+export const stripKeptPrices = (lines: OrderLine[]) => lines.map(({ keptPrice: _p, keptWholesale: _w, ...l }) => l);
 /** Prix des lignes + différences « prix du lot » et « prix par quantité ». */
 export function priceOrder(lines: OrderLine[]) { const ls = repriceLines(lines); return { lines: ls, adjusts: computeAdjusts(ls) }; }
 /** Lignes du même lot sont retirées ensemble. */

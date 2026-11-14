@@ -8,7 +8,7 @@ import { fmtAr, fmtNum, nextNumber, parseNum, productVariants, useCatalog, varia
 import {
   addPayment, availableOf, backToPrepare, cancelOrder, cancelDeliveryToShop, MAX_REPORTS, reportCount, canPostpone, postponeOrder, cancelAfterReports, CHANNELS, completeAtShop, confirmOrder, dispatchOrder, exchangeBalance, findCustomer, fmtPhone,
   canReassign, customerIdFor, choiceQty, hasPendingChoice, needsSettlement, reassignCourier, isOutsideHours, isPickupZone, isWalkIn, orderLabel, handOverAtShop, itemsTotal, keptTotal, linePrice, markReady, normPhone, ORDER_STATUS, orderTotal, paidTotal, PAY_METHODS, recordReturn, remaining,
-  isSuperUser, canMoveValidation, moveValidationDay, priceOrder, removeLine, reservedIndex, totalQty, useWholesale, editPayment, courierSplit, withLineWholesale, discountAr, stockShortages,
+  isSuperUser, canMoveValidation, moveValidationDay, priceOrder, removeLine, reservedIndex, totalQty, useWholesale, editPayment, courierSplit, withLineWholesale, keepLinePrices, stripKeptPrices, discountAr, stockShortages,
   type Courier, type Customer, type Order, type OrderLine, type OrderStatus, type PayMethod, type Payment, type Zone, orderText, customerText, findCustomerBy,
 } from '../lib/orders';
 import { useCompany } from '../lib/settings';
@@ -292,7 +292,7 @@ export function OrderForm({ order, exchangeOf, onClose, onSaved, prefill: pre }:
   const [newCourier, setNewCourier] = useState('');
   const [fee, setFee] = useState(String(order?.deliveryFee ?? (base ? get<Zone>('zones', base.zoneId || '')?.fee ?? '' : pre?.zoneId ? (isPickupZone(pre.zoneId) ? 0 : get<Zone>('zones', pre.zoneId)?.fee ?? '') : '')));
   const [wantedDate, setWantedDate] = useState(order?.wantedDate ?? '');
-  const [lines, setLines] = useState<OrderLine[]>(order?.lines ? withLineWholesale(order.lines) : (pre?.lines ?? []).map((l) => ({ id: newId(), variantId: l.variantId, qty: l.qty, unitPrice: linePrice(l.variantId, false) })));
+  const [lines, setLines] = useState<OrderLine[]>(order?.lines ? keepLinePrices(withLineWholesale(order.lines)) : (pre?.lines ?? []).map((l) => ({ id: newId(), variantId: l.variantId, qty: l.qty, unitPrice: linePrice(l.variantId, false) })));
   const [discount, setDiscount] = useState(order?.discountPct ? String(order.discountPct) : order?.discount ? String(order.discount) : '');
   const [discUnit, setDiscUnit] = useState<'ar' | 'pct'>(order?.discountPct ? 'pct' : 'ar');
   const [notes, setNotes] = useState(order?.notes ?? pre?.notes ?? '');
@@ -366,7 +366,7 @@ export function OrderForm({ order, exchangeOf, onClose, onSaved, prefill: pre }:
       else if (cust) await save('customers', { id: cust.id, phone: cust.phone || p || undefined, phone2: cust.phone && p && normPhone(cust.phone) !== p && !cust.phone2 ? p : cust.phone2, name: cust.name || name.trim() || undefined, facebook: cust.facebook || facebook.trim() || undefined, zoneId: zoneId || cust.zoneId, place: place.trim() || cust.place });
       const data: Partial<Order> = {
         phone: p, name: name.trim() || undefined, facebook: facebook.trim() || undefined, channel, customerId: cust?.id, zoneId: zoneId || undefined, place: pickup ? (place.trim() || undefined) : place.trim(), placeToConfirm: false,
-        courierId: pickup ? undefined : cid, deliveryFee: pickup ? 0 : parseNum(fee) || 0, wantedDate: wantedDate || undefined, lines: priced, adjusts: adjusts.length ? adjusts : (order?.adjusts ? [] : undefined), discount: discAr, discountPct: discUnit === 'pct' ? Number(String(discount).replace(',', '.')) || undefined : undefined, notes: notes.trim() || undefined,
+        courierId: pickup ? undefined : cid, deliveryFee: pickup ? 0 : parseNum(fee) || 0, wantedDate: wantedDate || undefined, lines: stripKeptPrices(priced), adjusts: adjusts.length ? adjusts : (order?.adjusts ? [] : undefined), discount: discAr, discountPct: discUnit === 'pct' ? Number(String(discount).replace(',', '.')) || undefined : undefined, notes: notes.trim() || undefined,
       };
       if (order) {
         await save('orders', { id: order.id, ...data });
