@@ -109,6 +109,10 @@ export interface Order extends BaseRecord {
   /** Annulations rectifiées (annulée par erreur) : historique, et demande en attente du super-admin. */
   rectifications?: Rectification[];
   rectifyRequest?: RectifyRequest;
+  /** Annulation demandée par un vendeur (commande en livraison ou déjà payée) : en attente du gérant ou du responsable. */
+  cancelRequest?: CancelRequest;
+  /** Annulée avec de l'argent payé : vue et vérifiée par le gérant ou le responsable (sort de la liste « à vérifier »). */
+  paidCancelChecked?: { at: string; by?: string };
   /** Versements : annulation avec reste vue et validée par le responsable (n'apparaît plus dans le suivi des restes). */
   cancelChecked?: { at: string; by?: string };
 }
@@ -539,6 +543,8 @@ export async function reassignCourier(o: Order, newCourierId: string, reason?: s
   await save('orders', { id: o.id, courierId: newCourierId, payments, events: [...(o.events || []), { at: bizNow(), text, user: u?.fullName }] });
   await audit('Changement de livreur', `${o.number} : ${from} → ${to}${reason ? ` — ${reason}` : ''}`, 'orders', o.id);
 }
+
+export interface CancelRequest { at: string; byId?: string; byName?: string; reason: string }
 
 export async function cancelOrder(o: Order, reason: string) {
   // Stock remis exactement : on annule le solde de tous les mouvements déjà faits pour cette commande
