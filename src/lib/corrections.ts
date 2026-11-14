@@ -6,9 +6,9 @@
 // soit le chemin suivi (vente sur place, livraison, retour, choix gardés, échange…). Tout reste dans l'historique.
 import { all, bizNow, get, newId, save } from './db';
 import { audit, currentUser } from './auth';
-import { addMoves, type StockMove } from './catalog';
+import { addMoves, variantLabel, type Product, type StockMove, type Variant } from './catalog';
 import { assertOpenAt } from './closed';
-import { isWalkIn, type Order, type OrderLine, type PayMethod, type Payment } from './orders';
+import { isWalkIn, linePrice, type Order, type OrderLine, type PayMethod, type Payment } from './orders';
 import type { Purchase, Reception } from './purchases';
 import type { PurchaseStatus } from './catalog';
 import { pointBefore } from './restorePoints';
@@ -145,3 +145,24 @@ export async function cancelMove(m: StockMove, reason: string) {
   await audit('Mouvement de stock annulé', `${m.qty > 0 ? '+' : ''}${m.qty} (${m.reason ?? m.type}) — ${reason}`, 'stockMoves', m.id);
 }
 export const isMoveCancelled = (m: StockMove) => all<StockMove>('stockMoves').some((x) => x.refType === 'cancel' && x.refId === m.id);
+
+/** Commande livrée : l'article donné au client n'est pas celui saisi (autre couleur, autre référence…) → on change la référence
+ *  de la ligne. Seulement au même prix : le total, les paiements et les rapports ne bougent pas ; le stock suit (l'ancien revient, le nouveau sort). */
+export const swapPriceOk = (l: OrderLine, variantId: string) => { const n = linePrice(variantId, !!l.wholesale); return n > 0 && (n === l.unitPrice || n === linePrice(l.variantId, !!l.wholesale)); };
+export const canSwapLine = (o: Order, l: OrderLine) => !isWalkIn(o) && ['delivered', 'partial'].includes(o.status) && o.kind !== 'exchange' && !l.lotKey && !l.serials?.length && (l.qtyKept ?? 0) > 0;
+export async function swapLineVariant(o: Order, lineId: string, variantId: string, reason: string) {
+  const l = o.lines.find((x) => x.id === lineId);
+  if (!l || !canSwapLine(o, l)) throw new Error('Cet article ne peut pas être changé ici.');
+  if (variantId === l.variantId) return;
+  if (!swapPriceOk(l, variantId)) throw new Error('Prix différent : faites un « Retour / échange ».');
+  assertOpenAt(o.dispatchedAt || o.createdAt, "Changement d'article");
+  const k = l.qtyKept ?? 0; const at = bizNow(); const u = currentUser();
+  const name = (id: string) => { const v = get<Variant>('variants', id); const p = v && get<Product>('products', v.productId); return `${p?.name ?? '?'} ${variantLabel(v)}`.trim(); };
+  const text = `Article changé : ${name(l.variantId)} → ${name(variantId)} (× ${k})${reason.trim() ? ` — ${reason.trim()}` : ''}`;
+  await addMoves([
+    { variantId: l.variantId, qty: k, type: 'return', refType: 'order', refId: o.id, reason: `${o.number} : article changé`, at },
+    { variantId, qty: -k, type: 'sale', refType: 'order', refId: o.id, reason: `${o.number} : article changé`, at },
+  ]);
+  await save('orders', { id: o.id, lines: o.lines.map((x) => (x.id === lineId ? { ...x, variantId } : x)), events: [...(o.events || []), { at, text, user: u?.fullName }] });
+  await audit('Article changé', `${o.number} — ${text}`, 'orders', o.id, 'high');
+}
