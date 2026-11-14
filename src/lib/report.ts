@@ -9,7 +9,7 @@ import { grid, usdRate } from './payouts';
 import { expenseDay } from './closed';
 import { isStaffBuy, isWalkIn, unpaidOf, type Order } from './orders';
 import { saleDay } from './handovers';
-import { situation } from './situation';
+import { restLedger, situation } from './situation';
 
 export type PKind = 'day' | 'week' | 'month' | 'year' | 'custom';
 export const PKIND: Record<PKind, string> = { day: 'Jour', week: 'Semaine', month: 'Mois', year: 'Année', custom: 'Période' };
@@ -133,6 +133,20 @@ export function prevWeekBreakdown(from: string, to: string, count: string) {
     if (x > 0.5) { cancelled += x; cancelledN++; }
   }
   return { from, to, rest: fr.amount, n: fr.n, paid, paidN, cancelled, cancelledN };
+}
+
+/**
+ * RST SEM −1 (comme l'Excel) : sur les ventes de la semaine −1 (lundi `from` → dimanche `to`), 2ème paiement des ventes du
+ * vendredi + 1er et 2ème paiement des ventes du samedi (et du dimanche). Même découpage que la Situation (restLedger).
+ */
+export function prevWeekRst(from: string, to: string) {
+  const fri = addDays(from, 4), sat = addDays(from, 5);
+  let fri2 = 0, sat1 = 0, sat2 = 0, n = 0;
+  for (const r of restLedger(from, to)) {
+    if (r.day === fri && r.p2) { fri2 += r.p2.amount; n++; }
+    else if (r.day >= sat && r.day <= to && (r.p1 || r.p2)) { sat1 += r.p1?.amount ?? 0; sat2 += r.p2?.amount ?? 0; n++; }
+  }
+  return { amount: fri2 + sat1 + sat2, fri2, sat1, sat2, n };
 }
 
 /** Ventes internes (employés, au prix d'achat) de la période (valeur des articles). */

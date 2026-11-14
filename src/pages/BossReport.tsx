@@ -5,7 +5,7 @@ import { all, setMeta, useMeta, useTable } from '../lib/db';
 import { fmtAr } from '../lib/catalog';
 import { fmtPhone, normPhone } from '../lib/orders';
 import { addDays, dayOf, today } from '../lib/money';
-import { PKIND, bossMoney, bossReport, frozenUnpaid, prevWeekBreakdown, periodOf, reportText, shiftAnchor, type PKind, type PageRow, type Report, type StockRow } from '../lib/report';
+import { PKIND, bossMoney, bossReport, frozenUnpaid, prevWeekBreakdown, prevWeekRst, periodOf, reportText, shiftAnchor, type PKind, type PageRow, type Report, type StockRow } from '../lib/report';
 import { a4Table, arA4, h, printA4 } from '../lib/a4';
 import { useCompany } from '../lib/settings';
 import { usdRate } from '../lib/payouts';
@@ -277,7 +277,9 @@ export function WeekVersementReport() {
   // Le comptage se fait le samedi soir : ce qui est payé à partir du dimanche ne baisse plus le reste.
   const prevW = prevWeekBreakdown(addDays(w.monday, -7), addDays(w.monday, -1), addDays(w.monday, -1));
   // Reste à payer de la semaine (lundi → samedi) : figé au comptage du samedi (avant : impayé à ce jour).
-  const restCur = frozenUnpaid(w.monday, w.sunday, w.sunday).amount, restPrev = prevW.paid;
+  // RST SEM −1 (tableau) : 2ème paiement du vendredi + 1er et 2ème paiement du samedi de la semaine −1 (formule de l'Excel).
+  const rst = prevWeekRst(addDays(w.monday, -7), addDays(w.monday, -1));
+  const restCur = frozenUnpaid(w.monday, w.sunday, w.sunday).amount, restPrev = rst.amount;
   const total = rows.reduce((t, x) => t + x.cur, 0) + restCur + restPrev, diff = total - sales;
   const diffAll = rows.reduce((t, x) => t + x.diff, 0);
   const sg = (n: number) => <strong className={n < -0.5 ? 'neg' : ''}>{n > 0.5 ? '+ ' : n < -0.5 ? '− ' : ''}{fmtAr(Math.abs(n))}</strong>;
@@ -331,7 +333,7 @@ export function WeekVersementReport() {
               <td>{sg(diffAll)}</td>
             </tr>
             <tr className="bw-rest-row">
-              <th scope="row"><span className="bw-chip bw-prev">Reste semaine −1</span><small>total payé cette semaine ({prevW.paidN} vente{prevW.paidN > 1 ? 's' : ''})</small></th>
+              <th scope="row"><span className="bw-chip bw-prev">Reste semaine −1</span><small>2ème paiement vendredi {fmtAr(rst.fri2)} · 1er paiement samedi {fmtAr(rst.sat1)} · 2ème paiement samedi {fmtAr(rst.sat2)}</small></th>
               <td>{fmtAr(restPrev)}</td>
               <td colSpan={3}></td>
             </tr>
