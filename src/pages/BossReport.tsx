@@ -278,6 +278,7 @@ export function WeekVersementReport() {
   const prevW = prevWeekBreakdown(addDays(w.monday, -7), addDays(w.monday, -1), addDays(w.monday, -1));
   // Reste à payer de la semaine (lundi → samedi) : figé au comptage du samedi (avant : impayé à ce jour).
   // RST SEM −1 (tableau) : 2ème paiement du vendredi + 1er et 2ème paiement du samedi de la semaine −1 (formule de l'Excel).
+  const [rstOpen, setRstOpen] = useState(false);
   const rst = prevWeekRst(addDays(w.monday, -7), addDays(w.monday, -1));
   const restCur = frozenUnpaid(w.monday, w.sunday, w.sunday).amount, restPrev = rst.amount;
   const total = rows.reduce((t, x) => t + x.cur, 0) + restCur + restPrev, diff = total - sales;
@@ -333,7 +334,7 @@ export function WeekVersementReport() {
               <td>{sg(diffAll)}</td>
             </tr>
             <tr className="bw-rest-row">
-              <th scope="row"><span className="bw-chip bw-prev">Reste semaine −1</span><small>2ème paiement vendredi {fmtAr(rst.fri2)}</small><small>1er paiement samedi {fmtAr(rst.sat1)}</small><small>2ème paiement samedi {fmtAr(rst.sat2)}</small>{rst.other > 0.5 ? <small>autres jours de la semaine {fmtAr(rst.other)}</small> : null}</th>
+              <th scope="row" onDoubleClick={() => setRstOpen(!rstOpen)} title="Double-cliquez pour voir le détail" style={{ cursor: 'pointer', userSelect: 'none' }}><span className="bw-chip bw-prev">Reste semaine −1</span>{rstOpen && <><small>2ème paiement vendredi {fmtAr(rst.fri2)}</small><small>1er paiement samedi {fmtAr(rst.sat1)}</small><small>2ème paiement samedi {fmtAr(rst.sat2)}</small>{rst.other > 0.5 ? <small>autres jours de la semaine {fmtAr(rst.other)}</small> : null}</>}</th>
               <td>{fmtAr(restPrev)}</td>
               <td colSpan={3}></td>
             </tr>
