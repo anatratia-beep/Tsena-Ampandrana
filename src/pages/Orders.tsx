@@ -670,7 +670,7 @@ function OrderDetail({ id }: { id: string }) {
           {canPostpone(o) && (can('orders.create') || can('deliveries.manage')) && <Button variant="ghost" icon="clock" onClick={() => setModal('postpone')}>{reportCount(o) >= MAX_REPORTS ? `Reportée ${MAX_REPORTS} fois : annuler ?` : `À reporter (${reportCount(o)}/${MAX_REPORTS})`}</Button>}
           {!closed && o.status !== 'cancelled' && can('orders.create') && <Button variant="danger" icon="trash" onClick={() => setModal('cancel')}>Annuler / supprimer</Button>}
           {closed && isWalkIn(o) && can('records.correct') && <Button variant="ghost" icon="edit" onClick={() => setModal('correct')}>Modifier / corriger la vente</Button>}
-          {closed && !isWalkIn(o) && o.status !== 'cancelled' && o.kind !== 'exchange' && can('records.correct') && <Button variant="ghost" icon="edit" onClick={() => setModal('discount')}>Corriger la remise</Button>}
+          {(closed || o.status === 'out') && !isWalkIn(o) && o.status !== 'cancelled' && o.kind !== 'exchange' && can('records.correct') && <Button variant="ghost" icon="edit" onClick={() => setModal('discount')}>Corriger la remise</Button>}
           {closed && can('records.correct') && <Button variant="danger" icon="trash" onClick={() => setModal('void')}>Annuler / supprimer la vente</Button>}
           {closed && !can('records.correct') && <span className="small muted">Erreur sur cette vente ? Le gérant ou le super-admin peut la corriger ou l’annuler.</span>}
           {canMoveValidation(o) && <Button variant="ghost" icon="clock" onClick={() => setModal('moveDay')}>Modifier la date de validation</Button>}
