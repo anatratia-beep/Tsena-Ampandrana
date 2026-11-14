@@ -90,6 +90,23 @@ export async function correctWalkInSale(o: Order, lines: OrderLine[], discount: 
   await audit('Vente corrigée', `${o.number} — ${reason} : ${before} → ${after}${pays.length ? ` ; ${settle!.amount > 0 ? 'payé en plus' : 'rendu'} ${Math.abs(settle!.amount).toLocaleString('fr-FR')} Ar` : ''}`, 'orders', o.id);
 }
 
+/**
+ * Corrige la remise d'une commande livraison déjà terminée (remise oubliée par le vendeur) : gérant / super-admin.
+ * Pas de mouvement de stock ; le total, le reste à payer et les rapports se recalculent. Historique gardé.
+ */
+export async function correctDiscount(o: Order, discount: number, reason: string) {
+  if (isWalkIn(o)) throw new Error('Vente sur place : utilisez « Modifier / corriger la vente ».');
+  if (o.status === 'cancelled') throw new Error('Commande annulée.');
+  const d = Math.max(0, Math.round(discount || 0));
+  if (d === (o.discount || 0)) return;
+  assertOpenAt(o.dispatchedAt || o.createdAt, 'Correction de la remise');
+  const at = bizNow();
+  const u = currentUser();
+  const text = `Remise corrigée : ${(o.discount || 0).toLocaleString('fr-FR')} Ar → ${d.toLocaleString('fr-FR')} Ar${reason.trim() ? ` — ${reason.trim()}` : ''}`;
+  await save('orders', { id: o.id, discount: d, events: [...(o.events || []), { at, text, user: u?.fullName }] });
+  await audit('Remise corrigée', `${o.number} — ${text}`, 'orders', o.id, 'high');
+}
+
 /** Annule une réception (erreur de saisie) : stock retiré exactement, quantités reçues des achats remises. */
 export async function cancelReception(r: Reception & { cancelled?: boolean }, reason: string) {
   if (r.cancelled) throw new Error('Réception déjà annulée.');

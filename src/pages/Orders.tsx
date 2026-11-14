@@ -12,7 +12,7 @@ import {
   type Courier, type Customer, type Order, type OrderLine, type OrderStatus, type PayMethod, type Payment, type Zone, orderText, customerText, findCustomerBy,
 } from '../lib/orders';
 import { useCompany } from '../lib/settings';
-import { correctWalkInSale, netMoves, refundSuggested, voidOrder } from '../lib/corrections';
+import { correctDiscount, correctWalkInSale, netMoves, refundSuggested, voidOrder } from '../lib/corrections';
 import { approveRectify, canApproveRectify, cancelledBy, isSuper, planRectify, rectifyCancellation, rectifyRight, rectifySaleDay, rejectRectify, requestRectify, type RectifyDates } from '../lib/rectify';
 import { closedBy } from '../lib/closed';
 import { manualMethods } from '../ui/payments';
@@ -670,6 +670,7 @@ function OrderDetail({ id }: { id: string }) {
           {canPostpone(o) && (can('orders.create') || can('deliveries.manage')) && <Button variant="ghost" icon="clock" onClick={() => setModal('postpone')}>{reportCount(o) >= MAX_REPORTS ? `Reportée ${MAX_REPORTS} fois : annuler ?` : `À reporter (${reportCount(o)}/${MAX_REPORTS})`}</Button>}
           {!closed && o.status !== 'cancelled' && can('orders.create') && <Button variant="danger" icon="trash" onClick={() => setModal('cancel')}>Annuler / supprimer</Button>}
           {closed && isWalkIn(o) && can('records.correct') && <Button variant="ghost" icon="edit" onClick={() => setModal('correct')}>Modifier / corriger la vente</Button>}
+          {closed && !isWalkIn(o) && o.status !== 'cancelled' && o.kind !== 'exchange' && can('records.correct') && <Button variant="ghost" icon="edit" onClick={() => setModal('discount')}>Corriger la remise</Button>}
           {closed && can('records.correct') && <Button variant="danger" icon="trash" onClick={() => setModal('void')}>Annuler / supprimer la vente</Button>}
           {closed && !can('records.correct') && <span className="small muted">Erreur sur cette vente ? Le gérant ou le super-admin peut la corriger ou l’annuler.</span>}
           {canMoveValidation(o) && <Button variant="ghost" icon="clock" onClick={() => setModal('moveDay')}>Modifier la date de validation</Button>}
@@ -794,6 +795,7 @@ function OrderDetail({ id }: { id: string }) {
       {modal === 'postpone' && <PostponeModal order={o} onClose={() => setModal('')} />}
       {modal === 'void' && <VoidModal order={o} onClose={() => setModal('')} />}
       {modal === 'correct' && <CorrectSaleModal order={o} onClose={() => setModal('')} />}
+      {modal === 'discount' && <DiscountFixModal order={o} onClose={() => setModal('')} />}
       {modal === 'rectify' && <RectifyModal order={o} onClose={() => setModal('')} />}
       {modal === 'rejectRect' && <RejectRectifyModal order={o} onClose={() => setModal('')} />}
       {modal === 'approveRect' && <ApproveRectifyModal order={o} onClose={() => setModal('')} />}
@@ -1040,6 +1042,34 @@ export function PostponeModal({ order: o, onClose, onDone }: { order: Order; onC
         {reason === 'Autre' && <TextField label="Précisez" value={other} onChange={setOther} required />}
         <div className={`notice ${n + 1 >= MAX_REPORTS ? 'notice-danger' : ''}`}><Icon name="alert" /><span>Report <strong>{n + 1} sur {MAX_REPORTS}</strong>. {n + 1 >= MAX_REPORTS ? 'C’est le dernier report possible : si le client ne prend toujours pas la commande, elle sera annulée.' : `Après ${MAX_REPORTS} reports, la commande devra être annulée.`}</span></div>
         {n > 0 && <div><strong className="small">Reports précédents</strong><ul className="stack-s" style={{ margin: '4px 0 0', paddingLeft: 16 }}>{history}</ul></div>}
+      </div>
+    </Modal>
+  );
+}
+
+/** Commande livraison terminée : le gérant corrige la remise oubliée (ex. remise 20 000 Ar non saisie par le vendeur). */
+function DiscountFixModal({ order: o, onClose }: { order: Order; onClose: () => void }) {
+  const [d, setD] = useState(String(o.discount || 0));
+  const [reason, setReason] = useState('Remise oubliée par le vendeur');
+  const [busy, setBusy] = useState(false);
+  const n = Math.max(0, parseNum(d) || 0);
+  const after = { ...o, discount: n } as Order;
+  return (
+    <Modal title={`Corriger la remise — ${o.number}`} onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Fermer</Button><Button busy={busy} disabled={n === (o.discount || 0)} onClick={async () => {
+        setBusy(true);
+        try { await correctDiscount(o, n, reason); toast('Remise corrigée'); onClose(); } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
+      }}>Enregistrer</Button></>}>
+      <div className="stack">
+        <p className="small muted" style={{ margin: 0 }}>Les articles et le stock ne changent pas. Le total, le reste à payer et les rapports du jour de la vente se recalculent. La correction est gardée dans l’historique.</p>
+        <TextField label="Remise (Ar)" value={d} onChange={setD} inputMode="numeric" />
+        <TextField label="Motif" value={reason} onChange={setReason} />
+        <div className="kv-row">
+          <div><span className="small muted">Total avant</span><strong>{fmtAr(orderTotal(o))}</strong></div>
+          <div><span className="small muted">Total après</span><strong>{fmtAr(orderTotal(after))}</strong></div>
+          <div><span className="small muted">Déjà payé</span><strong>{fmtAr(paidTotal(o))}</strong></div>
+          <div><span className="small muted">Reste à payer après</span><strong>{fmtAr(orderTotal(after) - paidTotal(o))}</strong></div>
+        </div>
       </div>
     </Modal>
   );
