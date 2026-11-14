@@ -5,7 +5,7 @@ import { all, setMeta, useMeta, useTable } from '../lib/db';
 import { fmtAr } from '../lib/catalog';
 import { fmtPhone, normPhone } from '../lib/orders';
 import { addDays, dayOf, today } from '../lib/money';
-import { PKIND, bossMoney, bossReport, frozenUnpaid, prevWeekBreakdown, periodOf, reportText, shiftAnchor, type PKind, type PageRow, type Report, type StockRow } from '../lib/report';
+import { PKIND, bossMoney, bossReport, frozenUnpaid, prevWeekBreakdown, prevWeekRst, periodOf, reportText, shiftAnchor, type PKind, type PageRow, type Report, type StockRow } from '../lib/report';
 import { a4Table, arA4, h, printA4 } from '../lib/a4';
 import { useCompany } from '../lib/settings';
 import { usdRate } from '../lib/payouts';
@@ -277,7 +277,9 @@ export function WeekVersementReport() {
   // Le comptage se fait le samedi soir : ce qui est payé à partir du dimanche ne baisse plus le reste.
   const prevW = prevWeekBreakdown(addDays(w.monday, -7), addDays(w.monday, -1), addDays(w.monday, -1));
   // Reste à payer de la semaine (lundi → samedi) : figé au comptage du samedi (avant : impayé à ce jour).
-  const restCur = frozenUnpaid(w.monday, w.sunday, w.sunday).amount, restPrev = prevW.paid;
+  // RST SEM −1 (tableau) : 2ème paiement du vendredi + 1er et 2ème paiement du samedi de la semaine −1 (formule de l'Excel).
+  const rst = prevWeekRst(addDays(w.monday, -7), addDays(w.monday, -1));
+  const restCur = frozenUnpaid(w.monday, w.sunday, w.sunday).amount, restPrev = rst.amount;
   const total = rows.reduce((t, x) => t + x.cur, 0) + restCur + restPrev, diff = total - sales;
   const diffAll = rows.reduce((t, x) => t + x.diff, 0);
   const sg = (n: number) => <strong className={n < -0.5 ? 'neg' : ''}>{n > 0.5 ? '+ ' : n < -0.5 ? '− ' : ''}{fmtAr(Math.abs(n))}</strong>;
@@ -307,7 +309,7 @@ export function WeekVersementReport() {
         <div className="card stat bw-top-sales"><span className="small muted">Ventes de la semaine</span><strong className="stat-value num">{fmtAr(sales)}</strong><span className="small muted">comme le chiffre d’affaires du rapport au patron</span></div>
         <div className="card stat bw-top-vers"><span className="small muted">Total ventes versement</span><strong className="stat-value num">{fmtAr(w.sales)}</strong><span className="small muted">avec les corrections ✏️ des Versements</span><span className="small">Différence : {Math.round(w.sales - sales) === 0 ? <span className="ok-text">✓ juste</span> : sg(w.sales - sales)}</span></div>
         <div className="card stat bw-top-exp"><span className="small muted">Total dépenses de la semaine</span><strong className="stat-value num">{fmtAr(expAll)}</strong><span className="small muted">espèces {fmtAr(rows[0].exp)}{w.fee > 0.5 ? <> · frais de livraison {fmtAr(w.fee)}</> : null} · MVola {fmtAr(rows[1].exp)} · Orange {fmtAr(rows[2].exp)}{expOther > 0.5 ? <><br />autres comptes {fmtAr(expOther)}</> : null}</span></div>
-        <button type="button" className="card stat bw-top-prev bw-click" onClick={() => setShowPrev(true)}><span className="small muted">Reste impayés semaine −1</span><strong className="stat-value num neg">{fmtAr(prevW.rest)}</strong><span className="small muted">{prevW.n} vente(s) du {dd(prevW.from)} au {dd(prevW.to)} · figé au compte du samedi</span><span className="bw-cancel bw-paid">total payé : <b>{fmtAr(prevW.paid)}</b></span><span className="small bw-annule">annulé : <b>{fmtAr(prevW.cancelled)}</b>{prevW.cancelledN ? ` (${prevW.cancelledN} vente${prevW.cancelledN > 1 ? 's' : ''})` : ''}</span><span className="small bw-see">Voir les ventes →</span></button>
+        <button type="button" className="card stat bw-top-prev bw-click" onClick={() => setShowPrev(true)}><span className="small muted">Reste impayés semaine −1</span><strong className="stat-value num neg">{fmtAr(prevW.rest)}</strong><span className="small muted">{prevW.n} vente(s) du {dd(prevW.from)} au {dd(prevW.to)} · figé au compte du samedi</span><span className="bw-cancel bw-paid">total payé : <b>{fmtAr(rst.amount)}</b></span><span className="small bw-annule">annulé : <b>{fmtAr(prevW.cancelled)}</b>{prevW.cancelledN ? ` (${prevW.cancelledN} vente${prevW.cancelledN > 1 ? 's' : ''})` : ''}</span><span className="small bw-see">Voir les ventes →</span></button>
       </div>
       <div className="card card-flush bw-card">
         <div className="table-wrap"><table className="bw-table">
@@ -331,7 +333,7 @@ export function WeekVersementReport() {
               <td>{sg(diffAll)}</td>
             </tr>
             <tr className="bw-rest-row">
-              <th scope="row"><span className="bw-chip bw-prev">Reste semaine −1</span><small>total payé cette semaine ({prevW.paidN} vente{prevW.paidN > 1 ? 's' : ''})</small></th>
+              <th scope="row"><span className="bw-chip bw-prev">Reste semaine −1</span><small>2ème paiement vendredi {fmtAr(rst.fri2)} · 1er paiement samedi {fmtAr(rst.sat1)} · 2ème paiement samedi {fmtAr(rst.sat2)}{rst.other > 0.5 ? <> · autres jours de la semaine {fmtAr(rst.other)}</> : null}</small></th>
               <td>{fmtAr(restPrev)}</td>
               <td colSpan={3}></td>
             </tr>
