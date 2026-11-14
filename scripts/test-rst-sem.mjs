@@ -19,13 +19,14 @@ await p.evaluate(async () => {
   const pay = (id, n, amount) => ({ id, at: d(n), amount, method: 'cash', receivedBy: 'shop' });
   const o = (id, amount, n, payments) => ({ id, number: id, kind: 'order', channel: 'facebook', phone: '0340000000', name: 'Client ' + id, status: 'delivered', lines: [{ id: 'l' + id, variantId: 'va', qty: 1, unitPrice: amount }], payments, discount: 0, deliveryFee: 0, createdAt: d(n), dispatchedAt: d(n) });
   await t.save('orders', [
-    o('MER', 30000, -5, [pay('a', -2, 30000)]),                       // mercredi : ne compte pas
+    o('MER', 30000, -5, [pay('a', -2, 30000)]),                       // mercredi payé avant le compte : ne compte pas
+    o('JEU', 20000, -4, [pay('f', -4, 8000), pay('g', 1, 12000)]),   // jeudi : reste 12 000 payé mardi → autres jours
     o('VEN', 50000, -3, [pay('b', -2, 20000), pay('c', 0, 30000)]),   // vendredi : 1er paiement samedi 20 000 (non), 2ème lundi 30 000 (oui)
     o('SAM', 40000, -2, [pay('d', 0, 15000), pay('e', 1, 25000)]),    // samedi : 1er lundi 15 000 + 2ème mardi 25 000
   ]);
 });
 await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(900);
 const row = N(await p.locator('.bw-table tr', { hasText: 'Reste semaine −1' }).innerText());
-ok(/2ème paiement vendredi 30 000 Ar · 1er paiement samedi 15 000 Ar · 2ème paiement samedi 25 000 Ar 70 000 Ar/.test(row), `RST SEM −1 = 30 000 + 15 000 + 25 000 = 70 000 (${row})`);
+ok(/2ème paiement vendredi 30 000 Ar · 1er paiement samedi 15 000 Ar · 2ème paiement samedi 25 000 Ar · autres jours de la semaine 12 000 Ar 82 000 Ar/.test(row), `RST SEM −1 = 30 000 + 15 000 + 25 000 + 12 000 = 82 000 (${row})`);
 if (process.env.SHOT) await p.locator('.bw-card').first().screenshot({ path: process.env.SHOT });
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);

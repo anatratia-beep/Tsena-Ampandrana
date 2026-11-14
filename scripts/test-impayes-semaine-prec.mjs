@@ -41,7 +41,7 @@ const rows2 = (await p.getByRole('dialog').locator('tbody tr, tfoot tr').allInne
 ok(rows2.length === 2 && /^Total 15 000 Ar/.test(rows2[1]), `après Payé : reste W2, total 15 000 (${rows2.join(' | ')})`);
 await p.keyboard.press('Escape'); await p.waitForTimeout(300);
 ok(/^Reste impayés semaine −1 45 000 Ar .*total payé : 30 000 Ar/.test(await cardTxt()), `case rouge reste 45 000, payé depuis 30 000 (${await cardTxt()})`);
-ok(/samedi 0 Ar 0 Ar/.test(await prevRow()), `tableau : RST SEM −1 : W1 (mercredi) pas comptée (${await prevRow()})`);
+ok(/autres jours de la semaine 30 000 Ar 30 000 Ar/.test(await prevRow()), `tableau : RST SEM −1 : W1 (mercredi, payée après le compte) comptée (${await prevRow()})`);
 if (process.env.SHOT9) await p.waitForTimeout(4500);
 if (process.env.SHOT9) await p.locator('.bw-top').screenshot({ path: process.env.SHOT9 });
 if (process.env.SHOT10) await p.locator('.bw-card').first().screenshot({ path: process.env.SHOT10 });
