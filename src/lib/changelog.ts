@@ -2,6 +2,10 @@
 // La plus récente en premier. `date` : AAAA-MM-JJ.
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
+  { date: '2026-11-16', items: [
+    'Synchronisation : plusieurs onglets du logiciel ouverts sur le même ordinateur ne coupent plus la connexion au cloud (ils renouvelaient la connexion en même temps et le cloud la bloquait : les modifications, ex. un changement de prix, restaient sur l’appareil).',
+    'Connexion expirée : l’appareil ne réessaie plus toutes les quelques secondes, mais toutes les 2 minutes en attendant le mot de passe.',
+  ] },
   { date: '2026-11-04', items: [
     'Articles en double : deux articles d’une même page qui ne diffèrent que par une valeur (couleur, taille…), ex. « SEXY M » noir et « SEXY M » blanc, ne sont plus signalés comme doublons.',
   ] },

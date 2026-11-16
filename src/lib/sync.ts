@@ -1,7 +1,7 @@
 // Synchronisation avec le cloud (Supabase) : envoie les modifications locales,
 // récupère celles des autres appareils. Toutes les 15 s, et juste après chaque saisie.
 import { useSyncExternalStore } from 'react';
-import { all, applyRemote, getMeta, outboxClear, outboxCount, outboxEntries, getRaw, save, setMeta, setWriteHook, type BaseRecord, type SyncConflictLog } from './db';
+import { all, applyRemote, getMeta, readMetaFresh, outboxClear, outboxCount, outboxEntries, getRaw, save, setMeta, setWriteHook, type BaseRecord, type SyncConflictLog } from './db';
 
 export interface CloudConfig {
   url: string;
@@ -71,6 +71,8 @@ export class CloudQuotaError extends Error {
 const check402 = (res: Response) => { if (res.status === 402) throw new CloudQuotaError(); return res; };
 /** Après un blocage 402, on ne réessaie tout seul que toutes les 10 minutes (un clic sur « Synchroniser » réessaie tout de suite). */
 let quotaUntil = 0;
+/** Connexion expirée : on ne réessaie tout seul que toutes les 2 minutes (le mot de passe est demandé). */
+let authUntil = 0;
 /** Numéros du cloud déjà reçus (marge de sécurité de 50 numéros sans tout retélécharger à chaque fois). */
 const seenRevs = new Set<number>();
 
@@ -79,12 +81,28 @@ export class CloudAuthError extends Error {
   constructor(detail: string) { super(`La connexion de cet appareil au cloud a expiré (le mot de passe du compte cloud a peut-être été changé). Entrez le mot de passe du compte cloud dans Paramètres → Cloud et synchronisation : rien n’est perdu, les ventes en attente partiront ensuite. (${detail})`); this.name = 'CloudAuthError'; }
 }
 async function freshConfig(force = false): Promise<CloudConfig | null> {
-  const cfg = getCloud();
+  if (!getCloud()) return null;
+  // Un seul renouvellement à la fois pour tous les onglets ouverts sur cet appareil : deux onglets qui renouvellent le
+  // même jeton en même temps font croire au cloud à un vol de jeton, et il coupe la connexion de l'appareil
+  // (« connexion expirée » du 16/11 sur un Mac avec plusieurs onglets ouverts).
+  const run = () => refreshOnce(force);
+  const locks = (navigator as any).locks;
+  return locks?.request ? locks.request('tsena-cloud-refresh', run) : run();
+}
+async function refreshOnce(force: boolean): Promise<CloudConfig | null> {
+  const before = getCloud();
+  const cfg = ((await readMetaFresh<CloudConfig>('cloud').catch(() => undefined)) ?? before) as CloudConfig | null;
   if (!cfg) return null;
-  if (!force && cfg.expiresAt && cfg.expiresAt > Date.now()) return cfg;
+  // Un autre onglet vient de renouveler le jeton : on prend le sien.
+  if (cfg.expiresAt && cfg.expiresAt > Date.now() && (!force || (before && cfg.accessToken !== before.accessToken))) return cfg;
   let tokens;
   try { tokens = await authRequest(cfg, 'refresh_token', { refresh_token: cfg.refreshToken }); }
-  catch (e: any) { if (e?.name === 'CloudQuotaError' || !navigator.onLine || /fetch|network/i.test(String(e?.message))) throw e; throw new CloudAuthError(e?.message ?? String(e)); }
+  catch (e: any) {
+    if (e?.name === 'CloudQuotaError' || !navigator.onLine || /fetch|network/i.test(String(e?.message))) throw e;
+    const again = await readMetaFresh<CloudConfig>('cloud').catch(() => undefined);
+    if (again && again.refreshToken !== cfg.refreshToken && again.expiresAt && again.expiresAt > Date.now()) return again;
+    throw new CloudAuthError(e?.message ?? String(e));
+  }
   const next = { ...cfg, ...tokens };
   await setMeta('cloud', next);
   return next;
@@ -96,6 +114,7 @@ export async function reloginCloud(password: string) {
   if (!cfg) throw new Error('Cet appareil n’est pas relié au cloud.');
   const tokens = await authRequest(cfg, 'password', { email: cfg.email, password });
   await setMeta('cloud', { ...cfg, ...tokens });
+  authUntil = 0;
   setStatus({ auth: false, error: undefined });
   await syncNow(true);
 }
@@ -104,7 +123,7 @@ let running = false;
 let again = false;
 
 export async function syncNow(manual?: unknown): Promise<void> {
-  if (!manual && Date.now() < quotaUntil) return;
+  if (!manual && Date.now() < Math.max(quotaUntil, authUntil)) return;
   if (running) { again = true; return; }
   running = true;
   try {
@@ -252,6 +271,7 @@ export async function syncNow(manual?: unknown): Promise<void> {
     }
     await ensureDeviceCode();
 
+    authUntil = 0; quotaUntil = 0;
     if (sent || received || conflicts.length) await logSync({ sent, received, conflicts: conflicts.length });
     const uniqBlocked = [...new Map(blocked.map((b) => [b.tbl + ':' + b.id, b])).values()];
     await setMeta('syncBlocked', uniqBlocked.map((b) => ({ ...b, at: new Date().toISOString() })));
@@ -263,6 +283,7 @@ export async function syncNow(manual?: unknown): Promise<void> {
   } catch (e: any) {
     if (navigator.onLine) await logSync({ sent: 0, received: 0, conflicts: 0, error: e?.message ?? String(e) }).catch(() => {});
     if (e?.name === 'CloudQuotaError') quotaUntil = Date.now() + 10 * 60_000;
+    authUntil = e?.name === 'CloudAuthError' ? Date.now() + 2 * 60_000 : 0;
     setStatus({ state: navigator.onLine ? 'error' : 'offline', error: e?.message ?? String(e), auth: e?.name === 'CloudAuthError', pending: await outboxCount() });
   } finally {
     running = false;

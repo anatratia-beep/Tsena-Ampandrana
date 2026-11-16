@@ -292,6 +292,13 @@ export async function outboxCount(): Promise<number> {
 export function getMeta<T = any>(key: string, fallback?: T): T {
   return metaCache.has(key) ? metaCache.get(key) : (fallback as T);
 }
+/** Relit une méta-donnée directement dans la base de l'appareil (un autre onglet a pu la changer). */
+export async function readMetaFresh<T = any>(key: string): Promise<T | undefined> {
+  const tx = idb!.transaction('_meta', 'readonly');
+  const v = await req(tx.objectStore('_meta').get(key));
+  if (v !== undefined) metaCache.set(key, v);
+  return v as T | undefined;
+}
 export async function setMeta(key: string, value: any) {
   metaCache.set(key, value);
   const tx = idb!.transaction('_meta', 'readwrite');
