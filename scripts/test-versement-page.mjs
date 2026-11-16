@@ -78,7 +78,8 @@ const mc = () => p.locator('.card', { hasText: 'Argent réellement reçu ce jour
 await mc().getByLabel('Espèces réellement reçu').fill('85000'); await mc().getByLabel('Espèces réellement reçu').press('Enter'); await p.waitForTimeout(400);
 await mc().getByLabel('MVola réellement reçu').fill('28000'); await mc().getByLabel('MVola réellement reçu').press('Enter'); await p.waitForTimeout(400);
 let mt = N(await mc().innerText()).replace(/\s+/g, ' ');
-ok(/Espèces total à payer des vendeurs 90 000 Ar − 5 000 Ar/.test(mt) && /MVola 25 000 Ar \+ 3 000 Ar/.test(mt) && /Orange Money 0 Ar —/.test(mt), `argent reçu : espèces 85 000 → écart − 5 000 ; MVola ventes 25 000, reçu 28 000 → écart + 3 000 ; Orange pas saisi (${mt})`);
+ok(/Espèces espèces du jour \+ 1er \+ 2ème paiement \(tableau\) 90 000 Ar − 5 000 Ar/.test(mt) && /MVola 25 000 Ar \+ 3 000 Ar/.test(mt) && /Orange Money 0 Ar —/.test(mt), `argent reçu : espèces 85 000 → écart − 5 000 ; MVola ventes 25 000, reçu 28 000 → écart + 3 000 ; Orange pas saisi (${mt})`);
+if (process.env.SHOTMC) await p.locator('.card:has(table.money-count)').screenshot({ path: process.env.SHOTMC });
 ok(/Total frais MVola \/ Orange Money \(livreurs\) .* MVola 3 000 Ar · Orange 0 Ar 3 000 Ar Différence/.test(mt) && /Différence : écart MVola \+ écart Orange − total frais 0 = tout est juste \(reste éventuel : frais de retrait…\) écart MVola \+ 3 000 Ar − frais 3 000 Ar ✓ juste/.test(mt), `écart MVola + 3 000 − frais livreurs 3 000 = 0, juste (${mt})`);
 const rec = await p.evaluate(() => window.__tsena.all('moneyCounts')[0]);
 ok(rec && rec.cash === 85000 && rec.mvola === 28000 && rec.orange == null, 'montants enregistrés pour le jour');
