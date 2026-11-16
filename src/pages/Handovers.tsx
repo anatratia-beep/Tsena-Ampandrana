@@ -133,7 +133,8 @@ function dayCalc(date: string) {
   const calc: Record<CountField, number> = {
     // Même chiffre que le tableau du versement : ventes du jour seulement (sans les règlements de jours précédents),
     // correction ✏️ prise en compte.
-    cash: sum((d) => toPayDay(d)), mvola: sum((d) => mobDay(d, 'mvola')),
+    // Espèces = total du tableau par page (espèces du jour + 1er + 2ème paiement), comme l'Excel.
+    cash: sum((d) => { const c = dayCash(d); return c.shown + c.n1 + c.n2; }), mvola: sum((d) => mobDay(d, 'mvola')),
     orange: sum((d) => mobDay(d, 'orange')), airtel: sum((d) => mobDay(d, 'airtel')),
   };
   return { calc, feeBy, feeMobile: feeBy.mvola + feeBy.orange + feeBy.airtel };
@@ -186,7 +187,7 @@ function MoneyCountCard({ date }: { date: string }) {
           const real = mc?.[f]; const gap = real == null ? undefined : real - calc[f];
           return (
             <tr key={f}>
-              <td><strong>{COUNT_LABELS[f]}</strong>{f === 'cash' && <div className="small muted">total à payer des vendeurs</div>}</td>
+              <td><strong>{COUNT_LABELS[f]}</strong>{f === 'cash' && <div className="small muted">espèces du jour + 1er + 2ème paiement (tableau)</div>}</td>
               <td className="t-num">{fmtAr(calc[f])}</td>
               <td className="t-num"><input className="cell-input num-input" style={{ width: 170, textAlign: 'right' }} inputMode="numeric" aria-label={`${COUNT_LABELS[f]} réellement reçu`}
                 placeholder="à saisir" value={draft[f] ?? (mc?.formulas?.[f] ?? (real == null ? '' : String(real)))} onChange={(e) => setDraft((d) => ({ ...d, [f]: e.target.value }))}
