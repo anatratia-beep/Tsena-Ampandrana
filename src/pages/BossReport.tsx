@@ -1,9 +1,11 @@
 // Rapports → « Rapport au patron » : jour (par défaut aujourd'hui), semaine (lundi → samedi), mois, année, période libre.
 // Résultat, CA par page, stock (début + entrées − fin = sorti) et stock par page ; envoi WhatsApp, PDF A4, Excel.
 import { useMemo, useState } from 'react';
-import { all, setMeta, useMeta, useTable } from '../lib/db';
+import { all, get, save, setMeta, useMeta, useTable } from '../lib/db';
 import { fmtAr } from '../lib/catalog';
-import { fmtPhone, normPhone } from '../lib/orders';
+import { addPayment, courierSplit, fmtPhone, needsSettlement, normPhone, remaining, type Courier } from '../lib/orders';
+import { voidOrder } from '../lib/corrections';
+import { deliveryNet, settleCourier } from '../lib/money';
 import { addDays, dayOf, today } from '../lib/money';
 import { PKIND, bossMoney, bossReport, frozenUnpaid, prevWeekBreakdown, prevWeekRst, periodOf, reportText, shiftAnchor, type PKind, type PageRow, type Report, type StockRow } from '../lib/report';
 import { a4Table, arA4, h, printA4 } from '../lib/a4';
@@ -14,7 +16,6 @@ import { Icon } from '../ui/icons';
 import { SortTable, exportTables, type Col } from '../ui/table';
 import { Delta } from './Reports';
 import { weekVersement } from './Handovers';
-import { PayModal, VoidModal } from './Orders';
 import { useCan } from '../lib/auth';
 import { restLedger } from '../lib/situation';
 import type { Order } from '../lib/orders';
@@ -224,27 +225,42 @@ export function BossReport() {
 function PrevUnpaidModal({ from, to, onClose }: { from: string; to: string; onClose: () => void }) {
   useTable('orders'); useTable('categories');
   const dd = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
-  const [paying, setPaying] = useState<Order | null>(null);
-  const [voiding, setVoiding] = useState<Order | null>(null);
+  const [busy, setBusy] = useState('');
   const can = useCan();
+  // Un seul clic, sans fenêtre (le détail reste possible dans la commande) :
+  // « Payé » : argent encore chez le livreur → règlement de cette commande (argent déjà reçu, sans mouvement de caisse) ;
+  //            sinon le reste est noté payé en espèces à la boutique. « Annulé » : la vente est annulée (stock remis).
+  const act = async (o: Order, what: 'paid' | 'void') => {
+    setBusy(o.id + what);
+    try {
+      if (what === 'void') { await voidOrder(o, 'Annulée depuis la liste des impayés'); toast(`${o.number} annulée`); }
+      else {
+        const c = remaining(o) <= 0.5 && needsSettlement(o) ? get<Courier>('couriers', o.courierId || '') : undefined;
+        if (c) {
+          await settleCourier(c, [o.id], deliveryNet(o).net, 'cash', 'Payé depuis la liste des impayés', { alreadyReceived: true });
+          if (courierSplit(o).fee > 0) await save('orders', { id: o.id, feeStatus: 'kept' });
+        } else if (remaining(o) > 0.5) await addPayment(o, { amount: remaining(o), method: 'cash', receivedBy: 'shop', note: 'Payé (liste des impayés)' });
+        toast(`${o.number} payée`);
+      }
+    } catch (e: any) { toast(e?.message ?? String(e), 'error'); }
+    setBusy('');
+  };
   const rows = restLedger(from, to).filter((r) => r.rest > 0.5).sort((a, b) => a.day.localeCompare(b.day));
   const total = rows.reduce((t, r) => t + r.rest, 0);
   const page = (id: string) => all<{ id: string; name: string }>('categories').find((c) => c.id === id)?.name ?? '';
   return (
     <Modal wide title={`Reste impayés du ${dd(from)} au ${dd(to)} — ${rows.length} vente(s)`} onClose={onClose}>
       <div className="stack">
-        <p className="small muted" style={{ margin: 0 }}>Comparez avec l’Excel : si une vente est déjà payée, touchez « Payé » ; si elle est annulée, touchez « Annulé » (la vente sort du chiffre d’affaires et le stock revient). Le total baisse tout de suite.</p>
+        <p className="small muted" style={{ margin: 0 }}>Comparez avec l’Excel : un seul clic : « Payé » (reste payé en espèces, ou argent chez le livreur réglé) ou « Annulé » (la vente sort du chiffre d’affaires, le stock revient). Pour un autre moyen de paiement, double-cliquez sur la ligne pour ouvrir la commande. Le total baisse tout de suite.</p>
         <div className="table-wrap"><table className="table table-grid">
           <thead><tr><th>Jour</th><th>Commande</th><th>Page</th><th className="t-num">Reste</th><th></th></tr></thead>
           <tbody>{rows.map((r) => (
             <tr key={r.o.id} className="row-link" title="Double-cliquez pour ouvrir la commande" onDoubleClick={() => { onClose(); location.hash = `#/commandes/${r.o.id}`; }}><td>{dd(r.day)}</td><td><a href={`#/commandes/${r.o.id}`} onClick={onClose}><strong>{r.o.number}</strong></a> {r.o.name || r.o.facebook || r.o.phone}{r.atCourier > 0.5 ? <div className="small muted">dont {fmtAr(r.atCourier)} chez le livreur (pas encore réglé)</div> : null}</td><td>{r.pages.map(page).filter(Boolean).join(', ')}</td><td className="t-num"><strong className="neg">{fmtAr(r.rest)}</strong></td>
-              <td onDoubleClick={(e) => e.stopPropagation()}><div className="row" style={{ gap: 6, flexWrap: 'nowrap', justifyContent: 'flex-end' }}><Button variant="ghost" icon="check" onClick={() => setPaying(r.o)}>Payé</Button>{can('records.correct') && <Button variant="ghost" icon="trash" onClick={() => setVoiding(r.o)}>Annulé</Button>}</div></td></tr>
+              <td onDoubleClick={(e) => e.stopPropagation()}><div className="row" style={{ gap: 6, flexWrap: 'nowrap', justifyContent: 'flex-end' }}><Button variant="ghost" icon="check" busy={busy === r.o.id + 'paid'} disabled={!!busy} onClick={() => act(r.o, 'paid')}>Payé</Button>{can('records.correct') && <Button variant="ghost" icon="trash" busy={busy === r.o.id + 'void'} disabled={!!busy} onClick={() => act(r.o, 'void')}>Annulé</Button>}</div></td></tr>
           ))}</tbody>
           <tfoot><tr className="t-total"><td colSpan={3}>Total</td><td className="t-num">{fmtAr(total)}</td><td></td></tr></tfoot>
         </table></div>
       </div>
-      {paying && <PayModal order={paying} onClose={() => setPaying(null)} />}
-      {voiding && <VoidModal order={voiding} onClose={() => setVoiding(null)} />}
     </Modal>
   );
 }
