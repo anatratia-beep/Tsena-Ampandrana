@@ -1127,7 +1127,7 @@ function CancelModal({ order: o, onClose }: { order: Order; onClose: () => void 
 }
 
 /** Annuler une vente ou commande déjà terminée (erreur de saisie) : stock remis exactement, argent rendu si besoin. */
-function VoidModal({ order: o, onClose }: { order: Order; onClose: () => void }) {
+export function VoidModal({ order: o, onClose }: { order: Order; onClose: () => void }) {
   const [reason, setReason] = useState('Erreur de saisie');
   const [other, setOther] = useState('');
   const suggested = refundSuggested(o);
