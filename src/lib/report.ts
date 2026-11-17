@@ -95,7 +95,7 @@ const itemsValue = (o: Order) => o.lines.reduce((t, l) => t + (l.isChoice ? 0 : 
 
 /** Reste impayé d'une semaine tel qu'il était au comptage du lundi `count` : valeur vendue − ce que les clients ont payé
  *  avant le lundi (frais de livraison non comptés ; l'argent remis au livreur compte comme payé).
- *  Un paiement après le comptage ne le baisse pas, une annulation après le comptage non plus (elle reste dans le chiffre figé). */
+ *  Un paiement après le comptage ne le baisse pas ; seules une annulation ou un report (la vente sort de la semaine) le font. */
 export function frozenUnpaid(from: string, to: string, count: string): WeekUnpaid {
   const sold = new Map<string, { o: Order; v: number }>();
   for (const l of salesLedger(from, to)) { const e = sold.get(l.order.id) ?? { o: l.order, v: 0 }; e.v += l.amount; sold.set(l.order.id, e); }
@@ -106,8 +106,6 @@ export function frozenUnpaid(from: string, to: string, count: string): WeekUnpai
     const x = v - Math.min(before, v);
     if (x > 0.5) { amount += x; n++; }
   }
-  // Figé : une vente annulée après le compte reste dans le chiffre (montrée à part : « annulé après le compte »).
-  for (const c of cancelledSince(from, to, count)) { amount += c.x; n++; }
   return { from, to, amount, n };
 }
 
@@ -125,7 +123,6 @@ function cancelledOf(from: string, to: string, count: string) {
   }
   return out;
 }
-const cancelledSince = (from: string, to: string, count: string) => cancelledOf(from, to, count).filter((c) => c.after);
 
 /** Semaine −1 au comptage du lundi `count` : reste figé (baisse seulement avec une annulation), total payé depuis le
  *  comptage (sur ces ventes), et total des ventes annulées de la semaine (reste qui était dû). */
@@ -150,7 +147,7 @@ export function prevWeekBreakdown(from: string, to: string, count: string) {
     cancelled += c.x; cancelledN++;
     if (c.after) { cancelledAfter += c.x; cancelledAfterN++; done.push({ o: c.o, frozen: c.x, amount: c.x, state: 'cancelled' }); }
   }
-  // figé = payé depuis le compte + annulé après le compte + reste encore impayé.
+  // figé = payé depuis le compte + reste encore impayé (une vente annulée après le compte en est retirée, montrée à part).
   return { from, to, rest: fr.amount, n: fr.n, paid, paidN, cancelled, cancelledN, cancelledAfter, cancelledAfterN, still, stillN, done };
 }
 

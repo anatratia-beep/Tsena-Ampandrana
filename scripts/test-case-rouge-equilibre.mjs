@@ -1,4 +1,4 @@
-// Case rouge semaine −1 : figé au compte = total payé + annulé après le compte + reste encore impayé.
+// Case rouge semaine −1 : figé (une vente annulée après le compte en est retirée) = total payé + reste impayé ; annulé montré à part.
 // Les annulations d'avant le compte ne sont pas dans le chiffre figé ni dans « annulé ».
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
@@ -27,15 +27,15 @@ await p.evaluate(async () => {
 await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(900);
 const card = N(await p.locator('.bw-top-prev').innerText());
 const num = (re) => Number((card.match(re)?.[1] ?? '').replace(/ /g, ''));
-const fr = num(/semaine −1 ([\d ]+) Ar/), pay = num(/total payé : ([\d ]+) Ar/), ann = num(/annulé : ([\d ]+) Ar/), still = num(/reste impayé : ([\d ]+) Ar/);
+const fr = num(/semaine −1 ([\d ]+) Ar/), pay = num(/total payé : ([\d ]+) Ar/), ann = num(/annulé \(déjà retiré\) : ([\d ]+) Ar/), still = num(/reste impayé : ([\d ]+) Ar/);
 ok(pay === 50000 && ann === 40000 && still === 30000, `payé 50 000, annulé après 40 000, reste 30 000 (${card})`);
-ok(fr === 120000 && fr === pay + ann + still, `figé ${fr} = 120 000 = payé + annulé après + reste encore (${pay + ann + still})`);
+ok(fr === 80000 && fr === pay + still, `figé ${fr} = 80 000 (120 000 − 40 000 annulé) = payé + reste (${pay + still})`);
 ok(!/60 000/.test(card), `l'annulation d'avant le compte (20 000) n'est pas comptée`);
 if (process.env.SHOT) await p.locator('.bw-top').screenshot({ path: process.env.SHOT });
 // Liste « Voir les ventes » : en bas, les ventes du chiffre figé déjà payées ou annulées depuis le compte.
 await p.locator('.bw-top-prev').click(); await p.waitForTimeout(400);
 const done = N(await p.locator('.bw-done').innerText());
 ok(/PAY .*Payé 50 000 Ar/.test(done) && /ANA .*Annulé 40 000 Ar/.test(done) && !/ANB/.test(done), `liste : PAY payé 50 000, ANA annulé 40 000, pas ANB (${done})`);
-ok(/Total payé \+ annulé 90 000 Ar/.test(done) && /Figé au compte = reste impayé \+ payé \+ annulé 120 000 Ar/.test(done), `liste : totaux 90 000 et figé 120 000`);
+ok(/Total payé 50 000 Ar/.test(done) && /Total annulé \(déjà retiré du figé\) 40 000 Ar/.test(done) && /Figé = reste impayé \+ payé 80 000 Ar/.test(done), `liste : payé 50 000, annulé 40 000, figé 80 000 (${done})`);
 if (process.env.SHOT2) await p.locator('.modal').screenshot({ path: process.env.SHOT2 });
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
