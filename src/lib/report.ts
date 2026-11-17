@@ -95,7 +95,7 @@ const itemsValue = (o: Order) => o.lines.reduce((t, l) => t + (l.isChoice ? 0 : 
 
 /** Reste impayé d'une semaine tel qu'il était au comptage du lundi `count` : valeur vendue − ce que les clients ont payé
  *  avant le lundi (frais de livraison non comptés ; l'argent remis au livreur compte comme payé).
- *  Un paiement après le comptage ne le baisse pas ; seules une annulation ou un report (la vente sort de la semaine) le font. */
+ *  Un paiement après le comptage ne le baisse pas, une annulation après le comptage non plus (elle reste dans le chiffre figé). */
 export function frozenUnpaid(from: string, to: string, count: string): WeekUnpaid {
   const sold = new Map<string, { o: Order; v: number }>();
   for (const l of salesLedger(from, to)) { const e = sold.get(l.order.id) ?? { o: l.order, v: 0 }; e.v += l.amount; sold.set(l.order.id, e); }
@@ -106,8 +106,26 @@ export function frozenUnpaid(from: string, to: string, count: string): WeekUnpai
     const x = v - Math.min(before, v);
     if (x > 0.5) { amount += x; n++; }
   }
+  // Figé : une vente annulée après le compte reste dans le chiffre (montrée à part : « annulé après le compte »).
+  for (const c of cancelledSince(from, to, count)) { amount += c.x; n++; }
   return { from, to, amount, n };
 }
+
+/** Ventes de la semaine annulées (reste dû au comptage `count`, `after` = annulée le jour du comptage ou après). */
+function cancelledOf(from: string, to: string, count: string) {
+  const out: { o: Order; x: number; after: boolean }[] = [];
+  for (const o of all<Order>('orders')) {
+    if (o.status !== 'cancelled' || isStaffBuy(o)) continue;
+    const at = isWalkIn(o) ? o.createdAt : o.dispatchedAt; if (!at) continue;
+    const d = dayOf(at); if (d < from || d > to) continue;
+    const v = Math.max(0, itemsValue(o)), before = cashIns(o).filter((c) => c.day < count).reduce((t, c) => t + c.amount, 0);
+    const x = v - Math.min(before, v); if (x <= 0.5) continue;
+    const cd = o.statusDates?.cancelled ? dayOf(o.statusDates.cancelled) : '';
+    out.push({ o, x, after: !!cd && cd >= count });
+  }
+  return out;
+}
+const cancelledSince = (from: string, to: string, count: string) => cancelledOf(from, to, count).filter((c) => c.after);
 
 /** Semaine −1 au comptage du lundi `count` : reste figé (baisse seulement avec une annulation), total payé depuis le
  *  comptage (sur ces ventes), et total des ventes annulées de la semaine (reste qui était dû). */
@@ -115,24 +133,23 @@ export function prevWeekBreakdown(from: string, to: string, count: string) {
   const fr = frozenUnpaid(from, to, count);
   const sold = new Map<string, { o: Order; v: number }>();
   for (const l of salesLedger(from, to)) { const e = sold.get(l.order.id) ?? { o: l.order, v: 0 }; e.v += l.amount; sold.set(l.order.id, e); }
-  let paid = 0, paidN = 0;
+  let paid = 0, paidN = 0, still = 0, stillN = 0;
   for (const { o, v } of sold.values()) {
     if (o.status === 'cancelled' || v <= 0.5) continue;
     const ins = cashIns(o), before = ins.filter((c) => c.day < count).reduce((t, c) => t + c.amount, 0);
     const x = v - Math.min(before, v); if (x <= 0.5) continue;
     const after = ins.filter((c) => c.day >= count).reduce((t, c) => t + c.amount, 0), a = Math.min(after, x);
     if (a > 0.5) { paid += a; paidN++; }
+    // Reste encore impayé : ce qui était figé moins ce qui a été payé depuis.
+    if (x - a > 0.5) { still += x - a; stillN++; }
   }
-  let cancelled = 0, cancelledN = 0;
-  for (const o of all<Order>('orders')) {
-    if (o.status !== 'cancelled' || isStaffBuy(o)) continue;
-    const at = isWalkIn(o) ? o.createdAt : o.dispatchedAt; if (!at) continue;
-    const d = dayOf(at); if (d < from || d > to) continue;
-    const v = Math.max(0, itemsValue(o)), before = cashIns(o).filter((c) => c.day < count).reduce((t, c) => t + c.amount, 0);
-    const x = v - Math.min(before, v);
-    if (x > 0.5) { cancelled += x; cancelledN++; }
+  let cancelled = 0, cancelledN = 0, cancelledAfter = 0, cancelledAfterN = 0;
+  for (const c of cancelledOf(from, to, count)) {
+    cancelled += c.x; cancelledN++;
+    if (c.after) { cancelledAfter += c.x; cancelledAfterN++; }
   }
-  return { from, to, rest: fr.amount, n: fr.n, paid, paidN, cancelled, cancelledN };
+  // figé = payé depuis le compte + annulé après le compte + reste encore impayé.
+  return { from, to, rest: fr.amount, n: fr.n, paid, paidN, cancelled, cancelledN, cancelledAfter, cancelledAfterN, still, stillN };
 }
 
 /**
