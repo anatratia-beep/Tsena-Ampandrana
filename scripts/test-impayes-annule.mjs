@@ -18,17 +18,27 @@ await p.evaluate(async () => {
   await t.save('stockMoves', [{ variantId: 'va', qty: 10, type: 'initial', at: d(-20) }, { variantId: 'va', qty: -1, type: 'sale', refType: 'order', refId: 'K1', at: d(-3) }, { variantId: 'va', qty: -1, type: 'sale', refType: 'order', refId: 'K2', at: d(-3) }]);
   const o = (id, n) => ({ id, number: id === 'K1' ? 'C-K0270' : 'C-K0271', kind: 'order', channel: 'facebook', phone: '0340000000', name: id === 'K1' ? 'Chaina' : 'Appel', status: 'delivered', courierId: 'k1', zoneId: 'zone-centre',
     lines: [{ id: 'l' + id, variantId: 'va', qty: 1, unitPrice: 40000, qtyKept: 1, qtyReturned: 0 }], payments: [], discount: 0, deliveryFee: 0, feeCharged: 0, createdAt: d(n), dispatchedAt: d(n), returnedAt: d(n), statusDates: { delivered: d(n) } });
-  await t.save('orders', [o('K1', -3), o('K2', -3)]);
+  await t.save('couriers', [{ id: 'k1', name: 'Patrick', active: true, zoneIds: ['zone-centre'] }]);
+  const k3 = { ...o('K3', -2), number: 'C-L0166', name: 'Client livreur', payments: [{ id: 'pk', at: d(-2), amount: 40000, method: 'cash', receivedBy: 'courier', courierId: 'k1' }] };
+  await t.save('orders', [o('K1', -3), o('K2', -3), k3]);
 });
 await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(900);
 await p.locator('.bw-top-prev').click(); await p.waitForTimeout(400);
 const dlg = p.getByRole('dialog');
-ok(/2 vente\(s\)/.test(N(await dlg.innerText())), 'liste : 2 ventes impayées');
+ok(/3 vente\(s\)/.test(N(await dlg.innerText())), 'liste : 3 ventes impayées (dont 1 argent chez le livreur)');
 if (process.env.SHOT) await dlg.screenshot({ path: process.env.SHOT });
 await dlg.locator('tr', { hasText: 'C-K0270' }).getByRole('button', { name: 'Annulé' }).click(); await p.waitForTimeout(300);
 await p.getByRole('button', { name: 'Annuler la vente' }).click(); await p.waitForTimeout(900);
 const r = await p.evaluate(() => { const t = window.__tsena; return { st: t.get('orders', 'K1').status, stock: t.all('stockMoves').filter((m) => m.variantId === 'va').reduce((s, m) => s + m.qty, 0) }; });
 ok(r.st === 'cancelled' && r.stock === 9, `C-K0270 annulée, stock remis (9) — ${JSON.stringify(r)}`);
 const t2 = N(await p.getByRole('dialog').first().innerText());
-ok(/1 vente\(s\)/.test(t2) && !/C-K0270/.test(t2), `liste : il reste 1 vente (${t2.slice(0, 120)})`);
+ok(/2 vente\(s\)/.test(t2) && !/C-K0270/.test(t2), `liste : il reste 1 vente (${t2.slice(0, 120)})`);
+// Argent chez le livreur : « Payé » ouvre directement le règlement du livreur pour cette commande.
+await p.getByRole('dialog').first().locator('tr', { hasText: 'C-L0166' }).getByRole('button', { name: 'Payé' }).click(); await p.waitForTimeout(400);
+const st = p.getByRole('dialog', { name: /Règlement avec Patrick/ });
+ok(await st.count() === 1, 'argent chez le livreur : « Payé » ouvre « Règlement avec Patrick »');
+if (process.env.SHOT2) await st.screenshot({ path: process.env.SHOT2 });
+await st.getByRole('button', { name: /Valider le règlement/ }).click(); await p.waitForTimeout(900);
+const t3 = N(await p.getByRole('dialog').first().innerText());
+ok(/1 vente\(s\)/.test(t3) && !/C-L0166/.test(t3), `réglé : C-L0166 sort de la liste (${t3.slice(0, 80)})`);
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
