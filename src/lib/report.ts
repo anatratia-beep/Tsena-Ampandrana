@@ -123,7 +123,7 @@ export function prevWeekBreakdown(from: string, to: string, count: string) {
     const after = ins.filter((c) => c.day >= count).reduce((t, c) => t + c.amount, 0), a = Math.min(after, x);
     if (a > 0.5) { paid += a; paidN++; }
   }
-  let cancelled = 0, cancelledN = 0;
+  let cancelled = 0, cancelledN = 0, cancelledAfter = 0, cancelledAfterN = 0;
   for (const o of all<Order>('orders')) {
     if (o.status !== 'cancelled' || isStaffBuy(o)) continue;
     const at = isWalkIn(o) ? o.createdAt : o.dispatchedAt; if (!at) continue;
@@ -131,8 +131,14 @@ export function prevWeekBreakdown(from: string, to: string, count: string) {
     const v = Math.max(0, itemsValue(o)), before = cashIns(o).filter((c) => c.day < count).reduce((t, c) => t + c.amount, 0);
     const x = v - Math.min(before, v);
     if (x > 0.5) { cancelled += x; cancelledN++; }
+    // Annulée après le compte : ce reste faisait partie du chiffre figé.
+    const cd = o.statusDates?.cancelled ? dayOf(o.statusDates.cancelled) : '';
+    if (x > 0.5 && cd >= count) { cancelledAfter += x; cancelledAfterN++; }
   }
-  return { from, to, rest: fr.amount, n: fr.n, paid, paidN, cancelled, cancelledN };
+  // Reste encore impayé aujourd'hui (même liste que « Voir les ventes »).
+  const open = restLedger(from, to).filter((r) => r.rest > 0.5);
+  const still = open.reduce((t, r) => t + r.rest, 0);
+  return { from, to, rest: fr.amount, n: fr.n, paid, paidN, cancelled, cancelledN, cancelledAfter, cancelledAfterN, still, stillN: open.length };
 }
 
 /**
