@@ -80,21 +80,87 @@ export function legalPage(kind, ctx) {
 
   if (kind === 'confidentialite') return `
     <h1>Politique de confidentialité</h1>
-    <p class="doc-meta">Mise à jour : ${updated()}</p>
-    <h2>Qui est responsable de vos données ?</h2>${identity(s)}
-    <h2>Les informations que nous collectons</h2>
-    <ul><li>Nom, numéro de téléphone (et un second numéro si vous le donnez), nom Facebook, lieu de livraison et précisions que vous écrivez ;</li>
-      <li>le détail de vos commandes (articles, montants, paiements, livraison) ;</li>
-      ${card ? '<li>pour un paiement par carte : le résultat du paiement et sa référence. Les numéros de carte sont saisis directement chez Stripe ; nous ne les voyons et ne les conservons jamais ;</li>' : ''}
-      <li>votre panier et vos coordonnées sont aussi gardés sur votre propre téléphone ou ordinateur pour vous éviter de les retaper.</li></ul>
-    <h2>Pourquoi ?</h2>
-    <p>Pour enregistrer et confirmer votre commande, vous appeler, organiser la livraison, encaisser le paiement, gérer un retour, et tenir notre comptabilité. Nous ne vendons ni ne louons jamais vos informations.</p>
-    <h2>Qui y a accès ?</h2>
-    <p>Notre équipe (vendeurs, responsable, livreur pour l’adresse et le téléphone de livraison) ; nos prestataires techniques qui hébergent les données (Supabase, GitHub)${card ? ', et Stripe pour les paiements par carte' : ''}${ctx.pixel ? ' ; Meta (Facebook) reçoit, par son outil de mesure, les pages vues et les achats faits sur le site, sans votre nom ni votre téléphone' : ''}.</p>
-    <h2>Combien de temps ?</h2>
-    <p>Le temps nécessaire au suivi de vos commandes et à nos obligations comptables, puis elles sont supprimées.</p>
-    <h2>Vos droits</h2>
-    <p>Vous pouvez demander à consulter, corriger ou supprimer vos informations, conformément à la législation malgache sur la protection des données personnelles : contactez-nous (page <a href="#/contact">Contact</a>). Vous pouvez aussi effacer les données gardées sur votre appareil en vidant les données du site dans votre navigateur.</p>`;
+    <p class="doc-meta">Dernière mise à jour : ${updated()}</p>
+    <p>${esc(s.shop)} respecte votre vie privée. Cette politique explique quelles informations nous recueillons quand vous visitez notre boutique en ligne, passez une commande ou nous contactez, pourquoi nous les utilisons, avec qui nous les partageons et quels sont vos droits. Elle s’applique en complément de nos <a href="#/cgv">conditions générales de vente</a> ; en cas de différence sur le traitement de vos données, c’est cette politique qui s’applique.</p>
+
+    <h2>1. Qui est responsable de vos données</h2>
+    ${identity(s)}
+    <p>Nous traitons vos données conformément à la loi malgache n° 2014-038 du 9 janvier 2015 sur la protection des données à caractère personnel.</p>
+
+    <h2>2. Les informations que nous recueillons</h2>
+    <ul>
+      <li><strong>Coordonnées</strong> : nom, numéro(s) de téléphone, nom Facebook, adresse ou lieu de livraison${ctx.accounts ? ', adresse e-mail' : ''}.</li>
+      <li><strong>Commandes</strong> : articles choisis, montants, frais de livraison, historique et statut de livraison, échanges et retours.</li>
+      <li><strong>Paiement</strong> : moyen de paiement utilisé et montant payé${card ? '. Pour la carte bancaire, seuls le résultat du paiement et sa référence nous sont transmis : le numéro de carte est saisi directement chez Stripe, nous ne le voyons ni ne le conservons jamais' : ''}.</li>
+      ${ctx.accounts ? '<li><strong>Compte client</strong> : identifiant (e-mail ou téléphone) et mot de passe, enregistré uniquement sous forme chiffrée.</li>' : ''}
+      <li><strong>Échanges avec nous</strong> : précisions écrites à la commande, messages, appels et conversations Messenger.</li>
+      <li><strong>Navigation</strong> : informations techniques envoyées par votre appareil (type de navigateur, pages vues), et les données gardées sur votre appareil (panier, coordonnées pour ne pas les retaper).</li>
+    </ul>
+
+    <h2>3. D’où viennent ces informations</h2>
+    <ul>
+      <li>de vous, quand vous commandez, remplissez un formulaire, nous appelez ou nous écrivez ;</li>
+      <li>automatiquement, quand vous utilisez le site (données de navigation, stockage sur votre appareil${ctx.pixel ? ', outil de mesure de Meta' : ''}) ;</li>
+      <li>de nos prestataires, par exemple ${card ? 'Stripe pour le résultat d’un paiement par carte, ou ' : ''}nos livreurs pour le statut de la livraison.</li>
+    </ul>
+
+    <h2>4. Pourquoi nous les utilisons</h2>
+    <ul>
+      <li><strong>Traiter vos commandes</strong> : vous appeler pour confirmer, préparer, livrer, encaisser, gérer un report, un échange ou un remboursement ;</li>
+      <li><strong>Vous informer</strong> : suivi de commande, réponses à vos questions, service après-vente ;</li>
+      <li><strong>Faire fonctionner et améliorer la boutique</strong> : stock disponible, articles proposés, qualité du service ;</li>
+      <li><strong>Sécurité</strong> : prévenir la fraude, les fausses commandes et les abus ;</li>
+      ${ctx.pixel ? '<li><strong>Publicité</strong> : mesurer l’efficacité de nos publicités sur Facebook et Instagram ;</li>' : ''}
+      <li><strong>Obligations légales</strong> : comptabilité, réponses aux demandes des autorités.</li>
+    </ul>
+    <p>Nous ne vendons ni ne louons jamais vos informations personnelles.</p>
+
+    <h2>5. Avec qui nous les partageons</h2>
+    <ul>
+      <li><strong>Notre équipe</strong> : vendeurs, responsable, et le livreur (seulement le nom, le téléphone et le lieu de livraison) ;</li>
+      <li><strong>Nos prestataires techniques</strong>, qui agissent pour notre compte : hébergement de la boutique et de la base de données (GitHub, Supabase)${card ? ', paiement par carte (Stripe)' : ''} ;</li>
+      ${ctx.pixel ? '<li><strong>Meta (Facebook, Instagram)</strong> : pages vues et achats réalisés sur le site, pour mesurer nos publicités, sans votre nom ni votre téléphone ;</li>' : ''}
+      <li><strong>Les autorités</strong>, si la loi nous y oblige ;</li>
+      <li>un éventuel repreneur, en cas de vente ou de fusion de notre activité, qui devra respecter cette politique.</li>
+    </ul>
+
+    <h2>6. Nos prestataires</h2>
+    <p>Notre boutique fonctionne avec des services de confiance qui respectent leurs propres règles de confidentialité : GitHub (hébergement du site), Supabase (base de données)${card ? ', Stripe (paiements par carte)' : ''}${ctx.pixel ? ', Meta (mesure publicitaire)' : ''}. Ils n’utilisent vos données que pour nous rendre ces services.</p>
+
+    <h2>7. Sites et réseaux de tiers</h2>
+    <p>Le site contient des liens vers d’autres services (Facebook, Messenger${card ? ', page de paiement Stripe' : ''}). Lorsque vous les utilisez, ce sont leurs propres conditions et politiques de confidentialité qui s’appliquent ; nous vous invitons à les lire.</p>
+
+    <h2>8. Enfants</h2>
+    <p>Notre boutique s’adresse aux adultes. Nous ne recueillons pas volontairement les données d’enfants. Si vous êtes parent et pensez que votre enfant nous a transmis des informations, contactez-nous : nous les supprimerons.</p>
+
+    <h2>9. Sécurité et durée de conservation</h2>
+    <p>Nous protégeons vos informations par des mesures adaptées : accès réservé à notre équipe, connexions chiffrées, mots de passe chiffrés${card ? ', paiements par carte traités uniquement par Stripe' : ''}. Aucun système n’étant parfaitement sûr, nous vous conseillons de ne jamais nous envoyer d’informations sensibles (codes Mobile Money, codes de carte) par message.</p>
+    <p>Nous gardons vos informations le temps nécessaire au suivi de vos commandes, au service après-vente et à nos obligations comptables et légales, puis nous les supprimons ou les rendons anonymes.</p>
+
+    <h2>10. Vos droits</h2>
+    <p>Conformément à la loi n° 2014-038, vous pouvez à tout moment :</p>
+    <ul>
+      <li><strong>accéder</strong> aux informations que nous avons sur vous ;</li>
+      <li>les faire <strong>corriger</strong> si elles sont inexactes ou incomplètes ;</li>
+      <li>demander leur <strong>suppression</strong>, sauf celles que la loi nous oblige à garder (factures, comptabilité) ;</li>
+      <li>vous <strong>opposer</strong> à leur utilisation à des fins de publicité ou de prospection ;</li>
+      <li>en recevoir une <strong>copie</strong>.</li>
+    </ul>
+    <p>Pour exercer ces droits, contactez-nous (voir « Contact » ci-dessous). Nous pourrons vous demander de prouver votre identité, par exemple avec le téléphone utilisé pour vos commandes. Vous pouvez aussi effacer les données gardées sur votre appareil en vidant les données du site dans votre navigateur.</p>
+
+    <h2>11. Réclamations</h2>
+    <p>Si vous n’êtes pas satisfait de la façon dont nous traitons vos données, contactez-nous d’abord : nous chercherons une solution. Vous pouvez aussi saisir la <strong>Commission Malagasy sur l’Informatique et des Libertés (CMIL)</strong>, autorité de protection des données personnelles à Madagascar.</p>
+
+    <h2>12. Transferts hors de Madagascar</h2>
+    <p>Certains de nos prestataires stockent ou traitent les données hors de Madagascar (notamment en Europe et aux États-Unis)${s.cardEntity && card ? `, et les paiements par carte sont encaissés par ${esc(s.cardEntity)}` : ''}. Nous choisissons des prestataires qui protègent les données selon des standards reconnus.</p>
+
+    <h2>13. Modifications de cette politique</h2>
+    <p>Nous pouvons mettre à jour cette politique pour suivre l’évolution de notre boutique ou de la loi. La nouvelle version est publiée sur cette page, avec sa date de mise à jour.</p>
+
+    <h2>14. Contact</h2>
+    <p>Pour toute question sur vos données ou pour exercer vos droits :</p>
+    ${identity(s)}
+    <p>Ou depuis la page <a href="#/contact">Contact</a>.</p>`;
 
   if (kind === 'livraison-retours') return `
     <h1>Livraison et retours</h1>
