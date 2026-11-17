@@ -23,6 +23,8 @@ await p.evaluate(async () => {
     o('JEU', 20000, -4, [pay('f', -4, 8000), pay('g', 1, 12000)]),   // jeudi : reste 12 000 payé mardi → autres jours
     o('VEN', 50000, -3, [pay('b', -2, 20000), pay('c', 0, 30000)]),   // vendredi : 1er paiement samedi 20 000 (non), 2ème lundi 30 000 (oui)
     o('SAM', 40000, -2, [pay('d', 0, 15000), pay('e', 1, 25000)]),    // samedi : 1er lundi 15 000 + 2ème mardi 25 000
+    o('MAR', 35000, -6, [pay('h', 7, 35000)]),                        // mardi : payé la semaine d'après (« Payé » touché plus tard) → ne compte pas
+    o('VE2', 20000, -3, [pay('i', 8, 20000)]),                        // vendredi : payé la semaine d'après → ne compte pas
   ]);
 });
 await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(900);

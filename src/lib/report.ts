@@ -141,14 +141,17 @@ export function prevWeekBreakdown(from: string, to: string, count: string) {
  */
 export function prevWeekRst(from: string, to: string) {
   const fri = addDays(from, 4), sat = addDays(from, 5);
+  // Seulement les paiements faits pendant la semaine du rapport (jusqu'au dimanche suivant) : un paiement fait plus tard
+  // (ex. « Payé » touché aujourd'hui sur une vente d'il y a deux semaines) ne change plus cette semaine-là.
+  const until = addDays(to, 7);
   let fri2 = 0, sat1 = 0, sat2 = 0, other = 0, n = 0;
-  for (const r of restLedger(from, to)) {
+  for (const r of restLedger(from, to, undefined, until)) {
     if (r.day === fri && r.p2) { fri2 += r.p2.amount; n++; }
     else if (r.day >= sat && r.day <= to && (r.p1 || r.p2)) { sat1 += r.p1?.amount ?? 0; sat2 += r.p2?.amount ?? 0; n++; }
     else if (r.day < fri) {
       // Lundi → jeudi : ce qui restait au compte du samedi et a été payé depuis (à partir du dimanche) s'ajoute aussi.
       let before = 0, after = 0;
-      for (const p of r.o.payments || []) { const d = payDay(r.o, p); if (!d) continue; if (d < to) before += p.amount; else after += p.amount; }
+      for (const p of r.o.payments || []) { const d = payDay(r.o, p); if (!d || d > until) continue; if (d < to) before += p.amount; else after += p.amount; }
       const a = Math.max(0, Math.min(after, r.value - Math.min(before, r.value)));
       if (a > 0.5) { other += a; n++; }
     }

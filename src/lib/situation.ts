@@ -179,7 +179,8 @@ export interface RestRow {
  * Restes à payer des ventes de la période (jour de la vente) : payé le jour, 1er paiement du reste, 2ème paiement du reste,
  * reste encore dû. `pages` : limiter aux pages d'un vendeur.
  */
-export function restLedger(from: string, to: string, pages?: string[]): RestRow[] {
+/** `until` : ne compte que les paiements faits jusqu'à ce jour (inclus). */
+export function restLedger(from: string, to: string, pages?: string[], until?: string): RestRow[] {
   const only = pages?.length ? new Set(pages) : null;
   const byOrder = new Map<string, { o: Order; day: string; value: number; pages: Set<string> }>();
   for (const l of salesLedger(from, to)) {
@@ -195,6 +196,7 @@ export function restLedger(from: string, to: string, pages?: string[]): RestRow[
     for (const p of o.payments || []) {
       const d = payDay(o, p);
       if (!d) { atCourier += p.amount; continue; }
+      if (until && d > until) continue;
       if (d <= day) same += p.amount; else later.set(d, (later.get(d) ?? 0) + p.amount);
     }
     let left = value;
