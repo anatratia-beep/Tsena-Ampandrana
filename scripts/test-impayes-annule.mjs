@@ -31,8 +31,8 @@ await dlg.locator('tr', { hasText: 'C-K0270' }).getByRole('button', { name: 'Ann
 await p.waitForTimeout(900);
 const r = await p.evaluate(() => { const t = window.__tsena; return { st: t.get('orders', 'K1').status, stock: t.all('stockMoves').filter((m) => m.variantId === 'va').reduce((s, m) => s + m.qty, 0) }; });
 ok(r.st === 'cancelled' && r.stock === 9, `C-K0270 annulée, stock remis (9) — ${JSON.stringify(r)}`);
-const t2 = N(await p.getByRole('dialog').first().innerText());
-ok(/2 vente\(s\)/.test(t2) && !/C-K0270/.test(t2), `liste : il reste 1 vente (${t2.slice(0, 120)})`);
+const t2 = N(await p.getByRole('dialog').first().innerText()), top2 = N(await p.getByRole('dialog').first().locator('.table-wrap').first().innerText());
+ok(/2 vente\(s\)/.test(t2) && !/C-K0270/.test(top2) && /C-K0270 .*Annulé/.test(N(await p.locator('.bw-done').innerText())), `liste : il reste 1 vente (${t2.slice(0, 120)})`);
 // Argent chez le livreur : un clic sur « Payé » règle directement la commande avec le livreur (argent déjà reçu).
 await p.getByRole('dialog').first().locator('tr', { hasText: 'C-L0166' }).getByRole('button', { name: 'Payé' }).click(); await p.waitForTimeout(900);
 ok(await p.getByRole('dialog').count() === 1, 'pas de fenêtre en plus');

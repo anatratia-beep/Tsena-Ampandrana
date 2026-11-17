@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { all, get, save, setMeta, useMeta, useTable } from '../lib/db';
 import { fmtAr } from '../lib/catalog';
-import { addPayment, courierSplit, fmtPhone, needsSettlement, normPhone, remaining, type Courier } from '../lib/orders';
+import { addPayment, courierSplit, isWalkIn, fmtPhone, needsSettlement, normPhone, remaining, type Courier } from '../lib/orders';
 import { voidOrder } from '../lib/corrections';
 import { deliveryNet, settleCourier } from '../lib/money';
 import { addDays, dayOf, today } from '../lib/money';
@@ -222,7 +222,7 @@ export function BossReport() {
 /** Rapports à envoyer (pour les rappels) : du jour le soir, de la semaine le lundi, du mois le 1er, de l'année le 1er janvier. */
 /** Rapport « Versement de la semaine » (onglet à part, après le rapport au patron) : comme le tableau Excel de la semaine. */
 /** Ventes encore impayées d'une semaine passée (les mêmes que la case rouge), avec « Payé » et l'accès à la commande. */
-function PrevUnpaidModal({ from, to, onClose }: { from: string; to: string; onClose: () => void }) {
+function PrevUnpaidModal({ from, to, count, onClose }: { from: string; to: string; count?: string; onClose: () => void }) {
   useTable('orders'); useTable('categories');
   const dd = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
   const [busy, setBusy] = useState('');
@@ -248,6 +248,9 @@ function PrevUnpaidModal({ from, to, onClose }: { from: string; to: string; onCl
   const rows = restLedger(from, to).filter((r) => r.rest > 0.5).sort((a, b) => a.day.localeCompare(b.day));
   const total = rows.reduce((t, r) => t + r.rest, 0);
   const page = (id: string) => all<{ id: string; name: string }>('categories').find((c) => c.id === id)?.name ?? '';
+  const bd = count ? prevWeekBreakdown(from, to, count) : undefined;
+  const done = (bd?.done ?? []).slice().sort((a, b) => a.state.localeCompare(b.state) || a.o.number.localeCompare(b.o.number));
+  const saleDayOf = (o: Order) => dayOf((isWalkIn(o) ? o.createdAt : o.dispatchedAt) || o.createdAt);
   return (
     <Modal wide title={`Reste impayés du ${dd(from)} au ${dd(to)} — ${rows.length} vente(s)`} onClose={onClose}>
       <div className="stack">
@@ -260,6 +263,19 @@ function PrevUnpaidModal({ from, to, onClose }: { from: string; to: string; onCl
           ))}</tbody>
           <tfoot><tr className="t-total"><td colSpan={3}>Total</td><td className="t-num">{fmtAr(total)}</td><td></td></tr></tfoot>
         </table></div>
+        {bd && <>
+          <h3 style={{ margin: '8px 0 0' }}>Déjà payé ou annulé depuis le compte — {done.length} vente(s)</h3>
+          <div className="table-wrap"><table className="table table-grid bw-done">
+            <thead><tr><th>Jour</th><th>Commande</th><th>État</th><th className="t-num">Montant</th></tr></thead>
+            <tbody>{done.map((r) => (
+              <tr key={r.o.id + r.state} className="row-link" title="Double-cliquez pour ouvrir la commande" onDoubleClick={() => { onClose(); location.hash = `#/commandes/${r.o.id}`; }}><td>{dd(saleDayOf(r.o))}</td><td><a href={`#/commandes/${r.o.id}`} onClick={onClose}><strong>{r.o.number}</strong></a> {r.o.name || r.o.facebook || r.o.phone}</td><td>{r.state === 'paid' ? <span className="pos">Payé</span> : <b>Annulé</b>}{r.state === 'paid' && r.frozen - r.amount > 0.5 ? <div className="small muted">reste {fmtAr(r.frozen - r.amount)} (en haut)</div> : null}</td><td className="t-num">{fmtAr(r.amount)}</td></tr>
+            ))}</tbody>
+            <tfoot>
+              <tr className="t-total"><td colSpan={3}>Total payé + annulé</td><td className="t-num">{fmtAr(bd.paid + bd.cancelledAfter)}</td></tr>
+              <tr className="t-total"><td colSpan={3}>Figé au compte = reste impayé + payé + annulé</td><td className="t-num">{fmtAr(bd.rest)}</td></tr>
+            </tfoot>
+          </table></div>
+        </>}
       </div>
     </Modal>
   );
@@ -324,7 +340,7 @@ export function WeekVersementReport() {
           {w.sunday < today() && <Button variant="quiet" onClick={() => setWeekPick(today())}>Cette semaine</Button>}
         </div>
       </div>
-      {showPrev && <PrevUnpaidModal from={prevW.from} to={prevW.to} onClose={() => setShowPrev(false)} />}
+      {showPrev && <PrevUnpaidModal from={prevW.from} to={prevW.to} count={addDays(w.monday, -1)} onClose={() => setShowPrev(false)} />}
       {showCur && <PrevUnpaidModal from={w.monday} to={w.sunday} onClose={() => setShowCur(false)} />}
       <div className="stat-grid bw-top">
         <div className="card stat bw-top-sales"><span className="small muted">Ventes de la semaine</span><strong className="stat-value num">{fmtAr(sales)}</strong><span className="small muted">comme le chiffre d’affaires du rapport au patron</span></div>

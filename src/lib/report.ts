@@ -134,22 +134,24 @@ export function prevWeekBreakdown(from: string, to: string, count: string) {
   const sold = new Map<string, { o: Order; v: number }>();
   for (const l of salesLedger(from, to)) { const e = sold.get(l.order.id) ?? { o: l.order, v: 0 }; e.v += l.amount; sold.set(l.order.id, e); }
   let paid = 0, paidN = 0, still = 0, stillN = 0;
+  // Ventes du chiffre figé déjà réglées depuis le compte (payées ou annulées), pour comparer ligne par ligne avec l'Excel.
+  const done: { o: Order; frozen: number; amount: number; state: 'paid' | 'cancelled' }[] = [];
   for (const { o, v } of sold.values()) {
     if (o.status === 'cancelled' || v <= 0.5) continue;
     const ins = cashIns(o), before = ins.filter((c) => c.day < count).reduce((t, c) => t + c.amount, 0);
     const x = v - Math.min(before, v); if (x <= 0.5) continue;
     const after = ins.filter((c) => c.day >= count).reduce((t, c) => t + c.amount, 0), a = Math.min(after, x);
-    if (a > 0.5) { paid += a; paidN++; }
+    if (a > 0.5) { paid += a; paidN++; done.push({ o, frozen: x, amount: a, state: 'paid' }); }
     // Reste encore impayé : ce qui était figé moins ce qui a été payé depuis.
     if (x - a > 0.5) { still += x - a; stillN++; }
   }
   let cancelled = 0, cancelledN = 0, cancelledAfter = 0, cancelledAfterN = 0;
   for (const c of cancelledOf(from, to, count)) {
     cancelled += c.x; cancelledN++;
-    if (c.after) { cancelledAfter += c.x; cancelledAfterN++; }
+    if (c.after) { cancelledAfter += c.x; cancelledAfterN++; done.push({ o: c.o, frozen: c.x, amount: c.x, state: 'cancelled' }); }
   }
   // figé = payé depuis le compte + annulé après le compte + reste encore impayé.
-  return { from, to, rest: fr.amount, n: fr.n, paid, paidN, cancelled, cancelledN, cancelledAfter, cancelledAfterN, still, stillN };
+  return { from, to, rest: fr.amount, n: fr.n, paid, paidN, cancelled, cancelledN, cancelledAfter, cancelledAfterN, still, stillN, done };
 }
 
 /**

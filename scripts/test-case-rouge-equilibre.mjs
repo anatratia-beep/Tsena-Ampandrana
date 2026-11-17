@@ -32,4 +32,10 @@ ok(pay === 50000 && ann === 40000 && still === 30000, `payé 50 000, annulé apr
 ok(fr === 120000 && fr === pay + ann + still, `figé ${fr} = 120 000 = payé + annulé après + reste encore (${pay + ann + still})`);
 ok(!/60 000/.test(card), `l'annulation d'avant le compte (20 000) n'est pas comptée`);
 if (process.env.SHOT) await p.locator('.bw-top').screenshot({ path: process.env.SHOT });
+// Liste « Voir les ventes » : en bas, les ventes du chiffre figé déjà payées ou annulées depuis le compte.
+await p.locator('.bw-top-prev').click(); await p.waitForTimeout(400);
+const done = N(await p.locator('.bw-done').innerText());
+ok(/PAY .*Payé 50 000 Ar/.test(done) && /ANA .*Annulé 40 000 Ar/.test(done) && !/ANB/.test(done), `liste : PAY payé 50 000, ANA annulé 40 000, pas ANB (${done})`);
+ok(/Total payé \+ annulé 90 000 Ar/.test(done) && /Figé au compte = reste impayé \+ payé \+ annulé 120 000 Ar/.test(done), `liste : totaux 90 000 et figé 120 000`);
+if (process.env.SHOT2) await p.locator('.modal').screenshot({ path: process.env.SHOT2 });
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);

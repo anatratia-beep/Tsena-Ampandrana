@@ -31,12 +31,12 @@ if (process.env.SHOT5) await p.locator('.bw-card').first().screenshot({ path: pr
 if (process.env.SHOT6) await p.locator('.bw-top-prev').screenshot({ path: process.env.SHOT6 });
 await p.locator('.bw-top-prev').click(); await p.waitForTimeout(300);
 const dlg = p.getByRole('dialog');
-const rows = (await dlg.locator('tbody tr, tfoot tr').allInnerTexts()).map(N);
+const rows = (await dlg.locator('.table-wrap').first().locator('tbody tr, tfoot tr').allInnerTexts()).map(N);
 console.log(rows.join('\n'));
 ok(rows.length === 3 && /W1 Client W1 Netvision 30 000 Ar Payé/.test(rows[0]) && /W2 Client W2 Netvision 15 000 Ar Payé/.test(rows[1]) && /^Total 45 000 Ar/.test(rows[2]), 'liste W1 30 000, W2 15 000, total 45 000 (W3 payée absente)');
 if (process.env.SHOT) await dlg.screenshot({ path: process.env.SHOT });
 await dlg.locator('tr', { hasText: 'W1' }).getByRole('button', { name: 'Payé' }).click(); await p.waitForTimeout(900);
-const rows2 = (await p.getByRole('dialog').locator('tbody tr, tfoot tr').allInnerTexts()).map(N);
+const rows2 = (await p.getByRole('dialog').locator('.table-wrap').first().locator('tbody tr, tfoot tr').allInnerTexts()).map(N);
 ok(rows2.length === 2 && /^Total 15 000 Ar/.test(rows2[1]), `après Payé : reste W2, total 15 000 (${rows2.join(' | ')})`);
 await p.keyboard.press('Escape'); await p.waitForTimeout(300);
 ok(/^Reste impayés semaine −1 45 000 Ar .*total payé : 30 000 Ar/.test(await cardTxt()), `case rouge reste 45 000, payé depuis 30 000 (${await cardTxt()})`);
