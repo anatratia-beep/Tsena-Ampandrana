@@ -1,5 +1,5 @@
 // Case rouge semaine −1 : figé au compte = total payé + annulé après le compte + reste encore impayé.
-// Les annulations d'avant le compte ne sont pas dans le chiffre figé (montrées à part : « annulé toute la semaine »).
+// Les annulations d'avant le compte ne sont pas dans le chiffre figé ni dans « annulé ».
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
 const p = await (await b.newContext({ viewport: { width: 1280, height: 900 }, timezoneId: 'Indian/Antananarivo', deviceScaleFactor: Number(process.env.DPR || 1) })).newPage();
@@ -27,9 +27,9 @@ await p.evaluate(async () => {
 await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(900);
 const card = N(await p.locator('.bw-top-prev').innerText());
 const num = (re) => Number((card.match(re)?.[1] ?? '').replace(/ /g, ''));
-const fr = num(/semaine −1 ([\d ]+) Ar/), pay = num(/total payé : ([\d ]+) Ar/), ann = num(/annulé après le compte : ([\d ]+) Ar/), still = num(/reste encore impayé : ([\d ]+) Ar/), all = num(/annulé toute la semaine : ([\d ]+) Ar/);
+const fr = num(/semaine −1 ([\d ]+) Ar/), pay = num(/total payé : ([\d ]+) Ar/), ann = num(/annulé : ([\d ]+) Ar/), still = num(/reste impayé : ([\d ]+) Ar/);
 ok(pay === 50000 && ann === 40000 && still === 30000, `payé 50 000, annulé après 40 000, reste 30 000 (${card})`);
 ok(fr === 120000 && fr === pay + ann + still, `figé ${fr} = 120 000 = payé + annulé après + reste encore (${pay + ann + still})`);
-ok(all === 60000, `annulé toute la semaine 60 000 (dont 20 000 avant le compte) (${all})`);
+ok(!/60 000/.test(card), `l'annulation d'avant le compte (20 000) n'est pas comptée`);
 if (process.env.SHOT) await p.locator('.bw-top').screenshot({ path: process.env.SHOT });
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
