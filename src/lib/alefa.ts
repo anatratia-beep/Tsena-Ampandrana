@@ -1,0 +1,176 @@
+// Liaison avec Alefa (livraison à vélo, Antananarivo) : envoyer une commande comme colis et suivre son étape.
+// Deux modes : sans clé (lien « Alefa » prérempli, ou fichier CSV pour plusieurs commandes)
+// et avec clé API (envoi direct + suivi automatique de l'étape et du code de réception).
+import { get, save } from './db';
+import { audit } from './auth';
+import { useCompany, type Company } from './settings';
+import { dispatchOrder, isPickupZone, recordReturn, remaining, sellingLines, type Courier, type Order, type Zone } from './orders';
+import { variantLabel, type Variant } from './catalog';
+
+export const ALEFA_DEFAULT_URL = 'https://livraison.oasismdg3434.workers.dev';
+
+export interface AlefaInfo { ref: string; pin?: string; step?: string; label?: string; fee?: number; collected?: number; outcome?: string; courier?: string; departureAt?: number; track?: string; accepted?: boolean; cancelSent?: boolean; sentAt: string; checkedAt?: string }
+
+/** Fiche livreur « Alefa » : choisir ce livreur sur une commande = l'envoyer au centre Alefa. */
+export const ALEFA_COURIER_ID = 'courier-alefa';
+export const ALEFA_COURIER_NAME = '🚲 Alefa (centre de livraison)';
+export const isAlefaCourier = (id?: string) => id === ALEFA_COURIER_ID;
+type WithAlefa = Order & { alefa?: AlefaInfo };
+/** Envoi : 'alefa' (commandes dont le livreur est « Alefa »), 'all' (toutes les commandes à livrer), 'off' (bouton seulement). */
+export type AlefaAuto = 'off' | 'alefa' | 'free' | 'all';
+type CompanyAlefa = Company & { alefaUrl?: string; alefaKey?: string; alefaAuto?: AlefaAuto; alefaPickup?: string };
+
+export const alefaOf = (o: Order) => (o as WithAlefa).alefa;
+export const alefaConf = (c: Company) => {
+  const x = c as CompanyAlefa;
+  return { url: (x.alefaUrl || ALEFA_DEFAULT_URL).replace(/\/+$/, ''), key: (x.alefaKey || '').trim(), auto: (x.alefaAuto === 'free' ? 'alefa' : x.alefaAuto || 'alefa') as AlefaAuto,
+    pickup: (x.alefaPickup || c.address || '').trim(), shop: c.name, phone: c.phone || '' };
+};
+export type AlefaConf = ReturnType<typeof alefaConf>;
+/** Page de suivi Alefa (carte en direct du livreur, sans compte). */
+export const alefaTrackUrl = (info: AlefaInfo | undefined, url: string) => (info?.track ? `${url}/suivi/${info.track}` : '');
+export const useAlefa = () => alefaConf(useCompany());
+
+/** Montant des articles à encaisser chez le client (les frais de livraison sont ceux d'Alefa, ajoutés par Alefa). */
+export const alefaValue = (o: Order) => Math.max(0, Math.round(remaining(o) - (o.deliveryFee || 0)));
+
+function describe(o: Order) {
+  return sellingLines(o).map((l) => `${l.qty} × ${variantLabel(get<Variant>('variants', l.variantId)) || 'article'}`).join(', ').slice(0, 280);
+}
+function addressOf(o: Order) {
+  const zone = o.zoneId ? get<Zone>('zones', o.zoneId)?.name : '';
+  return [o.place, zone].filter(Boolean).join(', ') || 'Adresse à confirmer';
+}
+
+/** Lien « Alefa » : le formulaire Alefa s'ouvre déjà rempli, le vendeur confirme. Aucune clé nécessaire. */
+export function alefaLink(o: Order, url: string) {
+  const p = new URLSearchParams({ ref: o.number, nom: o.name || o.facebook || 'Client', tel: o.phone, adresse: addressOf(o), valeur: String(alefaValue(o)), desc: describe(o) });
+  return `${url}/envoyer?${p.toString()}`;
+}
+
+/** Fichier CSV au format d'import Alefa (Entana → ⬆ Excel). */
+export function alefaCsv(orders: Order[]) {
+  const esc = (v: string | number) => { const s = String(v ?? ''); return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const lines = ['ref;nom;telephone;adresse;valeur;description', ...orders.map((o) => [o.number, o.name || o.facebook || 'Client', o.phone, addressOf(o), alefaValue(o), describe(o)].map(esc).join(';'))];
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv' }));
+  a.download = `alefa-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+}
+
+async function api(url: string, key: string, method: string, path: string, body?: unknown) {
+  const r = await fetch(`${url}/api/v1${path}`, { method, headers: { 'X-API-Key': key, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.message || `Alefa : erreur ${r.status}`);
+  return j;
+}
+const infoFrom = (s: any, prev?: AlefaInfo): AlefaInfo => ({ ...(prev || { sentAt: new Date().toISOString() }), ref: s.ref, pin: s.delivery_pin ?? prev?.pin, step: s.step, label: s.step_label, fee: s.fee, collected: s.collected ?? undefined, outcome: s.outcome_note ?? undefined, courier: s.courier?.name ?? undefined, departureAt: s.departure_at ?? undefined, track: s.track_token ?? prev?.track, accepted: !!s.accepted_at, checkedAt: new Date().toISOString() });
+
+/** Envoi direct par l'API (clé configurée dans Paramètres). Renvoie l'info enregistrée sur la commande. */
+export async function sendToAlefa(o: Order, conf: AlefaConf) {
+  const r = await api(conf.url, conf.key, 'POST', '/shipments', {
+    external_ref: o.number, declared_value: alefaValue(o), description: [describe(o), o.notes].filter(Boolean).join(' · ').slice(0, 290),
+    sender: { name: conf.shop, ...(conf.phone ? { phone: conf.phone } : {}), address: conf.pickup || conf.shop },
+    recipient: { name: o.name || o.facebook || 'Client', phone: o.phone, address: addressOf(o) },
+  });
+  const info = infoFrom(r.shipment);
+  // La commande part avec Alefa : son livreur devient « Alefa » (sauf si le colis est déjà chez un autre livreur).
+  await save('orders', { id: o.id, alefa: info, ...(o.status !== 'out' && !isAlefaCourier(o.courierId) ? { courierId: ALEFA_COURIER_ID } : {}) } as Partial<Order>);
+  await audit('Livraisons', `Commande ${o.number} envoyée à Alefa (${info.ref})`, 'orders', o.id);
+  return info;
+}
+
+/** Met à jour l'étape Alefa des commandes envoyées (un seul appel). */
+export async function refreshAlefa(orders: Order[], conf: AlefaConf) {
+  const sent = orders.filter((o) => alefaOf(o));
+  if (!sent.length || !conf.key) return 0;
+  const r = await api(conf.url, conf.key, 'GET', '/shipments?limit=200');
+  const byRef = new Map<string, any>(r.shipments.map((s: any) => [s.external_ref || s.ref, s]));
+  const changed = (a: AlefaInfo, s: any) => s.step !== a.step || (s.courier?.name ?? undefined) !== a.courier || !!s.accepted_at !== !!a.accepted || (s.track_token && s.track_token !== a.track) || (s.departure_at ?? undefined) !== a.departureAt;
+  const updates = sent.map((o) => { const s = byRef.get(o.number) || byRef.get(alefaOf(o)!.ref); return s && changed(alefaOf(o)!, s) ? { id: o.id, alefa: infoFrom(s, alefaOf(o)) } : null; }).filter(Boolean);
+  if (updates.length) await save('orders', updates as Partial<Order>[]);
+  return updates.length;
+}
+
+/** Étapes Alefa → couleur du badge. */
+export const ALEFA_TONE: Record<string, 'neutral' | 'brand' | 'warn' | 'ok' | 'danger'> = {
+  pending: 'warn', scheduled: 'brand', departed: 'brand', at_pickup: 'brand', picked_up: 'brand', en_route: 'brand', nearby: 'brand',
+  awaiting_recipient: 'warn', awaiting_courier: 'warn', delivered: 'ok', refused: 'danger', cancelled: 'danger', returning: 'danger', returned: 'danger',
+};
+
+/** Commandes « à livrer » qui partent toutes seules chez Alefa selon le réglage d'envoi automatique. */
+export const alefaAutoTargets = (orders: Order[], conf: AlefaConf) => (!conf.key || conf.auto === 'off') ? [] :
+  orders.filter((o) => !alefaOf(o) && !isPickupZone(o.zoneId) && !!o.phone && (isAlefaCourier(o.courierId)
+    ? ['confirmed', 'ready', 'out'].includes(o.status)              // livreur « Alefa » choisi : part dès que la commande est confirmée
+    : conf.auto === 'all' && o.status === 'ready'));
+
+const inFlight = new Set<string>();
+/** Envoi automatique (une commande n'est jamais envoyée deux fois : Alefa ignore les doublons de numéro). */
+export async function autoSendAlefa(orders: Order[], conf: AlefaConf) {
+  let ok = 0; const errors: string[] = [];
+  for (const o of alefaAutoTargets(orders, conf)) {
+    if (inFlight.has(o.id)) continue;
+    inFlight.add(o.id);
+    try { await sendToAlefa(o, conf); ok++; } catch (e) { errors.push(`${o.number} : ${(e as Error).message}`); } finally { inFlight.delete(o.id); }
+  }
+  return { ok, errors };
+}
+
+/** Texte court « où en est la livraison » : étape, livreur, heure de départ. */
+export function alefaWhere(info: AlefaInfo) {
+  const time = info.departureAt ? new Date(info.departureAt).toLocaleString('fr-FR', { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+  const wait = info.step === 'scheduled' && info.courier && !info.accepted ? ' (à accepter)' : '';
+  return [`${info.label || info.step || 'Envoyée'}${wait}`, info.courier && `🚲 ${info.courier}`, info.step === 'scheduled' && time && `départ ${time}`].filter(Boolean).join(' · ');
+}
+
+/** Crée (ou réactive) la fiche livreur « Alefa » dès qu'une clé API Alefa est enregistrée. */
+export async function ensureAlefaCourier(conf: AlefaConf) {
+  if (!conf.key) return;
+  const c = get<Courier>('couriers', ALEFA_COURIER_ID);
+  if (c && c.active && !c.removed) return;
+  await save('couriers', { id: ALEFA_COURIER_ID, name: ALEFA_COURIER_NAME, active: true, removed: false, phone: undefined,
+    notes: 'Centre de livraison Alefa : les commandes données à ce livreur partent automatiquement chez Alefa, qui choisit le livreur à vélo. Les frais de livraison reviennent à Alefa.' } as Partial<Courier> as Courier);
+}
+
+const PICKED = ['picked_up', 'en_route', 'nearby', 'awaiting_recipient', 'awaiting_courier', 'delivered', 'refused', 'returning', 'returned'];
+/**
+ * L'avancement Alefa fait avancer la commande, comme pour un livreur de la boutique :
+ * colis récupéré → « En livraison » (les articles quittent la boutique) ; livré → retour enregistré (tout gardé, montant encaissé) ;
+ * refusé / revenu → retour enregistré (rien gardé). Le règlement avec Alefa se fait ensuite dans « Retour livreur ».
+ */
+export async function applyAlefaToOrders(orders: Order[], conf: AlefaConf) {
+  let n = 0; const errors: string[] = [];
+  for (const o0 of orders) {
+    const info = alefaOf(o0);
+    if (!info?.step || !isAlefaCourier(o0.courierId)) continue;
+    try {
+      let o = get<Order>('orders', o0.id) || o0;
+      if (PICKED.includes(info.step) && ['confirmed', 'ready'].includes(o.status)) { await dispatchOrder(o, ALEFA_COURIER_ID); n++; o = get<Order>('orders', o.id) || o; }
+      if (o.status !== 'out') continue;
+      if (info.step === 'delivered') {
+        const kept = Object.fromEntries(o.lines.map((l) => [l.id, l.isChoice ? 0 : l.qty]));
+        const got = info.collected ?? remaining(o);
+        await recordReturn(o, { kept, feeCharged: info.fee ?? o.deliveryFee ?? 0, collected: got ? [{ amount: got, method: 'cash', receivedBy: 'courier' }] : [], note: `Livré par Alefa ${info.ref}${info.courier ? ` (${info.courier})` : ''} — confirmé par le client` });
+        n++;
+      } else if (['refused', 'returned'].includes(info.step)) {
+        const kept = Object.fromEntries(o.lines.map((l) => [l.id, 0]));
+        await recordReturn(o, { kept, feeCharged: info.fee ?? o.deliveryFee ?? 0, collected: info.collected ? [{ amount: info.collected, method: 'cash', receivedBy: 'courier' }] : [], note: `Refusé — Alefa ${info.ref}${info.outcome ? ` : ${info.outcome}` : ''}` });
+        n++;
+      }
+    } catch (e) { errors.push(`${o0.number} : ${(e as Error).message}`); }
+  }
+  return { n, errors };
+}
+
+/** Commande annulée dans la boutique avant que le livreur Alefa n'ait le colis : annulation envoyée à Alefa. */
+export async function cancelAtAlefa(orders: Order[], conf: AlefaConf) {
+  let n = 0;
+  for (const o of orders) {
+    const info = alefaOf(o);
+    if (!info || info.cancelSent || o.status !== 'cancelled' || !['pending', 'scheduled', 'departed', 'at_pickup'].includes(info.step || '')) continue;
+    try { await api(conf.url, conf.key, 'POST', `/shipments/${encodeURIComponent(info.ref)}/cancel`, { reason: 'Commande annulée dans la boutique' }); } catch { /* déjà annulé ou récupéré : Alefa répond, on n'insiste pas */ }
+    await save('orders', { id: o.id, alefa: { ...info, cancelSent: true } } as Partial<Order>);
+    n++;
+  }
+  return n;
+}
