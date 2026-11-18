@@ -5,7 +5,7 @@ import { Badge, Button, Modal, SelectField, TextField, toast } from './kit';
 import { save } from '../lib/db';
 import { audit } from '../lib/auth';
 import { useCompany } from '../lib/settings';
-import { ALEFA_DEFAULT_URL, ALEFA_TONE, alefaAutoTargets, alefaConf, alefaCsv, alefaLink, alefaOf, alefaTrackUrl, alefaValue, alefaWhere, autoSendAlefa, refreshAlefa, sendToAlefa, useAlefa, type AlefaAuto } from '../lib/alefa';
+import { ALEFA_DEFAULT_URL, ALEFA_TONE, applyAlefaToOrders, cancelAtAlefa, ensureAlefaCourier, alefaAutoTargets, alefaConf, alefaCsv, alefaLink, alefaOf, alefaTrackUrl, alefaValue, alefaWhere, autoSendAlefa, refreshAlefa, sendToAlefa, useAlefa, type AlefaAuto } from '../lib/alefa';
 import { fmtAr } from '../lib/catalog';
 import type { Order } from '../lib/orders';
 
@@ -89,8 +89,8 @@ export function AlefaSettingsCard() {
       <TextField label="Adresse d'Alefa" value={url} onChange={setUrl} placeholder={ALEFA_DEFAULT_URL} />
       <TextField label="Clé API Alefa (facultative)" value={key} onChange={setKey} placeholder="ak_…" autoComplete="off" />
       {key.trim() && <SelectField label="Envoi à Alefa" value={auto} onChange={(v) => setAuto(v as AlefaAuto)} options={[
-        { value: 'free', label: 'Automatique : commandes à livrer sans livreur de la boutique' },
-        { value: 'all', label: 'Automatique : toutes les commandes à livrer' },
+        { value: 'alefa', label: 'Automatique : commandes dont le livreur est « 🚲 Alefa »' },
+        { value: 'all', label: 'Automatique : toutes les commandes à livrer (même avec un livreur de la boutique)' },
         { value: 'off', label: 'Manuel : bouton 🚲 Alefa sur chaque commande' },
       ]} />}
       {key.trim() && <TextField label="Adresse de récupération (boutique)" value={pickup} onChange={setPickup} placeholder="Ampandrana, Antananarivo" />}
@@ -133,10 +133,18 @@ export function useAlefaBackground(enabled: boolean) {
       const r = await autoSendAlefa(os, c).catch((e) => ({ ok: 0, errors: [(e as Error).message] }));
       if (r.ok) toast(`🚲 ${r.ok} commande(s) envoyée(s) à Alefa`);
       if (r.errors.length && r.errors[0] !== lastErr) { lastErr = r.errors[0]; toast(`Alefa : ${r.errors[0]}`, 'error'); }
+      await ensureAlefaCourier(c).catch(() => {});
       const open = ref.current.orders.filter((o) => alefaOf(o) && !['delivered', 'cancelled', 'returned'].includes(alefaOf(o)!.step || ''));
       if (open.length) await refreshAlefa(open, c).catch(() => {});
+      // L'avancement Alefa fait avancer les commandes (en livraison, livrée, refusée), et les annulations partent chez Alefa.
+      const mine = ref.current.orders.filter((o) => alefaOf(o) && ['confirmed', 'ready', 'out', 'cancelled'].includes(o.status));
+      const a = await applyAlefaToOrders(mine, c).catch((e) => ({ n: 0, errors: [(e as Error).message] }));
+      if (a.n) toast(`🚲 Alefa : ${a.n} commande(s) mise(s) à jour`);
+      if (a.errors.length && a.errors[0] !== lastErr) { lastErr = a.errors[0]; toast(`Alefa : ${a.errors[0]}`, 'error'); }
+      await cancelAtAlefa(mine, c).catch(() => {});
     };
     void tick();
+    (window as unknown as { __alefaTick?: () => Promise<void> }).__alefaTick = tick; // relance immédiate (tests, bouton « Synchroniser »)
     const t = setInterval(tick, 30000);
     return () => clearInterval(t);
   }, [enabled, conf.key, conf.url, conf.auto, pending]);
