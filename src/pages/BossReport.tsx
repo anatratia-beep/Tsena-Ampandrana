@@ -64,7 +64,7 @@ export function BossReport() {
     { id: 'net', label: 'Total à verser après dépenses et anciens impayés encaissés', cur: m.cash.toPay, hint: `${fmtAr(m.cash.total)} − dépenses ${fmtAr(m.cash.expenses)} + anciens impayés ${fmtAr(m.cash.prevPaid)}` },
   ];
   const toBoss: { id: string; label: string; cur: number; prev: number; hint: string; invert?: boolean }[] = [
-    { id: 'prevPaid', label: 'Impayé précédent à verser', cur: m.cash.prevPaid, prev: pm.cash.prevPaid, hint: `${m.cash.prevPaidN} ancienne(s) vente(s) payée(s) après le comptage` },
+    { id: 'prevPaid', label: 'Impayé précédent à verser', cur: m.cash.prevPaid, prev: pm.cash.prevPaid, hint: `${m.cash.prevPaidN} ancienne(s) vente(s) payée(s) après le comptage · dont semaine −1 : ${fmtAr(m.cash.prevWk ?? 0)} (${m.cash.prevWkN ?? 0})${m.cash.prevOld ? ` · plus anciennes (pas dans le total) : ${fmtAr(m.cash.prevOld)} (${m.cash.prevOldN})` : ''}` },
     { id: 'unpaidPrev', label: 'Reste impayé semaine précédente', cur: m.weekPrev.amount, prev: pm.weekPrev.amount, invert: true, hint: `${m.weekPrev.n} vente(s) du ${dd(m.weekPrev.from)} au ${dd(m.weekPrev.to)}, figé au comptage du lundi` },
     { id: 'unpaidCur', label: 'Reste impayé semaine en cours', cur: m.weekCur.amount, prev: pm.weekCur.amount, invert: true, hint: `${m.weekCur.n} vente(s) du ${dd(m.weekCur.from)} au ${dd(m.weekCur.to)} pas encore payée(s)` },
     { id: 'staffBuy', label: 'Prix d’achat', cur: m.staffBuy?.amount ?? 0, prev: pm.staffBuy?.amount ?? 0, hint: `${m.staffBuy?.n ?? 0} vente(s) interne(s) aux employés au prix d’achat — pas dans les ventes ni dans le total à verser` },

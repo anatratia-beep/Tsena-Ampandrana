@@ -181,8 +181,7 @@ function prevUnpaidPaid(from: string, to: string) {
   for (const o of all<Order>('orders')) {
     if (isStaffBuy(o) || o.status === 'cancelled' || (!isWalkIn(o) && !o.dispatchedAt)) continue;
     const sd = saleDay(o);
-    // Semaine −1 seulement : les ventes plus anciennes ne comptent plus (demande du gérant).
-    if (sd >= from || sd < w1) continue;
+    if (sd >= from) continue;
     // Jour où l'argent arrive à la boutique (comme « Reste semaine −1 ») : l'argent payé au livreur compte le jour où le
     // livreur le verse ; pas encore versé = pas encore encaissé.
     const ins = (o.payments || []).map((p) => ({ day: payDay(o, p), amount: p.amount })).filter((c): c is { day: string; amount: number } => !!c.day);
@@ -190,7 +189,8 @@ function prevUnpaidPaid(from: string, to: string) {
     if (late <= 0.5) continue;
     const before = ins.filter((c) => c.day < from).reduce((t, c) => t + c.amount, 0);
     const a = Math.min(late, Math.max(0, itemsValue(o) - before));
-    if (a > 0.5) { amount += a; ids.add(o.id); if (sd >= w1) { wk += a; wkN++; wkBy.set(o.id, { o, amount: a }); } else { old += a; oldN++; } }
+    // Semaine −1 seulement dans le total ; les ventes plus anciennes sont montrées à part (pas comptées).
+    if (a > 0.5) { if (sd >= w1) { amount += a; ids.add(o.id); wk += a; wkN++; wkBy.set(o.id, { o, amount: a }); } else { old += a; oldN++; } }
   }
   return { amount, n: ids.size, wk, wkN, old, oldN, wkBy };
 }
