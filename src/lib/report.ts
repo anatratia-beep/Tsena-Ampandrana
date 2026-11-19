@@ -173,7 +173,6 @@ function staffBuys(from: string, to: string) {
 
 /** Anciens impayés encaissés pendant la période : ventes d'une semaine déjà comptée (et d'avant la période), payées
  *  entre `from` et `to`, sans dépasser ce qui restait dû sur les articles. Ils s'ajoutent à la 2e case « À verser au patron ». */
-const OLD_FROM = '2026-11-20';
 function prevUnpaidPaid(from: string, to: string) {
   let amount = 0; const ids = new Set<string>();
   // Détail (affichage seulement) : ventes de la semaine −1 (lundi → dimanche avant `from`) et ventes plus anciennes.
@@ -191,11 +190,7 @@ function prevUnpaidPaid(from: string, to: string) {
     const before = ins.filter((c) => c.day < from).reduce((t, c) => t + c.amount, 0);
     const a = Math.min(late, Math.max(0, itemsValue(o) - before));
     // Semaine −1 seulement dans le total ; les ventes plus anciennes sont montrées à part (pas comptées).
-    if (a > 0.5) { if (sd >= w1) { amount += a; ids.add(o.id); wk += a; wkN++; wkBy.set(o.id, { o, amount: a }); } else {
-      // « Plus anciennes » : remis à zéro le 19/11/2026 (demande du gérant) ; seuls les paiements à partir du 20/11 s'affichent.
-      const b = Math.min(a, ins.filter((c) => c.day >= OLD_FROM && c.day >= from && c.day <= to && mondayOf(sd) < mondayOf(c.day)).reduce((t, c) => t + c.amount, 0));
-      if (b > 0.5) { old += b; oldN++; }
-    } }
+    if (a > 0.5) { if (sd >= w1) { amount += a; ids.add(o.id); wk += a; wkN++; wkBy.set(o.id, { o, amount: a }); } else if (sd >= addDays(w1, -7)) { old += a; oldN++; } } // « Plus anciennes » : semaine −2 seulement (affichées, pas dans le total)
   }
   return { amount, n: ids.size, wk, wkN, old, oldN, wkBy };
 }
