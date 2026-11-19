@@ -145,18 +145,32 @@ export function prevWeekRst(from: string, to: string) {
   // (ex. « Payé » touché aujourd'hui sur une vente d'il y a deux semaines) ne change plus cette semaine-là.
   const until = addDays(to, 7);
   let fri2 = 0, sat1 = 0, sat2 = 0, other = 0, n = 0;
+  const by = new Map<string, { o: Order; amount: number }>(); const put = (o: Order, a: number) => { if (a > 0.5) by.set(o.id, { o, amount: (by.get(o.id)?.amount ?? 0) + a }); };
   for (const r of restLedger(from, to, undefined, until)) {
-    if (r.day === fri && r.p2) { fri2 += r.p2.amount; n++; }
-    else if (r.day >= sat && r.day <= to && (r.p1 || r.p2)) { sat1 += r.p1?.amount ?? 0; sat2 += r.p2?.amount ?? 0; n++; }
+    if (r.day === fri && r.p2) { fri2 += r.p2.amount; n++; put(r.o, r.p2.amount); }
+    else if (r.day >= sat && r.day <= to && (r.p1 || r.p2)) { sat1 += r.p1?.amount ?? 0; sat2 += r.p2?.amount ?? 0; n++; put(r.o, (r.p1?.amount ?? 0) + (r.p2?.amount ?? 0)); }
     else if (r.day < fri) {
       // Lundi → jeudi : ce qui restait au compte du samedi et a été payé depuis (à partir du dimanche) s'ajoute aussi.
       let before = 0, after = 0;
       for (const p of r.o.payments || []) { const d = payDay(r.o, p); if (!d || d > until) continue; if (d < to) before += p.amount; else after += p.amount; }
       const a = Math.max(0, Math.min(after, r.value - Math.min(before, r.value)));
-      if (a > 0.5) { other += a; n++; }
+      if (a > 0.5) { other += a; n++; put(r.o, a); }
     }
   }
-  return { amount: fri2 + sat1 + sat2 + other, fri2, sat1, sat2, other, n };
+  return { amount: fri2 + sat1 + sat2 + other, fri2, sat1, sat2, other, n, by };
+}
+
+/** Écart entre « Reste semaine −1 » (RST SEM −1, tableau du versement) et « dont semaine −1 » de « Impayé précédent à
+ *  verser » pour la semaine qui commence à `from` : commande par commande, avec les jours de paiement. Affichage seulement. */
+export function semGap(from: string) {
+  const mon = mondayOf(from), w1 = addDays(mon, -7), end = addDays(mon, 6) < today() ? addDays(mon, 6) : today();
+  const rst = prevWeekRst(w1, addDays(mon, -1)), pp = prevUnpaidPaid(mon, end);
+  const ids = new Set([...rst.by.keys(), ...pp.wkBy.keys()]);
+  const rows = [...ids].map((id) => {
+    const o = (rst.by.get(id) ?? pp.wkBy.get(id))!.o, a = rst.by.get(id)?.amount ?? 0, b = pp.wkBy.get(id)?.amount ?? 0;
+    return { o, rst: a, paid: b, gap: a - b, days: [...new Set(cashIns(o).map((c) => c.day))].sort(), courierDay: (o.payments || []).some((p) => p.method === 'cash' && p.receivedBy === 'courier') && o.courierSettledAt ? dayOf(o.courierSettledAt) : '' };
+  }).filter((r) => Math.abs(r.gap) > 0.5).sort((x, y) => y.gap - x.gap);
+  return { rst: rst.amount, paid: pp.wk, gap: rst.amount - pp.wk, rows };
 }
 
 /** Ventes internes (employés, au prix d'achat) de la période (valeur des articles). */
@@ -176,18 +190,20 @@ function prevUnpaidPaid(from: string, to: string) {
   let amount = 0; const ids = new Set<string>();
   // Détail (affichage seulement) : ventes de la semaine −1 (lundi → dimanche avant `from`) et ventes plus anciennes.
   const w1 = addDays(mondayOf(from), -7); let wk = 0, wkN = 0, old = 0, oldN = 0;
+  const wkBy = new Map<string, { o: Order; amount: number }>();
   for (const o of all<Order>('orders')) {
     if (isStaffBuy(o) || o.status === 'cancelled' || (!isWalkIn(o) && !o.dispatchedAt)) continue;
     const sd = saleDay(o);
-    if (sd >= from) continue;
+    // Semaine −1 seulement : les ventes plus anciennes ne comptent plus (demande du gérant).
+    if (sd >= from || sd < w1) continue;
     const ins = cashIns(o);
     const late = ins.filter((c) => c.day >= from && c.day <= to && mondayOf(sd) < mondayOf(c.day)).reduce((t, c) => t + c.amount, 0);
     if (late <= 0.5) continue;
     const before = ins.filter((c) => c.day < from).reduce((t, c) => t + c.amount, 0);
     const a = Math.min(late, Math.max(0, itemsValue(o) - before));
-    if (a > 0.5) { amount += a; ids.add(o.id); if (sd >= w1) { wk += a; wkN++; } else { old += a; oldN++; } }
+    if (a > 0.5) { amount += a; ids.add(o.id); if (sd >= w1) { wk += a; wkN++; wkBy.set(o.id, { o, amount: a }); } else { old += a; oldN++; } }
   }
-  return { amount, n: ids.size, wk, wkN, old, oldN };
+  return { amount, n: ids.size, wk, wkN, old, oldN, wkBy };
 }
 
 /** Reste impayé de la semaine en cours : exactement le « Reste à payer » de « Situation par page » (accueil) sur la

@@ -7,7 +7,7 @@ import { addPayment, courierSplit, fmtPhone, needsSettlement, normPhone, remaini
 import { voidOrder } from '../lib/corrections';
 import { deliveryNet, settleCourier } from '../lib/money';
 import { addDays, dayOf, today } from '../lib/money';
-import { PKIND, bossMoney, bossReport, frozenUnpaid, prevWeekBreakdown, prevWeekRst, periodOf, reportText, shiftAnchor, type PKind, type PageRow, type Report, type StockRow } from '../lib/report';
+import { PKIND, bossMoney, bossReport, frozenUnpaid, semGap, prevWeekBreakdown, prevWeekRst, periodOf, reportText, shiftAnchor, type PKind, type PageRow, type Report, type StockRow } from '../lib/report';
 import { a4Table, arA4, h, printA4 } from '../lib/a4';
 import { useCompany } from '../lib/settings';
 import { usdRate } from '../lib/payouts';
@@ -42,6 +42,8 @@ export function BossReport() {
   const sent = useMeta<Record<string, string>>('reportSent', {});
   const key = reportKey(kind, per.from);
   const markSent = () => setMeta('reportSent', { ...sent, [key]: new Date().toISOString() });
+  const [showGap, setShowGap] = useState(false);
+  const gap = useMemo(() => (kind === 'week' ? semGap(per.from) : undefined), [kind, per.from, orders]);
   const go = (dir: -1 | 1) => { const n = shiftAnchor(kind, anchor, dir, custom); setAnchor(n.anchor); if (n.custom) setCustom(n.custom); };
   const isDay = kind === 'day';
   const text = reportText(kind, per.label, r, company.name);
@@ -64,7 +66,7 @@ export function BossReport() {
     { id: 'net', label: 'Total à verser après dépenses et anciens impayés encaissés', cur: m.cash.toPay, hint: `${fmtAr(m.cash.total)} − dépenses ${fmtAr(m.cash.expenses)} + anciens impayés ${fmtAr(m.cash.prevPaid)}` },
   ];
   const toBoss: { id: string; label: string; cur: number; prev: number; hint: string; invert?: boolean }[] = [
-    { id: 'prevPaid', label: 'Impayé précédent à verser', cur: m.cash.prevPaid, prev: pm.cash.prevPaid, hint: `${m.cash.prevPaidN} ancienne(s) vente(s) payée(s) après le comptage${m.cash.prevOld ? ` · dont semaine −1 : ${fmtAr(m.cash.prevWk ?? 0)} (${m.cash.prevWkN}) · plus anciennes : ${fmtAr(m.cash.prevOld)} (${m.cash.prevOldN})` : ''}` },
+    { id: 'prevPaid', label: 'Impayé précédent à verser', cur: m.cash.prevPaid, prev: pm.cash.prevPaid, hint: `${m.cash.prevPaidN} ancienne(s) vente(s) payée(s) après le comptage · ventes de la semaine −1 seulement` },
     { id: 'unpaidPrev', label: 'Reste impayé semaine précédente', cur: m.weekPrev.amount, prev: pm.weekPrev.amount, invert: true, hint: `${m.weekPrev.n} vente(s) du ${dd(m.weekPrev.from)} au ${dd(m.weekPrev.to)}, figé au comptage du lundi` },
     { id: 'unpaidCur', label: 'Reste impayé semaine en cours', cur: m.weekCur.amount, prev: pm.weekCur.amount, invert: true, hint: `${m.weekCur.n} vente(s) du ${dd(m.weekCur.from)} au ${dd(m.weekCur.to)} pas encore payée(s)` },
     { id: 'staffBuy', label: 'Prix d’achat', cur: m.staffBuy?.amount ?? 0, prev: pm.staffBuy?.amount ?? 0, hint: `${m.staffBuy?.n ?? 0} vente(s) interne(s) aux employés au prix d’achat — pas dans les ventes ni dans le total à verser` },
@@ -163,9 +165,11 @@ export function BossReport() {
               <strong className={`stat-value num ${t.cur < 0 ? 'neg' : ''}`}>{fmtAr(t.cur)}</strong>
               <span className="small muted"><Delta cur={t.cur} prev={t.prev} invert={t.invert} /> vs {isDay ? 'la veille' : 'période précédente'}</span>
               <span className="small muted">{t.hint}</span>
+              {t.id === 'prevPaid' && gap && Math.abs(gap.gap) > 0.5 && <button type="button" className="link-btn small boss-gap" style={{ padding: 0, textAlign: "left" }} onClick={() => setShowGap(true)}>écart avec « Reste semaine −1 » ({fmtAr(gap.rst)}) : <b>{fmtAr(gap.gap)}</b> → voir</button>}
             </div>
           ))}
         </div>
+        {showGap && gap && <GapModal gap={gap} onClose={() => setShowGap(false)} />}
         <div className="stat-grid boss-mobile">
           {mobile.map((g) => (
             <div key={g.id} className={`boss-pair boss-${g.id}`}>
@@ -222,6 +226,25 @@ export function BossReport() {
 /** Rapports à envoyer (pour les rappels) : du jour le soir, de la semaine le lundi, du mois le 1er, de l'année le 1er janvier. */
 /** Rapport « Versement de la semaine » (onglet à part, après le rapport au patron) : comme le tableau Excel de la semaine. */
 /** Ventes encore impayées d'une semaine passée (les mêmes que la case rouge), avec « Payé » et l'accès à la commande. */
+/** Écart « Reste semaine −1 » / « dont semaine −1 » : commande par commande (affichage seulement). */
+function GapModal({ gap, onClose }: { gap: ReturnType<typeof semGap>; onClose: () => void }) {
+  const dd = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+  return (
+    <Modal wide title={`Écart : ${fmtAr(gap.gap)}`} onClose={onClose}>
+      <div className="stack">
+        <p className="small muted" style={{ margin: 0 }}>« Reste semaine −1 » {fmtAr(gap.rst)} − « dont semaine −1 » {fmtAr(gap.paid)}. « Reste semaine −1 » compte l’argent payé au livreur le jour où le livreur le verse ; « Impayé précédent à verser » le compte le jour où le client a payé (s’il a payé avant le lundi, il est déjà dans le « Total à verser » de la semaine d’avant).</p>
+        <div className="table-wrap"><table className="table table-grid boss-gap-list">
+          <thead><tr><th>Commande</th><th>Payé le</th><th className="t-num">Reste sem. −1</th><th className="t-num">Payé depuis lundi</th><th className="t-num">Écart</th></tr></thead>
+          <tbody>{gap.rows.map((r) => (
+            <tr key={r.o.id}><td><a href={`#/commandes/${r.o.id}`} onClick={onClose}><strong>{r.o.number}</strong></a> {r.o.name || r.o.facebook || r.o.phone}</td><td>{r.days.map(dd).join(', ')}{r.courierDay ? <div className="small muted">versé par le livreur le {dd(r.courierDay)}</div> : null}</td><td className="t-num">{fmtAr(r.rst)}</td><td className="t-num">{fmtAr(r.paid)}</td><td className="t-num"><b>{fmtAr(r.gap)}</b></td></tr>
+          ))}</tbody>
+          <tfoot><tr className="t-total"><td colSpan={2}>Total</td><td className="t-num">{fmtAr(gap.rst)}</td><td className="t-num">{fmtAr(gap.paid)}</td><td className="t-num">{fmtAr(gap.gap)}</td></tr></tfoot>
+        </table></div>
+      </div>
+    </Modal>
+  );
+}
+
 function PrevUnpaidModal({ from, to, onClose }: { from: string; to: string; onClose: () => void }) {
   useTable('orders'); useTable('categories');
   const dd = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });

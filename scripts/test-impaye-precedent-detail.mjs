@@ -1,4 +1,4 @@
-// « Impayé précédent à verser » : détail (affichage seulement) entre ventes de la semaine −1 et ventes plus anciennes.
+// « Impayé précédent à verser » : ventes de la semaine −1 seulement (une vente plus ancienne payée cette semaine ne compte pas).
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
 const p = await (await b.newContext({ viewport: { width: 1280, height: 900 }, timezoneId: 'Indian/Antananarivo', deviceScaleFactor: Number(process.env.DPR || 1) })).newPage();
@@ -21,6 +21,6 @@ const mon = await p.evaluate(async () => {
 });
 await p.goto(`http://localhost:5173/#/rapports/patron?p=week&a=${mon}`); await p.waitForTimeout(900);
 const card = N(await p.locator('.boss-prevPaid').innerText());
-ok(/35 000 Ar/.test(card) && /dont semaine −1 : 20 000 Ar \(1\) · plus anciennes : 15 000 Ar \(1\)/.test(card), `impayé précédent 35 000 = semaine −1 20 000 + plus anciennes 15 000 (${card})`);
+ok(/Impayé précédent à verser 20 000 Ar/.test(card) && /1 ancienne\(s\) vente\(s\)/.test(card) && /semaine −1 seulement/.test(card), `impayé précédent 20 000 : semaine −1 seulement, la vente plus ancienne (15 000) ne compte pas (${card})`);
 if (process.env.SHOT) await p.locator('.boss-prevPaid').screenshot({ path: process.env.SHOT });
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
