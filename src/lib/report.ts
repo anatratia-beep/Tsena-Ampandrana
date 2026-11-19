@@ -190,7 +190,7 @@ function prevUnpaidPaid(from: string, to: string) {
     const before = ins.filter((c) => c.day < from).reduce((t, c) => t + c.amount, 0);
     const a = Math.min(late, Math.max(0, itemsValue(o) - before));
     // Semaine −1 seulement dans le total ; les ventes plus anciennes sont montrées à part (pas comptées).
-    if (a > 0.5) { if (sd >= w1) { amount += a; ids.add(o.id); wk += a; wkN++; wkBy.set(o.id, { o, amount: a }); } else { old += a; oldN++; } }
+    if (a > 0.5) { if (sd >= w1) { amount += a; ids.add(o.id); wk += a; wkN++; wkBy.set(o.id, { o, amount: a }); } else if (sd >= addDays(w1, -7)) { old += a; oldN++; } } // « Plus anciennes » : semaine −2 seulement (affichées, pas dans le total)
   }
   return { amount, n: ids.size, wk, wkN, old, oldN, wkBy };
 }
