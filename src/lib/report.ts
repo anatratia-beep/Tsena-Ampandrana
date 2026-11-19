@@ -62,7 +62,7 @@ export interface BossMoney {
   sales: number; mobile: number; unpaid: number; unpaidN: number;
   /** total = espèces payées le jour de la vente (comme « Situation par page » de l'accueil) ;
    *  toPay = total − dépenses espèces + anciens impayés encaissés pendant la période. */
-  cash: { expenses: number; total: number; prevPaid: number; prevPaidN: number; toPay: number };
+  cash: { expenses: number; total: number; prevPaid: number; prevPaidN: number; toPay: number; prevWk?: number; prevWkN?: number; prevOld?: number; prevOldN?: number };
   mvola: { sales: number; expenses: number; toPay: number };
   orange: { sales: number; expenses: number; toPay: number };
   /** Payé par carte sur le site web (Stripe, versé ensuite sur le compte bancaire). */
@@ -174,6 +174,8 @@ function staffBuys(from: string, to: string) {
  *  entre `from` et `to`, sans dépasser ce qui restait dû sur les articles. Ils s'ajoutent à la 2e case « À verser au patron ». */
 function prevUnpaidPaid(from: string, to: string) {
   let amount = 0; const ids = new Set<string>();
+  // Détail (affichage seulement) : ventes de la semaine −1 (lundi → dimanche avant `from`) et ventes plus anciennes.
+  const w1 = addDays(mondayOf(from), -7); let wk = 0, wkN = 0, old = 0, oldN = 0;
   for (const o of all<Order>('orders')) {
     if (isStaffBuy(o) || o.status === 'cancelled' || (!isWalkIn(o) && !o.dispatchedAt)) continue;
     const sd = saleDay(o);
@@ -183,9 +185,9 @@ function prevUnpaidPaid(from: string, to: string) {
     if (late <= 0.5) continue;
     const before = ins.filter((c) => c.day < from).reduce((t, c) => t + c.amount, 0);
     const a = Math.min(late, Math.max(0, itemsValue(o) - before));
-    if (a > 0.5) { amount += a; ids.add(o.id); }
+    if (a > 0.5) { amount += a; ids.add(o.id); if (sd >= w1) { wk += a; wkN++; } else { old += a; oldN++; } }
   }
-  return { amount, n: ids.size };
+  return { amount, n: ids.size, wk, wkN, old, oldN };
 }
 
 /** Reste impayé de la semaine en cours : exactement le « Reste à payer » de « Situation par page » (accueil) sur la
@@ -219,7 +221,7 @@ export function bossMoney(from: string, to: string): BossMoney {
   const prev = prevUnpaidPaid(from, end);
   return {
     sales: s.sales, mobile, unpaid: s.unpaid, unpaidN: s.n,
-    cash: { expenses: exp.cash, total, prevPaid: prev.amount, prevPaidN: prev.n, toPay: total - exp.cash + prev.amount },
+    cash: { expenses: exp.cash, total, prevPaid: prev.amount, prevPaidN: prev.n, toPay: total - exp.cash + prev.amount, prevWk: prev.wk, prevWkN: prev.wkN, prevOld: prev.old, prevOldN: prev.oldN },
     mvola: { sales: paid.mvola, expenses: exp.mvola, toPay: paid.mvola - exp.mvola },
     orange: { sales: paid.orange, expenses: exp.orange, toPay: paid.orange - exp.orange },
     card: pay.card || 0,
