@@ -160,19 +160,6 @@ export function prevWeekRst(from: string, to: string) {
   return { amount: fri2 + sat1 + sat2 + other, fri2, sat1, sat2, other, n, by };
 }
 
-/** Écart entre « Reste semaine −1 » (RST SEM −1, tableau du versement) et « dont semaine −1 » de « Impayé précédent à
- *  verser » pour la semaine qui commence à `from` : commande par commande, avec les jours de paiement. Affichage seulement. */
-export function semGap(from: string) {
-  const mon = mondayOf(from), w1 = addDays(mon, -7), end = addDays(mon, 6) < today() ? addDays(mon, 6) : today();
-  const rst = prevWeekRst(w1, addDays(mon, -1)), pp = prevUnpaidPaid(mon, end);
-  const ids = new Set([...rst.by.keys(), ...pp.wkBy.keys()]);
-  const rows = [...ids].map((id) => {
-    const o = (rst.by.get(id) ?? pp.wkBy.get(id))!.o, a = rst.by.get(id)?.amount ?? 0, b = pp.wkBy.get(id)?.amount ?? 0;
-    return { o, rst: a, paid: b, gap: a - b, days: [...new Set(cashIns(o).map((c) => c.day))].sort(), courierDay: (o.payments || []).some((p) => p.method === 'cash' && p.receivedBy === 'courier') && o.courierSettledAt ? dayOf(o.courierSettledAt) : '' };
-  }).filter((r) => Math.abs(r.gap) > 0.5).sort((x, y) => y.gap - x.gap);
-  return { rst: rst.amount, paid: pp.wk, gap: rst.amount - pp.wk, rows };
-}
-
 /** Ventes internes (employés, au prix d'achat) de la période (valeur des articles). */
 function staffBuys(from: string, to: string) {
   let amount = 0, n = 0;
@@ -194,14 +181,16 @@ function prevUnpaidPaid(from: string, to: string) {
   for (const o of all<Order>('orders')) {
     if (isStaffBuy(o) || o.status === 'cancelled' || (!isWalkIn(o) && !o.dispatchedAt)) continue;
     const sd = saleDay(o);
-    // Semaine −1 seulement : les ventes plus anciennes ne comptent plus (demande du gérant).
-    if (sd >= from || sd < w1) continue;
-    const ins = cashIns(o);
+    if (sd >= from) continue;
+    // Jour où l'argent arrive à la boutique (comme « Reste semaine −1 ») : l'argent payé au livreur compte le jour où le
+    // livreur le verse ; pas encore versé = pas encore encaissé.
+    const ins = (o.payments || []).map((p) => ({ day: payDay(o, p), amount: p.amount })).filter((c): c is { day: string; amount: number } => !!c.day);
     const late = ins.filter((c) => c.day >= from && c.day <= to && mondayOf(sd) < mondayOf(c.day)).reduce((t, c) => t + c.amount, 0);
     if (late <= 0.5) continue;
     const before = ins.filter((c) => c.day < from).reduce((t, c) => t + c.amount, 0);
     const a = Math.min(late, Math.max(0, itemsValue(o) - before));
-    if (a > 0.5) { amount += a; ids.add(o.id); if (sd >= w1) { wk += a; wkN++; wkBy.set(o.id, { o, amount: a }); } else { old += a; oldN++; } }
+    // Semaine −1 seulement dans le total ; les ventes plus anciennes sont montrées à part (pas comptées).
+    if (a > 0.5) { if (sd >= w1) { amount += a; ids.add(o.id); wk += a; wkN++; wkBy.set(o.id, { o, amount: a }); } else { old += a; oldN++; } }
   }
   return { amount, n: ids.size, wk, wkN, old, oldN, wkBy };
 }
