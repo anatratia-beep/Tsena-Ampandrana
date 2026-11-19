@@ -24,6 +24,6 @@ const mon = await p.evaluate(async () => {
 });
 await p.goto(`http://localhost:5173/#/rapports/patron?p=week&a=${mon}`); await p.waitForTimeout(900);
 const card = N(await p.locator('.boss-prevPaid').innerText());
-ok(/Impayé précédent à verser 70 000 Ar/.test(card) && /2 ancienne\(s\) vente\(s\)/.test(card) && /dont semaine −1 : 70 000 Ar \(2\) · semaine −2 du \d\d\/\d\d au \d\d\/\d\d \(pas dans le total\) : 15 000 Ar \(1\)$/.test(card) && !/9 000/.test(card), `impayé précédent 70 000 = S1 20 000 + LIV 50 000 (versée par le livreur cette semaine), semaine −2 (15 000) affichée à part, semaine −3 (9 000) pas du tout (${card})`);
+ok(/Impayé précédent à verser 70 000 Ar/.test(card) && /2 ancienne\(s\) vente\(s\)/.test(card) && /dont semaine −1 : 70 000 Ar \(2\)$/.test(card) && !/semaine −2|9 000|15 000/.test(card), `impayé précédent 70 000 = S1 20 000 + LIV 50 000 (versée par le livreur cette semaine), semaine −2 (15 000, payée avant le 20/11 : remise à zéro) et semaine −3 (9 000) pas affichées (${card})`);
 if (process.env.SHOT) await p.locator('.boss-prevPaid').screenshot({ path: process.env.SHOT });
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
