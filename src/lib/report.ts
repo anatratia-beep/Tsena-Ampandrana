@@ -194,7 +194,8 @@ function prevUnpaidPaid(from: string, to: string) {
   for (const o of all<Order>('orders')) {
     if (isStaffBuy(o) || o.status === 'cancelled' || (!isWalkIn(o) && !o.dispatchedAt)) continue;
     const sd = saleDay(o);
-    if (sd >= from) continue;
+    // Semaine −1 seulement : les ventes plus anciennes ne comptent plus (demande du gérant).
+    if (sd >= from || sd < w1) continue;
     const ins = cashIns(o);
     const late = ins.filter((c) => c.day >= from && c.day <= to && mondayOf(sd) < mondayOf(c.day)).reduce((t, c) => t + c.amount, 0);
     if (late <= 0.5) continue;
