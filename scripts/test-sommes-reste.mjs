@@ -1,4 +1,4 @@
-// Tableau du versement : Sommes = reçu (espèces, MVola, Orange) − reste à payer de la semaine en cours (figé) + reste semaine −1.
+// Tableau du versement : Sommes = reçu (espèces, MVola, Orange) + reste semaine −1 (sans le reste à payer de la semaine en cours).
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
 const p = await (await b.newContext({ viewport: { width: 1280, height: 900 }, timezoneId: 'Indian/Antananarivo', deviceScaleFactor: Number(process.env.DPR || 1) })).newPage();
@@ -20,6 +20,6 @@ await p.evaluate(async () => {
 });
 await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(900);
 const foot = N(await p.locator('.bw-table tfoot').first().innerText());
-ok(/Sommes [-−]30 000 Ar/.test(foot), `sommes = reçu 0 (rien saisi dans les Versements) − reste à payer 30 000 + reste semaine −1 0 = −30 000 (${foot})`);
+ok(/Sommes 0 Ar/.test(foot), `sommes = reçu 0 + reste semaine −1 0, sans le reste à payer 30 000 (${foot})`);
 if (process.env.SHOT) await p.locator('.bw-table').first().screenshot({ path: process.env.SHOT });
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
