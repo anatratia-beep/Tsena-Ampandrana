@@ -4,7 +4,7 @@ import { audit, can, currentUser } from './auth';
 import { addMoves, nextNumber, stockOf, variantLabel, type Product, type StockMove, type Variant } from './catalog';
 import { DEFAULT_COMPANY, type Company } from './settings';
 import { assertOpenNow, closedBy } from './closed';
-import { SUPERADMIN_ROLE } from './permissions';
+import { MANAGER_ROLE, SUPERADMIN_ROLE } from './permissions';
 import { adjustsKeptTotal, adjustsTotal, computeAdjusts, type Adjust } from './lots';
 import type { Rectification, RectifyRequest } from './rectify';
 
@@ -55,7 +55,7 @@ export interface Payment {
   note?: string;
   userName?: string;
   /** Corrections faites par l'admin : ancien et nouveau montant, date, utilisateur. */
-  edits?: { at: string; user?: string; fromAmount: number; toAmount: number; fromMethod: PayMethod; toMethod: PayMethod; fromRef?: string; toRef?: string; fromBy?: 'shop' | 'courier'; toBy?: 'shop' | 'courier'; reason?: string }[];
+  edits?: { at: string; user?: string; fromAmount: number; toAmount: number; fromMethod: PayMethod; toMethod: PayMethod; fromRef?: string; toRef?: string; fromBy?: 'shop' | 'courier'; toBy?: 'shop' | 'courier'; fromAt?: string; toAt?: string; reason?: string }[];
 }
 export interface Order extends BaseRecord {
   number: string;
@@ -308,6 +308,8 @@ export function availableOf(variantId: string, reserved: Map<string, number>) {
 // ---------- Date de validation (super-admin) ----------
 const ymdLocal = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 export const isSuperUser = () => currentUser()?.roleId === SUPERADMIN_ROLE;
+/** Changer la date d'un paiement (client qui a payé un autre jour que celui saisi) : Responsable seulement (et le super-admin). */
+export const canEditPayDate = () => isSuperUser() || currentUser()?.roleId === MANAGER_ROLE;
 /**
  * Heure de l'opération. Le super-admin peut choisir un autre jour (ex. commande oubliée « en attente de livraison »
  * hier, validée ce matin) : la vente compte ce jour-là (même heure), même si la semaine est déjà versée au patron.
@@ -558,7 +560,7 @@ export async function cancelOrder(o: Order, reason: string) {
 }
 
 /** Correction d'un paiement (erreur de saisie : montant, moyen, référence, reçu par) : tout est gardé dans l'historique. */
-export async function editPayment(o: Order, paymentId: string, ch: { amount: number; method: PayMethod; ref?: string; receivedBy?: 'shop' | 'courier' }, reason?: string) {
+export async function editPayment(o: Order, paymentId: string, ch: { amount: number; method: PayMethod; ref?: string; receivedBy?: 'shop' | 'courier'; day?: string }, reason?: string) {
   const u = currentUser();
   const at = new Date().toISOString(); // heure réelle de la correction
   const old = (o.payments || []).find((p) => p.id === paymentId);
@@ -570,10 +572,18 @@ export async function editPayment(o: Order, paymentId: string, ch: { amount: num
   if (old.amount !== ch.amount || old.method !== ch.method) parts.push(`${old.amount.toLocaleString('fr-FR')} Ar (${PAY_METHODS[old.method]}) → ${ch.amount.toLocaleString('fr-FR')} Ar (${PAY_METHODS[ch.method]})`);
   if ((old.ref || undefined) !== ref) parts.push(old.ref ? `réf. ${old.ref} → ${ref ?? 'aucune'}` : `réf. ajoutée : ${ref}`);
   if (old.receivedBy !== by) parts.push(by === 'shop' ? 'reçu par la boutique (et non par le livreur)' : 'encaissé par le livreur (et non par la boutique)');
+  // Nouvelle date (même heure) : seulement pour le Responsable.
+  const dayOf = (iso: string) => { const d = new Date(iso), z = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`; };
+  let newAt = old.at;
+  if (ch.day && ch.day !== dayOf(old.at)) {
+    if (!canEditPayDate()) throw new Error('Seul le Responsable peut changer la date d’un paiement.');
+    const d = new Date(old.at), [y, m, dd] = ch.day.split('-').map(Number); d.setFullYear(y, m - 1, dd); newAt = d.toISOString();
+    parts.push(`date ${dayOf(old.at).split('-').reverse().join('/')} → ${ch.day.split('-').reverse().join('/')}`);
+  }
   if (!parts.length) return;
   const payments = o.payments.map((p) => (p.id === paymentId ? {
-    ...p, amount: ch.amount, method: ch.method, ref, receivedBy: by, courierId: by === 'courier' ? (p.courierId ?? o.courierId) : p.courierId,
-    edits: [...(p.edits || []), { at, user: u?.fullName, fromAmount: p.amount, toAmount: ch.amount, fromMethod: p.method, toMethod: ch.method, fromRef: p.ref, toRef: ref, fromBy: p.receivedBy, toBy: by, reason }],
+    ...p, at: newAt, amount: ch.amount, method: ch.method, ref, receivedBy: by, courierId: by === 'courier' ? (p.courierId ?? o.courierId) : p.courierId,
+    edits: [...(p.edits || []), { at, user: u?.fullName, fromAmount: p.amount, toAmount: ch.amount, fromMethod: p.method, toMethod: ch.method, fromRef: p.ref, toRef: ref, fromBy: p.receivedBy, toBy: by, ...(newAt !== p.at ? { fromAt: p.at, toAt: newAt } : {}), reason }],
   } : p));
   const text = `Paiement corrigé : ${parts.join(' ; ')}${reason ? ` — ${reason}` : ''}`;
   await save('orders', { id: o.id, payments, events: [...(o.events || []), { at, text, user: u?.fullName }] });

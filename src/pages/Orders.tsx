@@ -8,7 +8,7 @@ import { fmtAr, fmtNum, nextNumber, parseNum, productVariants, useCatalog, varia
 import {
   addPayment, availableOf, backToPrepare, cancelOrder, cancelDeliveryToShop, MAX_REPORTS, reportCount, canPostpone, postponeOrder, cancelAfterReports, CHANNELS, completeAtShop, confirmOrder, dispatchOrder, exchangeBalance, findCustomer, fmtPhone,
   canReassign, customerIdFor, choiceQty, hasPendingChoice, needsSettlement, reassignCourier, isOutsideHours, isPickupZone, isWalkIn, orderLabel, handOverAtShop, itemsTotal, keptTotal, linePrice, markReady, normPhone, ORDER_STATUS, orderTotal, paidTotal, PAY_METHODS, recordReturn, remaining,
-  isSuperUser, canMoveValidation, moveValidationDay, priceOrder, removeLine, reservedIndex, totalQty, useWholesale, editPayment, courierSplit, withLineWholesale, keepLinePrices, stripKeptPrices, discountAr, stockShortages,
+  isSuperUser, canEditPayDate, canMoveValidation, moveValidationDay, priceOrder, removeLine, reservedIndex, totalQty, useWholesale, editPayment, courierSplit, withLineWholesale, keepLinePrices, stripKeptPrices, discountAr, stockShortages,
   type Courier, type Customer, type Order, type OrderLine, type OrderStatus, type PayMethod, type Payment, type Zone, orderText, customerText, findCustomerBy,
 } from '../lib/orders';
 import { useCompany } from '../lib/settings';
@@ -16,7 +16,7 @@ import { canSwapLine, correctDiscount, correctWalkInSale, swapLineVariant, swapP
 import { approveRectify, canApproveRectify, cancelledBy, isSuper, planRectify, rectifyCancellation, rectifyRight, rectifySaleDay, rejectRectify, requestRectify, type RectifyDates } from '../lib/rectify';
 import { closedBy } from '../lib/closed';
 import { manualMethods } from '../ui/payments';
-import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, feeState, payDeferredFees, settleCourier, type AccountId } from '../lib/money';
+import { ACCOUNTS, ACCOUNT_IDS, FEE_STATE, feeState, payDeferredFees, settleCourier, dayOf, type AccountId } from '../lib/money';
 import { Help, DiscountField, Badge, Button, Confirm, Empty, FilterSelect, IconButton, Modal, MoreMatches, PageHead, SelectField, TextField, fmtDate, fmtDateTime, navigate, toast, useRoute, DateSort, type DateOrder, useKeep } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { PayLines, payLinesSum, splitInTwo, type PayLine } from '../ui/payments';
@@ -955,6 +955,7 @@ function payEditText(e: NonNullable<Payment['edits']>[number]) {
   const parts: string[] = [];
   if (e.fromAmount !== e.toAmount || e.fromMethod !== e.toMethod) parts.push(`${fmtAr(e.fromAmount)}${e.fromMethod !== e.toMethod ? ` (${PAY_METHODS[e.fromMethod]})` : ''} → ${fmtAr(e.toAmount)}${e.fromMethod !== e.toMethod ? ` (${PAY_METHODS[e.toMethod]})` : ''}`);
   if ((e.fromRef || '') !== (e.toRef || '')) parts.push(e.fromRef ? `réf. ${e.fromRef} → ${e.toRef || 'aucune'}` : `référence ajoutée : ${e.toRef}`);
+  if (e.fromAt && e.toAt) parts.push(`date ${new Date(e.fromAt).toLocaleDateString('fr-FR')} → ${new Date(e.toAt).toLocaleDateString('fr-FR')}`);
   if (e.fromBy && e.toBy && e.fromBy !== e.toBy) parts.push(e.toBy === 'shop' ? 'reçu par la boutique (et non par le livreur)' : 'encaissé par le livreur (et non par la boutique)');
   return parts.join(' ; ') || 'modifié';
 }
@@ -964,14 +965,16 @@ function EditPaymentModal({ order: o, payment: p, refOnly, onClose }: { order: O
   const [method, setMethod] = useState<PayMethod>(p.method);
   const [ref, setRef] = useState(p.ref ?? '');
   const [by, setBy] = useState<'shop' | 'courier'>(p.receivedBy);
+  const day0 = dayOf(p.at), dateOk = !refOnly && canEditPayDate();
+  const [day, setDay] = useState(day0);
   const [reason, setReason] = useState(refOnly ? 'Référence vérifiée' : 'Erreur de saisie');
   const [busy, setBusy] = useState(false);
   const n = refOnly ? p.amount : parseAr(amount) ?? NaN;
   const hasCourier = !!(o.courierId || p.courierId);
-  const changed = n !== p.amount || method !== p.method || ref.trim() !== (p.ref ?? '') || by !== p.receivedBy;
+  const changed = n !== p.amount || method !== p.method || ref.trim() !== (p.ref ?? '') || by !== p.receivedBy || (dateOk && !!day && day !== day0);
   const doSave = async () => {
     setBusy(true);
-    try { await editPayment(o, p.id, { amount: n, method: refOnly ? p.method : method, ref, receivedBy: refOnly ? p.receivedBy : by }, reason.trim() || undefined); toast(refOnly ? 'Référence enregistrée' : 'Paiement corrigé'); onClose(); }
+    try { await editPayment(o, p.id, { amount: n, method: refOnly ? p.method : method, ref, receivedBy: refOnly ? p.receivedBy : by, day: dateOk && day ? day : undefined }, reason.trim() || undefined); toast(refOnly ? 'Référence enregistrée' : 'Paiement corrigé'); onClose(); }
     catch (e: any) { toast(e?.message ?? String(e), 'error'); setBusy(false); }
   };
   return (
@@ -984,6 +987,7 @@ function EditPaymentModal({ order: o, payment: p, refOnly, onClose }: { order: O
           <SelectField label="Moyen" value={method} onChange={(v) => setMethod(v as PayMethod)} options={manualMethods(method).map(([value, label]) => ({ value, label }))} />
         </div>}
         <TextField label="Référence de la transaction" value={ref} onChange={setRef} autoFocus={refOnly} hint={method === 'cash' ? 'Pas nécessaire pour les espèces' : 'Numéro de la transaction MVola, Orange Money ou Airtel Money'} />
+        {dateOk && <TextField label="Date du paiement" type="date" value={day} onChange={setDay} hint="Le jour où le client a vraiment payé (Responsable seulement)" />}
         {!refOnly && hasCourier && <SelectField label="Argent reçu par" value={by} onChange={(v) => setBy(v as 'shop' | 'courier')} options={[{ value: 'shop', label: 'La boutique (sur son numéro / en caisse)' }, { value: 'courier', label: 'Le livreur (il doit le verser)' }]} />}
         {!refOnly && <TextField label="Motif" value={reason} onChange={setReason} />}
         <Help>{refOnly ? 'La référence est ajoutée au paiement ; votre nom et l’heure restent visibles sous le paiement et dans le journal.' : 'L’ancienne et la nouvelle valeur, la date et votre nom restent visibles sous le paiement et dans le journal d’activité. Le reste à payer, la trésorerie et le compte du livreur se recalculent tout seuls.'}</Help>
