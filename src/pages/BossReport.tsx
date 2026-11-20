@@ -301,7 +301,8 @@ export function WeekVersementReport() {
   const [rstOpen, setRstOpen] = useState(false);
   const rst = prevWeekRst(addDays(w.monday, -7), addDays(w.monday, -1));
   const restCur = frozenUnpaid(w.monday, w.sunday, w.sunday).amount, restPrev = rst.amount;
-  const total = rows.reduce((t, x) => t + x.cur, 0) + restCur + restPrev, diff = total - sales;
+  // Sommes = reçu (espèces, MVola, Orange) + reste semaine −1 − reste à payer de la semaine en cours (figé).
+  const total = rows.reduce((t, x) => t + x.cur, 0) - restCur + restPrev, diff = total - sales;
   const diffAll = rows.reduce((t, x) => t + x.diff, 0);
   const sg = (n: number) => <strong className={n < -0.5 ? 'neg' : ''}>{n > 0.5 ? '+ ' : n < -0.5 ? '− ' : ''}{fmtAr(Math.abs(n))}</strong>;
   const saveLundi = (id: Acc, v: string) => {
