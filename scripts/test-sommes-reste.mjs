@@ -1,4 +1,4 @@
-// Tableau du versement : Sommes = reçu (espèces, MVola, Orange) − reste à payer de la semaine en cours (figé) + reste semaine −1.
+// Tableau du versement : Sommes = reçu (espèces, MVola, Orange) + reste à payer de la semaine en cours (figé) + reste semaine −1 : égale la vente quand tout l'argent est reçu.
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
 const p = await (await b.newContext({ viewport: { width: 1280, height: 900 }, timezoneId: 'Indian/Antananarivo', deviceScaleFactor: Number(process.env.DPR || 1) })).newPage();
@@ -17,9 +17,10 @@ await p.evaluate(async () => {
   await t.save('variants', [{ id: 'va', productId: 'a', sku: 'A', costAvg: 5000, active: true }]);
   const o = (id, amount, n, payments) => ({ id, number: id, kind: 'order', channel: 'shop', phone: '', status: 'delivered', lines: [{ id: 'l' + id, variantId: 'va', qty: 1, unitPrice: amount, qtyKept: 1 }], payments, discount: 0, deliveryFee: 0, createdAt: d(n) });
   await t.save('orders', [o('PAY', 50000, 0, [{ id: 'p', at: d(0), amount: 50000, method: 'cash', receivedBy: 'shop' }]), o('RES', 30000, 0, [])]);
+  const day = d(0).slice(0, 10); await t.save('moneyCounts', [{ id: 'mc_' + day, date: day, cash: 50000 }]);
 });
 await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(900);
 const foot = N(await p.locator('.bw-table tfoot').first().innerText());
-ok(/Sommes [-−]30 000 Ar/.test(foot), `sommes = reçu 0 (rien saisi dans les Versements) − reste à payer 30 000 + reste semaine −1 0 = −30 000 (${foot})`);
+ok(/Sommes 80 000 Ar/.test(foot) && /Différence \(sommes [-−] vente\) 0 Ar/.test(foot), `sommes = reçu 50 000 + reste à payer 30 000 + reste semaine −1 0 = 80 000 = vente (${foot})`);
 if (process.env.SHOT) await p.locator('.bw-table').first().screenshot({ path: process.env.SHOT });
 console.log(fail ? `${fail} échec(s)` : 'Tout est bon'); await b.close(); process.exit(fail ? 1 : 0);
