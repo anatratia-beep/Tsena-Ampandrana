@@ -200,6 +200,16 @@ function prevUnpaidPaid(from: string, to: string) {
   return { amount, n: ids.size, wk, wkN, old, oldN, wkBy };
 }
 
+/** Liste des ventes de « Impayé précédent à verser » (pour comparer avec l'Excel) : vente, jours et modes de paiement, montant. */
+export function prevPaidList(from: string, to: string) {
+  const end = to < today() ? to : today();
+  const rows = [...prevUnpaidPaid(from, end).wkBy.values()].map(({ o, amount }) => {
+    const pays = (o.payments || []).map((p) => ({ day: payDay(o, p), p })).filter((x) => x.day && x.day >= from && x.day <= end);
+    return { o, amount, sale: saleDay(o), days: [...new Set(pays.map((x) => x.day as string))].sort(), methods: [...new Set(pays.map((x) => (x.p.receivedBy === 'courier' ? 'livreur' : ({ cash: 'espèces', mvola: 'MVola', orange: 'Orange Money', airtel: 'Airtel Money', card: 'carte' } as Record<string, string>)[x.p.method] ?? x.p.method)))] };
+  });
+  return rows.sort((a, b) => a.sale.localeCompare(b.sale) || a.o.number.localeCompare(b.o.number));
+}
+
 /** Reste impayé de la semaine en cours : exactement le « Reste à payer » de « Situation par page » (accueil) sur la
  *  même période (sans frais de livraison ; l'argent encore chez le livreur reste à payer jusqu'à son versement). */
 export function restLikeAccueil(from: string, to: string): WeekUnpaid {

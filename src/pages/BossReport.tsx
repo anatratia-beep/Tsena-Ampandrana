@@ -7,7 +7,7 @@ import { addPayment, courierSplit, fmtPhone, needsSettlement, normPhone, remaini
 import { voidOrder } from '../lib/corrections';
 import { deliveryNet, settleCourier } from '../lib/money';
 import { addDays, dayOf, today } from '../lib/money';
-import { PKIND, bossMoney, bossReport, frozenUnpaid, prevWeekBreakdown, prevWeekRst, periodOf, reportText, shiftAnchor, type PKind, type PageRow, type Report, type StockRow } from '../lib/report';
+import { PKIND, bossMoney, bossReport, frozenUnpaid, prevPaidList, prevWeekBreakdown, prevWeekRst, periodOf, reportText, shiftAnchor, type PKind, type PageRow, type Report, type StockRow } from '../lib/report';
 import { a4Table, arA4, h, printA4 } from '../lib/a4';
 import { useCompany } from '../lib/settings';
 import { usdRate } from '../lib/payouts';
@@ -42,6 +42,7 @@ export function BossReport() {
   const sent = useMeta<Record<string, string>>('reportSent', {});
   const key = reportKey(kind, per.from);
   const markSent = () => setMeta('reportSent', { ...sent, [key]: new Date().toISOString() });
+  const [showPrevPaid, setShowPrevPaid] = useState(false);
   const go = (dir: -1 | 1) => { const n = shiftAnchor(kind, anchor, dir, custom); setAnchor(n.anchor); if (n.custom) setCustom(n.custom); };
   const isDay = kind === 'day';
   const text = reportText(kind, per.label, r, company.name);
@@ -163,9 +164,11 @@ export function BossReport() {
               <strong className={`stat-value num ${t.cur < 0 ? 'neg' : ''}`}>{fmtAr(t.cur)}</strong>
               <span className="small muted"><Delta cur={t.cur} prev={t.prev} invert={t.invert} /> vs {isDay ? 'la veille' : 'période précédente'}</span>
               <span className="small muted">{t.hint}</span>
+              {t.id === 'prevPaid' && t.cur > 0.5 && <button type="button" className="link-btn small boss-prev-see" style={{ padding: 0, textAlign: 'left' }} onClick={() => setShowPrevPaid(true)}>Voir les ventes →</button>}
             </div>
           ))}
         </div>
+        {showPrevPaid && <PrevPaidModal from={per.from} to={per.to} onClose={() => setShowPrevPaid(false)} />}
         <div className="stat-grid boss-mobile">
           {mobile.map((g) => (
             <div key={g.id} className={`boss-pair boss-${g.id}`}>
@@ -222,6 +225,23 @@ export function BossReport() {
 /** Rapports à envoyer (pour les rappels) : du jour le soir, de la semaine le lundi, du mois le 1er, de l'année le 1er janvier. */
 /** Rapport « Versement de la semaine » (onglet à part, après le rapport au patron) : comme le tableau Excel de la semaine. */
 /** Ventes encore impayées d'une semaine passée (les mêmes que la case rouge), avec « Payé » et l'accès à la commande. */
+/** « Impayé précédent à verser » : liste des ventes de la semaine −1 payées pendant la période (à comparer avec l'Excel). */
+function PrevPaidModal({ from, to, onClose }: { from: string; to: string; onClose: () => void }) {
+  const dd = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+  const rows = prevPaidList(from, to), total = rows.reduce((t, r) => t + r.amount, 0);
+  return (
+    <Modal wide title={`Impayé précédent à verser — ${rows.length} vente(s)`} onClose={onClose}>
+      <div className="table-wrap"><table className="table table-grid boss-prev-list">
+        <thead><tr><th>Vente du</th><th>Commande</th><th>Payé le</th><th>Mode</th><th className="t-num">Montant</th></tr></thead>
+        <tbody>{rows.map((r) => (
+          <tr key={r.o.id}><td>{dd(r.sale)}</td><td><a href={`#/commandes/${r.o.id}`} onClick={onClose}><strong>{r.o.number}</strong></a> {r.o.name || r.o.facebook || r.o.phone}</td><td>{r.days.map(dd).join(', ')}</td><td>{r.methods.join(', ')}</td><td className="t-num">{fmtAr(r.amount)}</td></tr>
+        ))}</tbody>
+        <tfoot><tr className="t-total"><td colSpan={4}>Total</td><td className="t-num">{fmtAr(total)}</td></tr></tfoot>
+      </table></div>
+    </Modal>
+  );
+}
+
 function PrevUnpaidModal({ from, to, onClose }: { from: string; to: string; onClose: () => void }) {
   useTable('orders'); useTable('categories');
   const dd = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
