@@ -6,8 +6,8 @@ import { audit, currentUser } from './auth';
 
 export type CountField = 'cash' | 'mvola' | 'orange' | 'airtel';
 /** Cases du versement corrigeables à la main (✏️) : MVola / Orange / Airtel, total ventes, 1er et 2ème paiement espèces. */
-export type FixField = 'mvola' | 'orange' | 'airtel' | 'sales' | 'n1' | 'n2';
-export const FIX_LABELS: Record<FixField, string> = { mvola: 'MVola', orange: 'Orange Money', airtel: 'Airtel Money', sales: 'Total ventes', n1: '1er paiement espèces', n2: '2ème paiement espèces' };
+export type FixField = 'mvola' | 'orange' | 'airtel' | 'sales' | 'n1' | 'n2' | 'fee';
+export const FIX_LABELS: Record<FixField, string> = { mvola: 'MVola', orange: 'Orange Money', airtel: 'Airtel Money', sales: 'Total ventes', n1: '1er paiement espèces', n2: '2ème paiement espèces', fee: 'Frais livreurs MVola / Orange Money' };
 export const COUNT_LABELS: Record<CountField, string> = { cash: 'Espèces', mvola: 'MVola', orange: 'Orange Money', airtel: 'Airtel Money' };
 export interface MoneyCount extends BaseRecord {
   date: string; cash?: number; mvola?: number; orange?: number; airtel?: number; byName?: string; at?: string;
