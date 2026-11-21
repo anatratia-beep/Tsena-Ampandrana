@@ -1,4 +1,5 @@
-// Versements : la case « Frais livreurs MVola / Orange Money » se corrige (✏️) comme les autres cases.
+// Versements : la case « Frais livreurs MVola / Orange Money » se corrige (✏️) comme les autres cases,
+// et la correction compte dans les frais de livraison du rapport versement de la semaine.
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
 const p = await (await b.newContext({ viewport: { width: 1400, height: 900 }, timezoneId: 'Indian/Antananarivo', deviceScaleFactor: Number(process.env.DPR || 1) })).newPage();
@@ -27,6 +28,12 @@ ok(/2 500 Ar calculé 0 Ar · remettre/.test(txt), `frais corrigé 2 500, calcul
 const foot = N(await tbl.locator('tfoot').innerText());
 ok(/2 500 Ar/.test(foot), `total frais 2 500 (${foot})`);
 if (process.env.SHOT) await tbl.screenshot({ path: process.env.SHOT });
+// Rapport versement de la semaine : les frais corrigés (frais de colis oubliés…) comptent dans les dépenses.
+await p.goto('http://localhost:5173/#/rapports/versement-semaine'); await p.waitForTimeout(900);
+const exp = p.locator('.bw-top-exp');
+ok(/frais de livraison 2 500 Ar/.test(N(await exp.innerText())), `rapport de la semaine : frais de livraison 2 500 (${N(await exp.innerText())})`);
+if (process.env.SHOT2) await exp.screenshot({ path: process.env.SHOT2 });
+await p.goto('http://localhost:5173/#/versements'); await p.waitForTimeout(800);
 await tbl.getByRole('button', { name: 'remettre' }).click(); await p.waitForTimeout(400);
 ok(!/calculé 0 Ar/.test(N(await tbl.innerText())), 'remettre : revient au calcul');
 await b.close();
