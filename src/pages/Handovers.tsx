@@ -443,7 +443,9 @@ const ddmmyy = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(2, 4
 const salesDay = (d: SellerDay) => mobFixOf(d.date, d.user.id, 'sales') ?? d.sales;
 /** Total à payer de la ligne : le calcul, avec les 1er / 2ème paiements espèces corrigés à la main s'il y en a. */
 const toPayDay = (d: SellerDay) => { const c = dayCash(d); return d.toPay + (c.n1 - c.n1c) + (c.n2 - c.n2c); };
-const fixCalc = (d: SellerDay, f: FixField) => f === 'sales' ? d.sales : f === 'n1' ? dayCash(d).n1c : f === 'n2' ? dayCash(d).n2c : mobCalc(d, f);
+/** Frais livreurs MVola / Orange Money affichés et totalisés : corrigés à la main (✏️) si besoin, sinon le calcul. */
+const feeDay = (d: SellerDay) => mobFixOf(d.date, d.user.id, 'fee') ?? d.feeMobile;
+const fixCalc = (d: SellerDay, f: FixField) => f === 'sales' ? d.sales : f === 'fee' ? d.feeMobile : f === 'n1' ? dayCash(d).n1c : f === 'n2' ? dayCash(d).n2c : mobCalc(d, f);
 /** Case corrigeable (✏️) du versement : MVola / Orange / Airtel, total ventes, 1er et 2ème paiement espèces.
  *  Le montant corrigé est affiché et totalisé, le calcul reste visible ; « remettre » revient au calcul. */
 function MobCell({ d, m }: { d: SellerDay; m: FixField }) {
@@ -547,7 +549,7 @@ function PageBoard({ date, between }: { date: string; between?: ReactNode }) {
   // « Sans page » (articles sans page) : montré à part sous le tableau, jamais compté dans les totaux du versement.
   const allRows = pagesOfDay(date);
   const rows = allRows.filter((d) => d.pageId !== '_'), noPage = allRows.find((d) => d.pageId === '_');
-  const t = rows.reduce((a, d) => ({ sales: a.sales + salesDay(d), cash: a.cash + d.pay.cash, day: a.day + dayCash(d).shown, c1: a.c1 + dayCash(d).n1, c2: a.c2 + dayCash(d).n2, fm: a.fm + d.feeMobile, mvola: a.mvola + mobDay(d, 'mvola'), orange: a.orange + mobDay(d, 'orange'), airtel: a.airtel + mobDay(d, 'airtel'), fees: a.fees + d.fees, toPay: a.toPay + toPayDay(d), got: a.got + (d.handover?.amount ?? 0) }),
+  const t = rows.reduce((a, d) => ({ sales: a.sales + salesDay(d), cash: a.cash + d.pay.cash, day: a.day + dayCash(d).shown, c1: a.c1 + dayCash(d).n1, c2: a.c2 + dayCash(d).n2, fm: a.fm + feeDay(d), mvola: a.mvola + mobDay(d, 'mvola'), orange: a.orange + mobDay(d, 'orange'), airtel: a.airtel + mobDay(d, 'airtel'), fees: a.fees + d.fees, toPay: a.toPay + toPayDay(d), got: a.got + (d.handover?.amount ?? 0) }),
     { sales: 0, cash: 0, day: 0, c1: 0, c2: 0, fm: 0, mvola: 0, orange: 0, airtel: 0, fees: 0, toPay: 0, got: 0 });
   const rest = rows.filter((d) => !d.handover).reduce((s, d) => s + toPayDay(d), 0);
   const waiting = rows.filter((d) => !d.handover && (d.toPay || d.sales));
@@ -561,7 +563,7 @@ function PageBoard({ date, between }: { date: string; between?: ReactNode }) {
     { key: 'mv', label: 'MVola', value: (d) => Math.round(mobDay(d, 'mvola')), money: true, width: 13 },
     { key: 'or', label: 'Orange Money', value: (d) => Math.round(mobDay(d, 'orange')), money: true, width: 13 },
     { key: 'ai', label: 'Airtel Money', value: (d) => Math.round(mobDay(d, 'airtel')), money: true, width: 13 },
-    { key: 'f', label: 'Frais livreurs MVola / Orange Money', value: (d) => Math.round(d.feeMobile), money: true, width: 15 },
+    { key: 'f', label: 'Frais livreurs MVola / Orange Money', value: (d) => Math.round(feeDay(d)), money: true, width: 15 },
     { key: 't', label: 'Total à payer', value: (d) => Math.round(toPayDay(d)), money: true, width: 14 },
     { key: 'r', label: 'Espèces reçues', value: (d) => (d.handover ? Math.round(d.handover.amount) : ''), money: true, width: 13 },
     { key: 'g', label: 'Écart', value: (d) => (d.handover ? Math.round(d.handover.gap) : ''), money: true, width: 12 },
@@ -570,7 +572,7 @@ function PageBoard({ date, between }: { date: string; between?: ReactNode }) {
   const exportPdf = () => printA4('Versements par page', longDate(date), `
     <div class="kpis"><div class="kpi"><span>Total ventes</span><b>${arA4(t.sales)}</b></div><div class="kpi"><span>Espèces</span><b>${arA4(t.cash)}</b></div><div class="kpi"><span>Mobile money</span><b>${arA4(t.mvola + t.orange + t.airtel)}</b></div><div class="kpi strong"><span>Total à payer</span><b>${arA4(t.toPay)}</b></div></div>
     ${a4Table({ head: ['Page', 'Ventes', 'Espèces du jour', '1er paiement', '2ème paiement', 'MVola', 'Orange', 'Airtel', 'Frais MVola / Orange', 'À payer', 'Reçu'], num: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-      rows: rows.map((d) => [h(d.user.fullName), arA4(salesDay(d)), arA4(dayCash(d).shown), arA4(dayCash(d).n1), arA4(dayCash(d).n2), arA4(mobDay(d, 'mvola')), arA4(mobDay(d, 'orange')), arA4(mobDay(d, 'airtel')), arA4(d.feeMobile), `<b>${arA4(d.toPay)}</b>`, d.handover ? arA4(d.handover.amount) : '—']),
+      rows: rows.map((d) => [h(d.user.fullName), arA4(salesDay(d)), arA4(dayCash(d).shown), arA4(dayCash(d).n1), arA4(dayCash(d).n2), arA4(mobDay(d, 'mvola')), arA4(mobDay(d, 'orange')), arA4(mobDay(d, 'airtel')), arA4(feeDay(d)), `<b>${arA4(d.toPay)}</b>`, d.handover ? arA4(d.handover.amount) : '—']),
       foot: ['Total', arA4(t.sales), arA4(t.day), arA4(t.c1), arA4(t.c2), arA4(t.mvola), arA4(t.orange), arA4(t.airtel), arA4(t.fm), arA4(t.toPay), arA4(t.got)] })}`);
   return (
     <>
@@ -602,7 +604,7 @@ function PageBoard({ date, between }: { date: string; between?: ReactNode }) {
                   <MobCell d={d} m="mvola" />
                   <MobCell d={d} m="orange" />
                   <MobCell d={d} m="airtel" />
-                  <td className="t-num">{money(d.feeMobile)}</td>
+                  <MobCell d={d} m="fee" />
                   <td className="t-num"><strong>{fmtAr(toPayDay(d))}</strong></td>
                 </tr>
               ))}
@@ -620,7 +622,7 @@ function PageBoard({ date, between }: { date: string; between?: ReactNode }) {
 function Board({ date, between }: { date: string; between?: ReactNode }) {
   const rows = sellersOfDay(date);
   const [open, setOpen] = useState<string | null>(null);
-  const t = rows.reduce((a, d) => ({ sales: a.sales + salesDay(d), cash: a.cash + d.pay.cash, day: a.day + dayCash(d).shown, c1: a.c1 + dayCash(d).n1, c2: a.c2 + dayCash(d).n2, fm: a.fm + d.feeMobile, mvola: a.mvola + mobDay(d, 'mvola'), orange: a.orange + mobDay(d, 'orange'), airtel: a.airtel + mobDay(d, 'airtel'), fees: a.fees + d.fees, exp: a.exp + d.expenses, toPay: a.toPay + toPayDay(d), got: a.got + (d.handover?.amount ?? 0) }),
+  const t = rows.reduce((a, d) => ({ sales: a.sales + salesDay(d), cash: a.cash + d.pay.cash, day: a.day + dayCash(d).shown, c1: a.c1 + dayCash(d).n1, c2: a.c2 + dayCash(d).n2, fm: a.fm + feeDay(d), mvola: a.mvola + mobDay(d, 'mvola'), orange: a.orange + mobDay(d, 'orange'), airtel: a.airtel + mobDay(d, 'airtel'), fees: a.fees + d.fees, exp: a.exp + d.expenses, toPay: a.toPay + toPayDay(d), got: a.got + (d.handover?.amount ?? 0) }),
     { sales: 0, cash: 0, day: 0, c1: 0, c2: 0, fm: 0, mvola: 0, orange: 0, airtel: 0, fees: 0, exp: 0, toPay: 0, got: 0 });
   const waiting = rows.filter((d) => !d.handover && (d.toPay || d.sales));
   const rest = rows.filter((d) => !d.handover).reduce((s, d) => s + toPayDay(d), 0);
@@ -636,7 +638,7 @@ function Board({ date, between }: { date: string; between?: ReactNode }) {
     { key: 'mv', label: 'MVola', value: (d) => Math.round(mobDay(d, 'mvola')), money: true, width: 13 },
     { key: 'or', label: 'Orange Money', value: (d) => Math.round(mobDay(d, 'orange')), money: true, width: 13 },
     { key: 'ai', label: 'Airtel Money', value: (d) => Math.round(mobDay(d, 'airtel')), money: true, width: 13 },
-    { key: 'f', label: 'Frais livreurs MVola / Orange Money', value: (d) => Math.round(d.feeMobile), money: true, width: 15 },
+    { key: 'f', label: 'Frais livreurs MVola / Orange Money', value: (d) => Math.round(feeDay(d)), money: true, width: 15 },
     { key: 'e', label: 'Dépenses (caisse)', value: (d) => Math.round(d.expenses), money: true, width: 13 },
     { key: 't', label: 'Total à payer', value: (d) => Math.round(toPayDay(d)), money: true, width: 14 },
     { key: 'r', label: 'Reçu', value: (d) => (d.handover ? Math.round(d.handover.amount) : ''), money: true, width: 13 },
@@ -646,7 +648,7 @@ function Board({ date, between }: { date: string; between?: ReactNode }) {
   const exportPdf = () => printA4('Versements des vendeurs', longDate(date), `
     <div class="kpis"><div class="kpi"><span>Total ventes</span><b>${arA4(t.sales)}</b></div><div class="kpi"><span>Espèces</span><b>${arA4(t.cash)}</b></div><div class="kpi"><span>Mobile money</span><b>${arA4(t.mvola + t.orange + t.airtel)}</b></div><div class="kpi strong"><span>Total à payer</span><b>${arA4(t.toPay)}</b></div></div>
     ${a4Table({ head: ['Vendeur', 'Ventes', 'Espèces du jour', '1er paiement', '2ème paiement', 'MVola', 'Orange', 'Airtel', 'Frais MVola / Orange', 'Dépenses', 'À payer', 'Reçu'], num: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-      rows: rows.map((d) => [h(d.user.fullName), arA4(salesDay(d)), arA4(dayCash(d).shown), arA4(dayCash(d).n1), arA4(dayCash(d).n2), arA4(mobDay(d, 'mvola')), arA4(mobDay(d, 'orange')), arA4(mobDay(d, 'airtel')), arA4(d.feeMobile), arA4(d.expenses), `<b>${arA4(d.toPay)}</b>`, d.handover ? arA4(d.handover.amount) : '—']),
+      rows: rows.map((d) => [h(d.user.fullName), arA4(salesDay(d)), arA4(dayCash(d).shown), arA4(dayCash(d).n1), arA4(dayCash(d).n2), arA4(mobDay(d, 'mvola')), arA4(mobDay(d, 'orange')), arA4(mobDay(d, 'airtel')), arA4(feeDay(d)), arA4(d.expenses), `<b>${arA4(d.toPay)}</b>`, d.handover ? arA4(d.handover.amount) : '—']),
       foot: ['Total', arA4(t.sales), arA4(t.day), arA4(t.c1), arA4(t.c2), arA4(t.mvola), arA4(t.orange), arA4(t.airtel), arA4(t.fm), arA4(t.exp), arA4(t.toPay), arA4(t.got)] })}
     ${rows.filter((d) => d.pages.length).map((d) => a4Table({ title: `Ventes par page — ${h(d.user.fullName)}`, head: ['Page', 'Ventes'], num: [1], rows: d.pages.map((p) => [h(p.name), arA4(p.sales)]), foot: ['Total', arA4(d.sales)] })).join('')}`);
 
@@ -680,7 +682,7 @@ function Board({ date, between }: { date: string; between?: ReactNode }) {
                   <MobCell d={d} m="mvola" />
                   <MobCell d={d} m="orange" />
                   <MobCell d={d} m="airtel" />
-                  <td className="t-num">{money(d.feeMobile)}</td>
+                  <MobCell d={d} m="fee" />
                   <td className="t-num muted">{money(d.expenses)}</td>
                   <td className="t-num"><strong>{fmtAr(toPayDay(d))}</strong></td>
                 </tr>
