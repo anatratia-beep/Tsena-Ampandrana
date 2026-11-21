@@ -137,7 +137,9 @@ function dayCalc(date: string) {
     cash: sum((d) => { const c = dayCash(d); return c.shown + c.n1 + c.n2; }), mvola: sum((d) => mobDay(d, 'mvola')),
     orange: sum((d) => mobDay(d, 'orange')), airtel: sum((d) => mobDay(d, 'airtel')),
   };
-  return { calc, feeBy, feeMobile: feeBy.mvola + feeBy.orange + feeBy.airtel };
+  // Frais livreurs MVola / Orange : la correction ✏️ du tableau du versement (frais de colis oubliés…) si elle existe.
+  const fee = sum((d) => mobFixOf(d.date, d.user.id, 'fee') ?? d.feeBy.mvola + d.feeBy.orange);
+  return { calc, feeBy, fee, feeMobile: feeBy.mvola + feeBy.orange + feeBy.airtel };
 }
 
 /** Solde lu sur le téléphone (MVola / Orange / Airtel), à noter par exemple en fin de compte. Contrôle seulement. */
@@ -229,9 +231,9 @@ export function weekVersement(ref: string) {
   for (let d = monday; d <= end; d = addDays(d, 1)) {
     const rows = pagesOfDay(d).filter((x) => x.pageId !== '_');
     const daySales = rows.reduce((s, x) => s + salesDay(x), 0); t.sales += daySales;
-    const { calc, feeBy } = dayCalc(d); const mc = moneyCountOf(d);
-    t.byDay.push({ day: d, sales: daySales, fee: feeBy.mvola + feeBy.orange });
-    t.cashCalc += calc.cash; t.mvCalc += calc.mvola; t.orCalc += calc.orange; t.fee += feeBy.mvola + feeBy.orange;
+    const { calc, fee } = dayCalc(d); const mc = moneyCountOf(d);
+    t.byDay.push({ day: d, sales: daySales, fee });
+    t.cashCalc += calc.cash; t.mvCalc += calc.mvola; t.orCalc += calc.orange; t.fee += fee;
     t.cashReal += mc?.cash ?? 0; t.mvReal += mc?.mvola ?? 0; t.orReal += mc?.orange ?? 0; t.days++;
   }
   return t;
@@ -251,13 +253,13 @@ function MoneyWeek({ date }: { date: string }) {
   const days: string[] = []; for (let d = monday; d <= end; d = addDays(d, 1)) days.push(d);
   const isCurrent = addDays(monday, 6) >= today();
   const rows = days.map((day) => {
-    const { calc, feeBy } = dayCalc(day); const mc = moneyCountOf(day);
+    const { calc, feeBy, fee: feeAll } = dayCalc(day); const mc = moneyCountOf(day);
     // Comme la case du jour : écart espèces à part ; pour le mobile money, écart MVola + écart Orange − total frais
     // livreurs payés sur les téléphones saisis (0 = juste).
     const fee = (mc?.mvola != null ? feeBy.mvola : 0) + (mc?.orange != null ? feeBy.orange : 0);
     const mobIn = mc?.mvola != null || mc?.orange != null;
     const mobGap = mobIn ? (mc?.mvola != null ? mc.mvola - calc.mvola : 0) + (mc?.orange != null ? mc.orange - calc.orange : 0) - fee : undefined;
-    return { day, cashCalc: calc.cash, cashReal: mc?.cash, cashGap: mc?.cash == null ? undefined : mc.cash - calc.cash, mvCalc: calc.mvola, mvReal: mc?.mvola, orCalc: calc.orange, orReal: mc?.orange, fee: feeBy.mvola + feeBy.orange, mobGap };
+    return { day, cashCalc: calc.cash, cashReal: mc?.cash, cashGap: mc?.cash == null ? undefined : mc.cash - calc.cash, mvCalc: calc.mvola, mvReal: mc?.mvola, orCalc: calc.orange, orReal: mc?.orange, fee: feeAll, mobGap };
   });
   const sum = (f: (r: typeof rows[number]) => number | undefined) => rows.reduce((t, r) => t + (f(r) ?? 0), 0);
   const v = (n?: number) => (n == null ? <span className="muted">—</span> : fmtAr(n));
