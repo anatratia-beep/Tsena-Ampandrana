@@ -24,7 +24,8 @@ jobs:
     steps:
       - name: Secrets présents ?
         id: check
-        run: if [ -n "$SUPABASE_ACCESS_TOKEN" ] && [ -n "$SUPABASE_PROJECT_REF" ]; then echo "ok=1" >> "$GITHUB_OUTPUT"; else echo "Secrets SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF absents : mise en ligne ignorée."; fi
+        run: |
+          if [ -n "$SUPABASE_ACCESS_TOKEN" ] && [ -n "$SUPABASE_PROJECT_REF" ]; then echo "ok=1" >> "$GITHUB_OUTPUT"; else echo "Secrets SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF absents : mise en ligne ignorée."; fi
       - if: steps.check.outputs.ok == '1'
         uses: actions/checkout@v4
       - if: steps.check.outputs.ok == '1'
