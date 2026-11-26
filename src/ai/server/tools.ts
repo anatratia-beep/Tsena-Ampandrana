@@ -474,7 +474,8 @@ export const TOOL_LABELS: Record<string, string> = {
   tresorerie: 'Lecture de la trésorerie', activite_utilisateurs: 'Lecture du journal d’activité', utilisateurs: 'Liste des utilisateurs',
   versements_vendeurs: 'Versements des vendeurs', clients: 'Recherche des clients', achats_fournisseurs: 'Achats fournisseurs', requete_sql: 'Requête en lecture seule',
 };
-const MAX_RESULT = 6000;
+/** Résultat d'outil au plus ≈ 1 000 tokens : réponses rapides (limite de 150 s de la fonction cloud). */
+const MAX_RESULT = 3500;
 /** Exécute un appel d'outil : vérifie le droit, lance, renvoie un JSON compact (tronqué si trop gros). */
 export async function runTool(c: Ctx, name: string, rawArgs: string): Promise<string> {
   const t = TOOLS.find((x) => x.name === name);

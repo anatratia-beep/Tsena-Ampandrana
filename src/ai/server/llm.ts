@@ -71,12 +71,13 @@ function other(cfg: AiConfig, via: Via) {
 
 // ---------- Erreurs du serveur IA (proxy devant LM Studio) ----------
 /** Code d'erreur montré à l'utilisateur dans la bulle. */
-export type ErrCode = 'auth' | 'path' | 'down' | 'busy' | 'timeout' | 'unavailable';
+export type ErrCode = 'auth' | 'path' | 'down' | 'busy' | 'timeout' | 'toolong' | 'unavailable';
 export const ERR_MESSAGES: Record<ErrCode, string> = {
   auth: "La clé API du serveur IA est invalide ou absente (erreur 401). Un administrateur doit la vérifier (Paramètres → Intelligence artificielle, ou secret Supabase AI_API_KEY).",
   path: "L'adresse du serveur IA est incorrecte (erreur 404) : l'URL en ligne doit se terminer par /v1.",
   down: "Le serveur IA est injoignable (erreur 502) : le PC qui fait tourner LM Studio est peut-être éteint ou LM Studio arrêté.",
   busy: "L'assistant est occupé, réessayez dans un instant.",
+  toolong: 'La question était trop lourde, essayez de la reformuler plus simplement.',
   timeout: "Le serveur IA met trop de temps à répondre (plus de 180 s). Réessayez avec une question plus simple.",
   unavailable: "L'assistant IA est momentanément indisponible. Réessayez dans quelques minutes.",
 };

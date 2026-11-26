@@ -854,6 +854,7 @@ var ERR_MESSAGES = {
   path: "L'adresse du serveur IA est incorrecte (erreur 404) : l'URL en ligne doit se terminer par /v1.",
   down: "Le serveur IA est injoignable (erreur 502) : le PC qui fait tourner LM Studio est peut-\xEAtre \xE9teint ou LM Studio arr\xEAt\xE9.",
   busy: "L'assistant est occup\xE9, r\xE9essayez dans un instant.",
+  toolong: "La question \xE9tait trop lourde, essayez de la reformuler plus simplement.",
   timeout: "Le serveur IA met trop de temps \xE0 r\xE9pondre (plus de 180 s). R\xE9essayez avec une question plus simple.",
   unavailable: "L'assistant IA est momentan\xE9ment indisponible. R\xE9essayez dans quelques minutes."
 };
@@ -2494,7 +2495,7 @@ var TOOL_LABELS = {
   achats_fournisseurs: "Achats fournisseurs",
   requete_sql: "Requ\xEAte en lecture seule"
 };
-var MAX_RESULT = 6e3;
+var MAX_RESULT = 3500;
 async function runTool(c, name, rawArgs) {
   const t = TOOLS.find((x) => x.name === name);
   if (!t) return JSON.stringify({ erreur: `outil inconnu : ${name}` });
@@ -2554,8 +2555,10 @@ ${AI_CONTEXT_default}`;
 }
 
 // src/ai/server/handler.ts
-var CONTEXT_TOKENS = 32768;
-var OUTPUT_TOKENS = 8192;
+var CONTEXT_TOKENS = 65536;
+var OUTPUT_TOKENS = 2e3;
+var DEADLINE_MS = 14e4;
+var TOO_HEAVY = "La question \xE9tait trop lourde, essayez de la reformuler plus simplement.";
 var MAX_TOOL_ROUNDS = 6;
 var CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -2674,6 +2677,11 @@ function createHandler(deps) {
     const enc2 = new TextEncoder();
     const abort = new AbortController();
     req2.signal?.addEventListener("abort", () => abort.abort());
+    let tooLong = false;
+    const deadline = setTimeout(() => {
+      tooLong = true;
+      abort.abort(new Error("limite de dur\xE9e"));
+    }, deps.deadlineMs ?? DEADLINE_MS);
     const stream = new ReadableStream({
       async start(ctl) {
         let open = true;
@@ -2722,17 +2730,29 @@ function createHandler(deps) {
               shrink(msgs, toolsJson);
               continue;
             }
-            if (!res.content) send({ type: "replace", text: res.finish === "length" ? "La r\xE9ponse a \xE9t\xE9 coup\xE9e (trop longue). Posez une question plus pr\xE9cise." : "Je n'ai pas pu produire de r\xE9ponse. Reformulez la question." });
+            if (res.finish === "length") {
+              if (!res.content) {
+                send({ type: "error", code: "toolong", message: TOO_HEAVY });
+                break;
+              }
+              send({ type: "delta", text: `
+
+*${TOO_HEAVY}*` });
+            } else if (!res.content) send({ type: "replace", text: "Je n'ai pas pu produire de r\xE9ponse. Reformulez la question." });
             break;
           }
           send({ type: "done" });
         } catch (e) {
-          if (!abort.signal.aborted) {
+          if (tooLong) {
+            logError(cfg, "conversation trop longue (limite 150 s)", e);
+            send({ type: "error", code: "toolong", message: TOO_HEAVY });
+          } else if (!abort.signal.aborted) {
             logError(cfg, "conversation", e);
             const code = classify(e);
             send({ type: "error", code, message: ERR_MESSAGES[code] });
           }
         } finally {
+          clearTimeout(deadline);
           clearInterval(ping);
           if (open) {
             try {

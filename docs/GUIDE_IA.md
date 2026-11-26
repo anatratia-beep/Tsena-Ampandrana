@@ -79,15 +79,44 @@ alors gardée dans la base (table privée `ai.secrets`) et passe avant le secret
 | Clé absente ou invalide (401) | La clé API du serveur IA est invalide ou absente… |
 | Mauvaise adresse (404) | L'adresse du serveur IA est incorrecte : l'URL en ligne doit se terminer par /v1. |
 | LM Studio arrêté / PC éteint (502) | Le serveur IA est injoignable : le PC qui fait tourner LM Studio est peut-être éteint… |
-| Serveur occupé (4 requêtes déjà en cours) | Nouvel essai après 3 s, puis « L'assistant est occupé, réessayez dans un instant. » |
+| Serveur occupé (8 requêtes déjà en cours) | Nouvel essai après 3 s, puis « L'assistant est occupé, réessayez dans un instant. » |
 | Plus de 180 s sans réponse | Le serveur IA met trop de temps à répondre… |
+| Question trop lourde (plus de 140 s, ou réponse trop longue) | La question était trop lourde, essayez de la reformuler plus simplement. |
 | Autre panne | L'assistant IA est momentanément indisponible. |
 
 ### Limites à connaître
+- Serveur IA : contexte de **65 536 tokens**, **8 requêtes simultanées** (partagées avec d'autres outils).
+  L'historique envoyé au modèle garde le prompt et les derniers messages qui tiennent ; les plus anciens sont retirés.
 - Le modèle réfléchit souvent 10 à 60 s avant d'écrire : la réponse arrive en streaming jusqu'au navigateur et la
-  bulle affiche « réfléchit… » pendant ce temps. Chaque appel au serveur IA a 180 s au plus.
-- Une fonction Supabase ne peut pas durer plus de **150 s** sur l'offre gratuite (400 s sur l'offre payante) : une
-  question qui demande beaucoup d'outils et de réflexion peut être coupée ; il suffit alors de la reposer plus simplement.
+  bulle affiche « réfléchit… » pendant ce temps. Chaque appel au serveur IA a 180 s au plus sans réponse.
+- Une fonction Supabase ne peut pas durer plus de **150 s** (offre gratuite). Pour rester en dessous : réponses
+  limitées à **2 000 tokens** (raisonnement compris), résultats d'outils courts, et arrêt propre à **140 s** avec le
+  message « La question était trop lourde, essayez de la reformuler plus simplement ».
+
+## Tester avant de fusionner, ordre conseillé, retour en arrière
+
+**Il n'y a pas de lien de prévisualisation** pour la branche : le logiciel en ligne (GitHub Pages) ne change qu'à la
+fusion. Mais la fusion est sans risque pour les utilisateurs : l'assistant est **désactivé par défaut**, la bulle
+n'apparaît pas tant qu'un administrateur ne l'active pas ; seul un nouvel onglet apparaît dans Paramètres.
+
+Ordre conseillé :
+1. SQL `supabase/ai.sql` (ajoute seulement un schéma privé ; ne touche à aucune donnée existante).
+2. Secret Supabase `AI_API_KEY`.
+3. Déploiement de la fonction `ai-chat` (personne ne l'appelle encore).
+4. Fusion de la pull request → le logiciel se met à jour tout seul en 2 à 3 minutes (bandeau « Logiciel mis à jour »).
+5. Administrateur : Paramètres → Intelligence artificielle → Tester la connexion, **puis** Activer → Enregistrer.
+6. Test dans la bulle (questions ci-dessus), d'abord avec un compte admin, puis un vendeur.
+
+(Facultatif, avant la fusion : sur un ordinateur avec Node.js, dans le dossier de l'étape 5, `npm install` puis
+`npm run dev`, ouvrir http://localhost:5173 et relier ce navigateur au cloud. C'est la version de la branche.)
+
+Revenir en arrière :
+- **Immédiat** : Paramètres → Intelligence artificielle → décocher **Activer** → Enregistrer. La bulle disparaît
+  sur tous les appareils (après la synchronisation, quelques secondes). Rien d'autre n'est touché.
+- **Complet** : sur GitHub, page de la pull request → bouton **Revert** → **Create pull request** → **Merge**.
+  Le logiciel revient à la version précédente en 2 à 3 minutes. Aucune donnée n'est perdue : l'assistant ne fait que lire.
+- **Nettoyage facultatif** : Supabase → Edge Functions → `ai-chat` → **Delete function** ; SQL Editor :
+  `drop schema ai cascade; drop role ai_reader;`.
 
 ## Quand le logiciel évolue
 

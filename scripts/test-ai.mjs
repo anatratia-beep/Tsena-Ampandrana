@@ -96,10 +96,10 @@ for (const [q, good] of [['select 1', true], ['WITH x AS (select 1) select * fro
   ok(AI.checkSelect(q).ok === good, `SQL ${good ? 'accepté' : 'refusé'} : ${q}`);
 // Historique tronqué
 {
-  const hist = Array.from({ length: 60 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `message ${i} ` + 'x'.repeat(3000) }));
+  const hist = Array.from({ length: 100 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `message ${i} ` + 'x'.repeat(3000) }));
   const m = AI.fitHistory('système', '[]', hist);
   const total = m.reduce((t, x) => t + AI.tokens(x.content), 0);
-  ok(m[0].role === 'system' && m[1].role === 'user' && m[m.length - 1].content.startsWith('message 59') && total < 32768 - 8192, `historique tronqué (${m.length - 1} messages gardés, ~${total} tokens)`);
+  ok(m[0].role === 'system' && m[1].role === 'user' && m[m.length - 1].content.startsWith('message 99') && m.length - 1 < 100 && total < 65536 - 2000, `historique tronqué (${m.length - 1} messages gardés, ~${total} tokens)`);
 }
 
 const KEY = 'sk-test-SECRETE-123';
@@ -268,6 +268,21 @@ ok((await j(await call({ action: 'status', userId: 'u-off' }))).status === 403, 
   const ce = await chat('u-admin', 'Bonjour');
   ok(/Vente sur place/.test(ce.text) && ce.tools.length === 0 && ce.ev.at(-1).type === 'done', 'tool_calls vide = réponse finale', ce.text);
   local.state.emptyCalls = false;
+}
+// Limite de durée (150 s chez Supabase, ici réduite) et limite de longueur
+{
+  const quick = AI.createHandler({ sql, supabaseUrl: 'x', anonKey: 'x', verifyToken: async () => true, deadlineMs: 1500 });
+  local.state.delay = 1200; AI.forgetChoice();
+  const r = await quick(new Request('http://f', { method: 'POST', headers: { authorization: 'Bearer t' }, body: JSON.stringify({ action: 'chat', userId: 'u-admin', messages: [{ role: 'user', content: 'Bonjour' }] }) }));
+  const ev = (await r.text()).split('\n\n').filter((x) => x.startsWith('data: ')).map((x) => JSON.parse(x.slice(6)));
+  const e = ev.find((x) => x.type === 'error');
+  ok(e?.code === 'toolong' && e.message === 'La question était trop lourde, essayez de la reformuler plus simplement.', 'limite de durée atteinte → « La question était trop lourde… »', ev.slice(-3));
+  local.state.delay = 0;
+  local.state.finish = 'length'; AI.forgetChoice();
+  const c = await chat('u-admin', 'Bonjour');
+  ok(/trop lourde/.test(c.text), 'réponse coupée (max_tokens atteint) → message « trop lourde »', c.text);
+  local.state.finish = '';
+  ok(local.state.requests.at(-1).max_tokens === 2000, 'max_tokens = 2000');
 }
 // Désactivation
 {

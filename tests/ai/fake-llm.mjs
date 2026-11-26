@@ -40,7 +40,7 @@ export function fakeLlm({ port, key, model = 'qwen3.8-27b' }) {
     send({ content: '<thi' }); send({ content: 'nk>SECRET-THINK</th' }); send({ content: 'ink>' });
     if (state.emptyCalls) send({ tool_calls: [] }); // tableau vide = réponse finale
     for (let i = 0; i < text.length; i += 40) { if (state.delay) await new Promise((r) => setTimeout(r, state.delay)); if (res.destroyed) return; send({ content: text.slice(i, i + 40) }); }
-    send({}, 'stop');
+    send({}, state.finish || 'stop');
     res.end('data: [DONE]\n\n');
   });
   return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve({ state, close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(r); }) })));

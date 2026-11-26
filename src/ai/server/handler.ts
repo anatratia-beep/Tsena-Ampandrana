@@ -19,13 +19,20 @@ export interface Deps {
   envKey?: string;
   /** Vérifie le jeton de l'appareil (par défaut : auth/v1/user de Supabase). Renvoie vrai s'il est valide. */
   verifyToken?: (token: string) => Promise<boolean>;
+  /** Durée maximale d'une conversation (tests). */
+  deadlineMs?: number;
 }
 
 /** Réglages IA partagés (fiche settings/ai, synchronisée comme les autres réglages ; sans la clé). */
 export interface AiSettings { id: 'ai'; enabled?: boolean; localUrl?: string; onlineUrl?: string; model?: string }
 
-const CONTEXT_TOKENS = 32768;
-const OUTPUT_TOKENS = 8192;
+/** Contexte du modèle (serveur IA : 65 536 tokens, 8 requêtes simultanées). */
+export const CONTEXT_TOKENS = 65536;
+/** Longueur maximale d'une réponse du modèle (raisonnement compris) : courte, pour rester sous la limite de 150 s. */
+export const OUTPUT_TOKENS = 2000;
+/** Durée maximale d'une conversation dans la fonction : Supabase coupe à 150 s (offre gratuite), on s'arrête avant. */
+const DEADLINE_MS = 140_000;
+const TOO_HEAVY = 'La question était trop lourde, essayez de la reformuler plus simplement.';
 const MAX_TOOL_ROUNDS = 6;
 
 const CORS = {
@@ -153,6 +160,9 @@ export function createHandler(deps: Deps) {
     const enc = new TextEncoder();
     const abort = new AbortController();
     req.signal?.addEventListener('abort', () => abort.abort());
+    // Limite de 150 s de Supabase : on arrête proprement avant, avec un message clair.
+    let tooLong = false;
+    const deadline = setTimeout(() => { tooLong = true; abort.abort(new Error('limite de durée')); }, deps.deadlineMs ?? DEADLINE_MS);
 
     const stream = new ReadableStream({
       async start(ctl) {
@@ -182,17 +192,25 @@ export function createHandler(deps: Deps) {
               shrink(msgs, toolsJson);
               continue;
             }
-            if (!res.content) send({ type: 'replace', text: res.finish === 'length' ? "La réponse a été coupée (trop longue). Posez une question plus précise." : "Je n'ai pas pu produire de réponse. Reformulez la question." });
+            if (res.finish === 'length') {
+              // Limite de longueur atteinte (souvent pendant le raisonnement) : réponse incomplète.
+              if (!res.content) { send({ type: 'error', code: 'toolong', message: TOO_HEAVY }); break; }
+              send({ type: 'delta', text: `\n\n*${TOO_HEAVY}*` });
+            } else if (!res.content) send({ type: 'replace', text: "Je n'ai pas pu produire de réponse. Reformulez la question." });
             break;
           }
           send({ type: 'done' });
         } catch (e: any) {
-          if (!abort.signal.aborted) {
+          if (tooLong) {
+            logError(cfg, 'conversation trop longue (limite 150 s)', e);
+            send({ type: 'error', code: 'toolong', message: TOO_HEAVY });
+          } else if (!abort.signal.aborted) {
             logError(cfg, 'conversation', e);
             const code = classify(e);
             send({ type: 'error', code, message: ERR_MESSAGES[code] });
           }
         } finally {
+          clearTimeout(deadline);
           clearInterval(ping);
           if (open) { try { ctl.close(); } catch { /* déjà fermé */ } }
           open = false;
