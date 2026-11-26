@@ -28,6 +28,6 @@ const i = process.argv.indexOf('--deploy');
 if (i > 0) {
   const ref = process.argv[i + 1];
   if (!ref) { console.error('Indiquez la référence du projet Supabase : npm run ai:deploy -- abcdefghijkl'); process.exit(1); }
-  const r = spawnSync('npx', ['--yes', 'supabase', 'functions', 'deploy', 'ai-chat', '--project-ref', ref, '--use-api'], { cwd: root, stdio: 'inherit' });
+  const r = spawnSync('npx', ['--yes', 'supabase@latest', 'functions', 'deploy', 'ai-chat', `--remote=${ref}`, '--use-api', '--yes'], { cwd: root, stdio: 'inherit' });
   process.exit(r.status ?? 1);
 }
