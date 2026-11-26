@@ -307,6 +307,28 @@ export async function setMeta(key: string, value: any) {
   metaListeners.forEach((l) => l());
 }
 
+// ---- Mode « mémoire » (assistant IA côté serveur) ----
+/**
+ * Utilisé uniquement par la fonction cloud de l'assistant IA (supabase/functions/ai-chat) : elle charge les fiches du
+ * cloud en mémoire, sans IndexedDB, pour réutiliser exactement les mêmes calculs que l'application (ventes, stock…).
+ * Jamais appelé dans le navigateur.
+ */
+export function memPut(rows: { tbl: string; id: string; data: BaseRecord }[]) {
+  const touched = new Set<string>();
+  for (const r of rows) {
+    if (!(TABLES as readonly string[]).includes(r.tbl)) continue;
+    if (!cache.has(r.tbl)) cache.set(r.tbl, new Map());
+    cache.get(r.tbl)!.set(r.id, { ...r.data, id: r.id });
+    touched.add(r.tbl);
+  }
+  for (const t of TABLES) if (!cache.has(t)) cache.set(t, new Map());
+  touched.forEach(notify);
+}
+/** Vide les données en mémoire (cloud recréé). */
+export function memClear() { for (const t of TABLES) { cache.set(t, new Map()); notify(t); } }
+/** Méta-donnée en mémoire seulement (ex. utilisateur pour qui l'assistant calcule). */
+export function memSetMeta(key: string, value: any) { metaCache.set(key, value); }
+
 // ---- Sauvegarde / restauration / remise à zéro ----
 export function dumpAll(): Record<string, BaseRecord[]> {
   const out: Record<string, BaseRecord[]> = {};

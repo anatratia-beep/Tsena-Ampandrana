@@ -6,14 +6,18 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "dev": "node scripts/build.mjs --serve",
-    "icons": "node scripts/icons.mjs"
+    "icons": "node scripts/icons.mjs",
+    "ai:context": "node scripts/ai-context.mjs",
+    "ai:build": "node scripts/build-ai.mjs",
+    "ai:deploy": "node scripts/build-ai.mjs --deploy"
   },
   "dependencies": {
+    "jszip": "3.10.1",
     "react": "19.2.0",
-    "react-dom": "19.2.0",
-    "jszip": "3.10.1"
+    "react-dom": "19.2.0"
   },
   "devDependencies": {
-    "esbuild": "0.25.10"
+    "esbuild": "0.25.10",
+    "postgres": "^3.4.5"
   }
 }
