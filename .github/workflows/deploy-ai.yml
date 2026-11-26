@@ -41,4 +41,4 @@ jobs:
       - if: steps.check.outputs.ok == '1'
         run: npm run ai:context && npm run ai:build
       - if: steps.check.outputs.ok == '1'
-        run: npx --yes supabase@latest functions deploy ai-chat --project-ref "$SUPABASE_PROJECT_REF" --use-api
+        run: npx --yes supabase@latest functions deploy ai-chat --remote="$SUPABASE_PROJECT_REF" --use-api --yes

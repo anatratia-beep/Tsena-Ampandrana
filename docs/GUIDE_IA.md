@@ -48,7 +48,7 @@ Il faut : l'accès au projet Supabase de TSENA, et un ordinateur avec **Node.js*
 6. **Se connecter à Supabase depuis l'ordinateur** : `npx supabase login` (une page web s'ouvre → **Authorize**).
 7. **Déployer la fonction ai-chat** (remplacer `abcdefghijklmnop` par la référence de l'étape 3) :
    ```
-   npx supabase functions deploy ai-chat --project-ref abcdefghijklmnop --use-api
+   npx supabase@latest functions deploy ai-chat --remote=abcdefghijklmnop --use-api --yes
    ```
    Le message se termine par **Deployed Functions … ai-chat**. Dans Supabase → **Edge Functions**, `ai-chat` apparaît.
 8. **Activer l'assistant dans TSENA** (compte administrateur) : **Paramètres → Intelligence artificielle** →
