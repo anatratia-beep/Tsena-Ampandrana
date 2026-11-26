@@ -37,7 +37,7 @@ async function fetchT(url: string, init: RequestInit, ms: number, outer?: AbortS
 export async function probe(ep: Endpoint, ms = PROBE_MS): Promise<{ ms: number; models: string[] }> {
   const t0 = Date.now();
   const res = await fetchT(`${ep.base}/models`, { headers: ep.headers }, ms);
-  if (!res.ok) throw new Error(res.status === 401 ? 'clé API refusée (401)' : `réponse ${res.status}`);
+  if (!res.ok) throw new HttpError(res.status, describe(res.status));
   const j = await res.json().catch(() => ({}));
   return { ms: Date.now() - t0, models: (j?.data ?? []).map((m: any) => String(m.id)) };
 }
@@ -59,7 +59,7 @@ export async function pick(cfg: AiConfig): Promise<Endpoint> {
     catch (e) { logError(cfg, 'adresse locale injoignable', e); }
   }
   const online = endpoint(cfg, 'online');
-  if (!online) throw new UnavailableError(cfg.apiKey ? 'adresse en ligne manquante' : 'adresse locale injoignable et aucune clé API pour l’adresse en ligne');
+  if (!online) throw new UnavailableError(cfg.apiKey ? 'adresse en ligne manquante' : 'adresse locale injoignable et aucune clé API pour l’adresse en ligne', cfg.apiKey ? 'unavailable' : 'auth');
   chosen = { via: 'online', at: Date.now(), sig };
   return online;
 }
@@ -69,22 +69,60 @@ function other(cfg: AiConfig, via: Via) {
   return ep;
 }
 
-export class UnavailableError extends Error { constructor(m: string) { super(m); this.name = 'UnavailableError'; } }
+// ---------- Erreurs du serveur IA (proxy devant LM Studio) ----------
+/** Code d'erreur montré à l'utilisateur dans la bulle. */
+export type ErrCode = 'auth' | 'path' | 'down' | 'busy' | 'timeout' | 'unavailable';
+export const ERR_MESSAGES: Record<ErrCode, string> = {
+  auth: "La clé API du serveur IA est invalide ou absente (erreur 401). Un administrateur doit la vérifier (Paramètres → Intelligence artificielle, ou secret Supabase AI_API_KEY).",
+  path: "L'adresse du serveur IA est incorrecte (erreur 404) : l'URL en ligne doit se terminer par /v1.",
+  down: "Le serveur IA est injoignable (erreur 502) : le PC qui fait tourner LM Studio est peut-être éteint ou LM Studio arrêté.",
+  busy: "L'assistant est occupé, réessayez dans un instant.",
+  timeout: "Le serveur IA met trop de temps à répondre (plus de 180 s). Réessayez avec une question plus simple.",
+  unavailable: "L'assistant IA est momentanément indisponible. Réessayez dans quelques minutes.",
+};
+export function describe(status: number): string {
+  if (status === 401 || status === 403) return `clé API invalide ou absente (${status})`;
+  if (status === 404) return 'chemin introuvable (404) : l’URL doit se terminer par /v1';
+  if (status === 502 || status === 504) return `serveur IA injoignable, PC de LM Studio éteint ? (${status})`;
+  if (status === 429 || status === 503) return `serveur IA occupé (${status})`;
+  return `réponse ${status}`;
+}
+export function classify(e: unknown): ErrCode {
+  if (e instanceof AiServerError) return e.code;
+  if (e instanceof HttpError) {
+    if (e.status === 401 || e.status === 403) return 'auth';
+    if (e.status === 404) return 'path';
+    if (e.status === 502 || e.status === 504) return 'down';
+    if (e.status === 429 || e.status === 503) return 'busy';
+  }
+  if (e instanceof TimeoutError) return 'timeout';
+  return 'unavailable';
+}
+export class TimeoutError extends Error { constructor(m = 'délai dépassé (180 s sans réponse)') { super(m); this.name = 'TimeoutError'; } }
+export class AiServerError extends Error { constructor(public code: ErrCode, detail: string) { super(detail); this.name = 'AiServerError'; } }
+/** Ancien nom gardé : serveur IA indisponible. */
+export class UnavailableError extends AiServerError { constructor(m: string, code: ErrCode = 'unavailable') { super(code, m); this.name = 'UnavailableError'; } }
 
 /** Test complet pour l'écran Réglages : quelle adresse répond, en combien de temps, et le modèle est-il là ? */
 export async function testConnection(cfg: AiConfig) {
-  const out: { ok: boolean; via?: Via; ms?: number; modelFound?: boolean; models?: string[]; local?: string; online?: string } = { ok: false };
+  const out: { ok: boolean; via?: Via; ms?: number; modelFound?: boolean; models?: string[]; local?: string; online?: string; onlineStatus?: number } = { ok: false };
   const local = endpoint(cfg, 'local');
   if (local) {
     try { const r = await probe(local); Object.assign(out, { ok: true, via: 'local', ms: r.ms, models: r.models, modelFound: r.models.includes(cfg.model) }); chosen = { via: 'local', at: Date.now(), sig: sigOf(cfg) }; return out; }
     catch (e: any) { out.local = e?.message ?? String(e); }
   } else out.local = 'adresse non renseignée';
-  const online = endpoint(cfg, 'online');
-  if (online) {
-    try { const r = await probe(online, 10_000); Object.assign(out, { ok: true, via: 'online', ms: r.ms, models: r.models, modelFound: r.models.includes(cfg.model) }); chosen = { via: 'online', at: Date.now(), sig: sigOf(cfg) }; }
-    catch (e: any) { out.online = e?.message ?? String(e); }
-  } else out.online = cfg.apiKey ? 'adresse non renseignée' : 'aucune clé API enregistrée';
-  if (out.online) out.online = out.online.split(cfg.apiKey || '\u0000').join('••••');
+  if (!cfg.onlineUrl) { out.online = 'adresse non renseignée'; return out; }
+  // En ligne : avec la clé si elle existe, sinon sans (un 401 prouve alors que le serveur est joignable).
+  const online: Endpoint = endpoint(cfg, 'online') ?? { via: 'online', base: cfg.onlineUrl.trim().replace(/\/+$/, ''), headers: {} };
+  try { const r = await probe(online, 10_000); Object.assign(out, { ok: true, via: 'online', ms: r.ms, models: r.models, modelFound: r.models.includes(cfg.model), onlineStatus: 200 }); chosen = { via: 'online', at: Date.now(), sig: sigOf(cfg) }; }
+  catch (e: any) {
+    out.onlineStatus = e instanceof HttpError ? e.status : 0;
+    out.online = e instanceof HttpError
+      ? (e.status === 401 || e.status === 403 ? (cfg.apiKey ? `serveur joignable, mais clé API invalide (${e.status})` : `serveur joignable, mais aucune clé API enregistrée (${e.status})`)
+        : e.status === 502 || e.status === 504 ? `serveur IA injoignable : PC éteint ou LM Studio arrêté ? (${e.status})` : describe(e.status))
+      : `adresse injoignable : ${e?.message ?? e}`;
+  }
+  if (out.online && cfg.apiKey) out.online = out.online.split(cfg.apiKey).join('••••');
   return out;
 }
 
@@ -142,7 +180,7 @@ export interface TurnEvents {
 export interface TurnResult { content: string; toolCalls: ToolCall[]; finish?: string; via: Via }
 
 /** Lit une réponse en streaming SSE (format OpenAI). */
-async function readStream(res: Response, ev: TurnEvents): Promise<Omit<TurnResult, 'via'>> {
+async function readStream(res: Response, ev: TurnEvents, onChunk: () => void = () => {}): Promise<Omit<TurnResult, 'via'>> {
   const reader = res.body!.getReader();
   const dec = new TextDecoder();
   const filter = new ThinkFilter();
@@ -166,7 +204,8 @@ async function readStream(res: Response, ev: TurnEvents): Promise<Omit<TurnResul
       if (wasThinking || (filter as any).inThink) think();
     }
     for (const tc of d.tool_calls ?? []) {
-      const i = tc.index ?? calls.length;
+      // index absent : suite du dernier appel (sauf s'il porte un nouvel id)
+      const i = tc.index ?? (calls.length && !tc.id ? calls.length - 1 : calls.length);
       calls[i] ??= { name: '', args: '' };
       if (tc.id) calls[i].id = tc.id;
       if (tc.function?.name) calls[i].name += tc.function.name;
@@ -177,6 +216,7 @@ async function readStream(res: Response, ev: TurnEvents): Promise<Omit<TurnResul
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
+    onChunk();
     pending += dec.decode(value, { stream: true });
     let nl;
     while ((nl = pending.indexOf('\n')) >= 0) { handle(pending.slice(0, nl).trim()); pending = pending.slice(nl + 1); }
@@ -187,34 +227,73 @@ async function readStream(res: Response, ev: TurnEvents): Promise<Omit<TurnResul
   return { content: filter.shown.trim(), toolCalls, finish };
 }
 
+const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((ok, ko) => {
+  const t = setTimeout(ok, ms);
+  signal?.addEventListener('abort', () => { clearTimeout(t); ko(signal.reason ?? new Error('arrêté')); }, { once: true });
+});
+const REQUEST_MS = 180_000;
+const BUSY_WAIT_MS = 3_000;
+
 /**
- * Un tour du modèle en streaming. En cas d'échec (réseau, 401, 5xx), bascule sur l'autre adresse et réessaie une fois.
+ * Un tour du modèle en streaming (de bout en bout jusqu'au navigateur : le modèle peut réfléchir 10 à 60 s).
+ * - 180 s au plus sans rien recevoir (en-têtes puis chaque morceau) ;
+ * - serveur occupé (429 / 503) : nouvel essai une fois après 3 s, puis « occupé » ;
+ * - autre échec (réseau, 401, 404, 502…) : bascule une fois sur l'autre adresse ;
+ * - erreur finale avec un code (auth, path, down, busy, timeout, unavailable) pour un message clair.
  */
 export async function chatTurn(cfg: AiConfig, body: Record<string, unknown>, ev: TurnEvents, signal?: AbortSignal): Promise<TurnResult> {
   let ep = await pick(cfg);
-  for (let attempt = 0; ; attempt++) {
+  const errors: unknown[] = [];
+  let busyRetried = false, switched = false;
+  for (;;) {
     let shown = false;
     const wrap: TurnEvents = { thinking: ev.thinking, delta: (t) => { shown = true; ev.delta(t); }, replace: (t) => { shown = true; ev.replace(t); } };
+    const c = new AbortController();
+    const onOuter = () => c.abort(signal?.reason);
+    signal?.addEventListener('abort', onOuter);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    const arm = () => { clearTimeout(timer); timer = setTimeout(() => { timedOut = true; c.abort(new TimeoutError()); }, REQUEST_MS); };
     try {
-      const res = await fetchT(`${ep.base}/chat/completions`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', ...ep.headers },
+      arm();
+      const res = await fetch(`${ep.base}/chat/completions`, {
+        method: 'POST', signal: c.signal, headers: { 'Content-Type': 'application/json', ...ep.headers },
         body: JSON.stringify({ model: cfg.model, stream: true, ...body }),
-      }, 180_000, signal);
+      });
       if (!res.ok || !res.body) {
-        const txt = (await res.text().catch(() => '')).slice(0, 300);
-        throw new HttpError(res.status, res.status === 401 ? 'clé API refusée (401)' : `réponse ${res.status} ${txt}`);
+        const txt = (await res.text().catch(() => '')).slice(0, 200);
+        throw new HttpError(res.status, `${describe(res.status)} ${txt}`.trim());
       }
-      const r = await readStream(res, wrap);
+      const r = await readStream(res, wrap, arm);
       return { ...r, via: ep.via };
-    } catch (e: any) {
-      if (signal?.aborted) throw e;
-      logError(cfg, `requête ${ep.via} (essai ${attempt + 1})`, e);
-      // Requête refusée pour une autre raison (ex. 400 : demande mal formée) : basculer ne servirait à rien.
-      if (e instanceof HttpError && e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 404 && e.status !== 408 && e.status !== 429) throw e;
-      const next = attempt === 0 ? other(cfg, ep.via) : null;
-      if (!next) { chosen = null; throw new UnavailableError(e?.message ?? String(e)); }
+    } catch (e0: any) {
+      if (signal?.aborted) throw e0;
+      const e = timedOut ? new TimeoutError() : e0;
+      errors.push(e);
+      logError(cfg, `requête ${ep.via}`, e);
+      const code = classify(e);
+      if (code === 'busy') {
+        if (busyRetried) throw new AiServerError('busy', e.message);
+        busyRetried = true;
+        if (shown) ev.replace('');
+        await sleep(BUSY_WAIT_MS, signal);
+        continue;
+      }
+      // Demande refusée pour une autre raison (ex. 400 : demande mal formée) : basculer ne servirait à rien.
+      if (e instanceof HttpError && e.status >= 400 && e.status < 500 && ![401, 403, 404, 408].includes(e.status)) throw new AiServerError('unavailable', e.message);
+      const next = switched ? null : other(cfg, ep.via);
+      if (!next) {
+        chosen = null;
+        // Erreur la plus parlante parmi les essais (ex. 401 de l'adresse en ligne plutôt que « local injoignable »).
+        const codes = errors.map(classify);
+        throw new AiServerError(codes.find((x) => x !== 'unavailable') ?? 'unavailable', e?.message ?? String(e));
+      }
+      switched = true;
       if (shown) ev.replace('');
       ep = next;
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onOuter);
     }
   }
 }

@@ -3,10 +3,13 @@
 import { createServer } from 'node:http';
 
 export function fakeLlm({ port, key, model = 'qwen3.8-27b' }) {
-  const state = { requests: [], down: false, failChat: 0, delay: 0 };
+  const state = { requests: [], down: false, failChat: 0, delay: 0, status: 0, multi: false, emptyCalls: false };
   const server = createServer(async (req, res) => {
     if (state.down) { req.socket.destroy(); return; }
-    if (key && req.headers.authorization !== `Bearer ${key}`) { res.writeHead(401, { 'content-type': 'application/json' }); res.end('{"error":"unauthorized"}'); return; }
+    // Comme le vrai proxy : seuls /v1/*, clé obligatoire (401), LM Studio arrêté (502).
+    if (!req.url.startsWith('/v1/')) { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":{"message":"Chemin inconnu"}}'); return; }
+    if (key && req.headers.authorization !== `Bearer ${key}`) { res.writeHead(401, { 'content-type': 'application/json' }); res.end('{"error":{"message":"Cle API invalide ou absente"}}'); return; }
+    if (state.status) { res.writeHead(state.status, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message: `erreur ${state.status}` } })); return; }
     if (req.url === '/v1/models') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ data: [{ id: model }, { id: 'text-embedding' }] })); return; }
     if (req.url !== '/v1/chat/completions') { res.writeHead(404); res.end(); return; }
     let body = ''; for await (const c of req) body += c;
@@ -25,13 +28,17 @@ export function fakeLlm({ port, key, model = 'qwen3.8-27b' }) {
         : name === 'stock_articles' ? '{"filtre":"bientot_rupture"}' : name === 'ventes_resume' ? '{"periode":"cette_semaine"}' : '{"periode":"ce_mois"}';
       // arguments découpés en deux morceaux, comme en vrai streaming
       send({ tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name, arguments: args.slice(0, 5) } }] });
-      send({ tool_calls: [{ index: 0, function: { arguments: args.slice(5) } }] }, 'tool_calls');
+      send({ tool_calls: [{ index: 0, function: { arguments: args.slice(5) } }] }, state.multi ? null : 'tool_calls');
+      // plusieurs appels d'outils dans le même message
+      if (state.multi) send({ tool_calls: [{ index: 1, id: 'call_2', type: 'function', function: { name: 'stock_articles', arguments: '{"filtre":"alerte"}' } }] }, 'tool_calls');
       res.end('data: [DONE]\n\n'); return;
     }
     const tool = [...msgs].reverse().find((m) => m.role === 'tool');
-    const text = tool ? `Voici le résultat : ${tool.content.slice(0, 1500)}` : 'Bonjour ! Pour vendre sur place, ouvrez **Vente sur place**.';
+    const tools = msgs.filter((m) => m.role === 'tool');
+    const text = tool ? `Voici le résultat (${tools.length} outil(s)) : ${tool.content.slice(0, 1500)}` : 'Bonjour ! Pour vendre sur place, ouvrez **Vente sur place**.';
     // raisonnement aussi dans le texte, coupé au milieu de la balise
     send({ content: '<thi' }); send({ content: 'nk>SECRET-THINK</th' }); send({ content: 'ink>' });
+    if (state.emptyCalls) send({ tool_calls: [] }); // tableau vide = réponse finale
     for (let i = 0; i < text.length; i += 40) { if (state.delay) await new Promise((r) => setTimeout(r, state.delay)); if (res.destroyed) return; send({ content: text.slice(i, i + 40) }); }
     send({}, 'stop');
     res.end('data: [DONE]\n\n');

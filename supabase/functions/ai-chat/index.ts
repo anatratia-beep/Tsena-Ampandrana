@@ -814,7 +814,7 @@ async function fetchT(url, init, ms, outer) {
 async function probe(ep, ms = PROBE_MS) {
   const t0 = Date.now();
   const res = await fetchT(`${ep.base}/models`, { headers: ep.headers }, ms);
-  if (!res.ok) throw new Error(res.status === 401 ? "cl\xE9 API refus\xE9e (401)" : `r\xE9ponse ${res.status}`);
+  if (!res.ok) throw new HttpError(res.status, describe(res.status));
   const j = await res.json().catch(() => ({}));
   return { ms: Date.now() - t0, models: (j?.data ?? []).map((m) => String(m.id)) };
 }
@@ -840,7 +840,7 @@ async function pick(cfg) {
     }
   }
   const online = endpoint(cfg, "online");
-  if (!online) throw new UnavailableError(cfg.apiKey ? "adresse en ligne manquante" : "adresse locale injoignable et aucune cl\xE9 API pour l\u2019adresse en ligne");
+  if (!online) throw new UnavailableError(cfg.apiKey ? "adresse en ligne manquante" : "adresse locale injoignable et aucune cl\xE9 API pour l\u2019adresse en ligne", cfg.apiKey ? "unavailable" : "auth");
   chosen = { via: "online", at: Date.now(), sig };
   return online;
 }
@@ -849,9 +849,48 @@ function other(cfg, via) {
   if (ep) chosen = { via: ep.via, at: Date.now(), sig: sigOf(cfg) };
   return ep;
 }
-var UnavailableError = class extends Error {
-  constructor(m) {
+var ERR_MESSAGES = {
+  auth: "La cl\xE9 API du serveur IA est invalide ou absente (erreur 401). Un administrateur doit la v\xE9rifier (Param\xE8tres \u2192 Intelligence artificielle, ou secret Supabase AI_API_KEY).",
+  path: "L'adresse du serveur IA est incorrecte (erreur 404) : l'URL en ligne doit se terminer par /v1.",
+  down: "Le serveur IA est injoignable (erreur 502) : le PC qui fait tourner LM Studio est peut-\xEAtre \xE9teint ou LM Studio arr\xEAt\xE9.",
+  busy: "L'assistant est occup\xE9, r\xE9essayez dans un instant.",
+  timeout: "Le serveur IA met trop de temps \xE0 r\xE9pondre (plus de 180 s). R\xE9essayez avec une question plus simple.",
+  unavailable: "L'assistant IA est momentan\xE9ment indisponible. R\xE9essayez dans quelques minutes."
+};
+function describe(status) {
+  if (status === 401 || status === 403) return `cl\xE9 API invalide ou absente (${status})`;
+  if (status === 404) return "chemin introuvable (404) : l\u2019URL doit se terminer par /v1";
+  if (status === 502 || status === 504) return `serveur IA injoignable, PC de LM Studio \xE9teint ? (${status})`;
+  if (status === 429 || status === 503) return `serveur IA occup\xE9 (${status})`;
+  return `r\xE9ponse ${status}`;
+}
+function classify(e) {
+  if (e instanceof AiServerError) return e.code;
+  if (e instanceof HttpError) {
+    if (e.status === 401 || e.status === 403) return "auth";
+    if (e.status === 404) return "path";
+    if (e.status === 502 || e.status === 504) return "down";
+    if (e.status === 429 || e.status === 503) return "busy";
+  }
+  if (e instanceof TimeoutError) return "timeout";
+  return "unavailable";
+}
+var TimeoutError = class extends Error {
+  constructor(m = "d\xE9lai d\xE9pass\xE9 (180 s sans r\xE9ponse)") {
     super(m);
+    this.name = "TimeoutError";
+  }
+};
+var AiServerError = class extends Error {
+  constructor(code, detail) {
+    super(detail);
+    this.code = code;
+    this.name = "AiServerError";
+  }
+};
+var UnavailableError = class extends AiServerError {
+  constructor(m, code = "unavailable") {
+    super(code, m);
     this.name = "UnavailableError";
   }
 };
@@ -868,17 +907,20 @@ async function testConnection(cfg) {
       out.local = e?.message ?? String(e);
     }
   } else out.local = "adresse non renseign\xE9e";
-  const online = endpoint(cfg, "online");
-  if (online) {
-    try {
-      const r = await probe(online, 1e4);
-      Object.assign(out, { ok: true, via: "online", ms: r.ms, models: r.models, modelFound: r.models.includes(cfg.model) });
-      chosen = { via: "online", at: Date.now(), sig: sigOf(cfg) };
-    } catch (e) {
-      out.online = e?.message ?? String(e);
-    }
-  } else out.online = cfg.apiKey ? "adresse non renseign\xE9e" : "aucune cl\xE9 API enregistr\xE9e";
-  if (out.online) out.online = out.online.split(cfg.apiKey || "\0").join("\u2022\u2022\u2022\u2022");
+  if (!cfg.onlineUrl) {
+    out.online = "adresse non renseign\xE9e";
+    return out;
+  }
+  const online = endpoint(cfg, "online") ?? { via: "online", base: cfg.onlineUrl.trim().replace(/\/+$/, ""), headers: {} };
+  try {
+    const r = await probe(online, 1e4);
+    Object.assign(out, { ok: true, via: "online", ms: r.ms, models: r.models, modelFound: r.models.includes(cfg.model), onlineStatus: 200 });
+    chosen = { via: "online", at: Date.now(), sig: sigOf(cfg) };
+  } catch (e) {
+    out.onlineStatus = e instanceof HttpError ? e.status : 0;
+    out.online = e instanceof HttpError ? e.status === 401 || e.status === 403 ? cfg.apiKey ? `serveur joignable, mais cl\xE9 API invalide (${e.status})` : `serveur joignable, mais aucune cl\xE9 API enregistr\xE9e (${e.status})` : e.status === 502 || e.status === 504 ? `serveur IA injoignable : PC \xE9teint ou LM Studio arr\xEAt\xE9 ? (${e.status})` : describe(e.status) : `adresse injoignable : ${e?.message ?? e}`;
+  }
+  if (out.online && cfg.apiKey) out.online = out.online.split(cfg.apiKey).join("\u2022\u2022\u2022\u2022");
   return out;
 }
 var ThinkFilter = class {
@@ -938,7 +980,8 @@ var ThinkFilter = class {
     return out;
   }
 };
-async function readStream(res, ev) {
+async function readStream(res, ev, onChunk = () => {
+}) {
   const reader = res.body.getReader();
   const dec = new TextDecoder();
   const filter = new ThinkFilter();
@@ -975,7 +1018,7 @@ async function readStream(res, ev) {
       if (wasThinking || filter.inThink) think();
     }
     for (const tc of d.tool_calls ?? []) {
-      const i = tc.index ?? calls.length;
+      const i = tc.index ?? (calls.length && !tc.id ? calls.length - 1 : calls.length);
       calls[i] ??= { name: "", args: "" };
       if (tc.id) calls[i].id = tc.id;
       if (tc.function?.name) calls[i].name += tc.function.name;
@@ -986,6 +1029,7 @@ async function readStream(res, ev) {
   for (; ; ) {
     const { done, value } = await reader.read();
     if (done) break;
+    onChunk();
     pending += dec.decode(value, { stream: true });
     let nl;
     while ((nl = pending.indexOf("\n")) >= 0) {
@@ -999,9 +1043,20 @@ async function readStream(res, ev) {
   const toolCalls = calls.filter((c) => c && c.name).map((c, i) => ({ id: c.id || `call_${i}_${Date.now()}`, type: "function", function: { name: c.name, arguments: c.args || "{}" } }));
   return { content: filter.shown.trim(), toolCalls, finish };
 }
+var sleep = (ms, signal) => new Promise((ok, ko) => {
+  const t = setTimeout(ok, ms);
+  signal?.addEventListener("abort", () => {
+    clearTimeout(t);
+    ko(signal.reason ?? new Error("arr\xEAt\xE9"));
+  }, { once: true });
+});
+var REQUEST_MS = 18e4;
+var BUSY_WAIT_MS = 3e3;
 async function chatTurn(cfg, body, ev, signal) {
   let ep = await pick(cfg);
-  for (let attempt = 0; ; attempt++) {
+  const errors = [];
+  let busyRetried = false, switched = false;
+  for (; ; ) {
     let shown = false;
     const wrap = { thinking: ev.thinking, delta: (t) => {
       shown = true;
@@ -1010,29 +1065,58 @@ async function chatTurn(cfg, body, ev, signal) {
       shown = true;
       ev.replace(t);
     } };
+    const c = new AbortController();
+    const onOuter = () => c.abort(signal?.reason);
+    signal?.addEventListener("abort", onOuter);
+    let timer;
+    let timedOut = false;
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        timedOut = true;
+        c.abort(new TimeoutError());
+      }, REQUEST_MS);
+    };
     try {
-      const res = await fetchT(`${ep.base}/chat/completions`, {
+      arm();
+      const res = await fetch(`${ep.base}/chat/completions`, {
         method: "POST",
+        signal: c.signal,
         headers: { "Content-Type": "application/json", ...ep.headers },
         body: JSON.stringify({ model: cfg.model, stream: true, ...body })
-      }, 18e4, signal);
+      });
       if (!res.ok || !res.body) {
-        const txt = (await res.text().catch(() => "")).slice(0, 300);
-        throw new HttpError(res.status, res.status === 401 ? "cl\xE9 API refus\xE9e (401)" : `r\xE9ponse ${res.status} ${txt}`);
+        const txt = (await res.text().catch(() => "")).slice(0, 200);
+        throw new HttpError(res.status, `${describe(res.status)} ${txt}`.trim());
       }
-      const r = await readStream(res, wrap);
+      const r = await readStream(res, wrap, arm);
       return { ...r, via: ep.via };
-    } catch (e) {
-      if (signal?.aborted) throw e;
-      logError(cfg, `requ\xEAte ${ep.via} (essai ${attempt + 1})`, e);
-      if (e instanceof HttpError && e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 404 && e.status !== 408 && e.status !== 429) throw e;
-      const next = attempt === 0 ? other(cfg, ep.via) : null;
+    } catch (e0) {
+      if (signal?.aborted) throw e0;
+      const e = timedOut ? new TimeoutError() : e0;
+      errors.push(e);
+      logError(cfg, `requ\xEAte ${ep.via}`, e);
+      const code = classify(e);
+      if (code === "busy") {
+        if (busyRetried) throw new AiServerError("busy", e.message);
+        busyRetried = true;
+        if (shown) ev.replace("");
+        await sleep(BUSY_WAIT_MS, signal);
+        continue;
+      }
+      if (e instanceof HttpError && e.status >= 400 && e.status < 500 && ![401, 403, 404, 408].includes(e.status)) throw new AiServerError("unavailable", e.message);
+      const next = switched ? null : other(cfg, ep.via);
       if (!next) {
         chosen = null;
-        throw new UnavailableError(e?.message ?? String(e));
+        const codes = errors.map(classify);
+        throw new AiServerError(codes.find((x) => x !== "unavailable") ?? "unavailable", e?.message ?? String(e));
       }
+      switched = true;
       if (shown) ev.replace("");
       ep = next;
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onOuter);
     }
   }
 }
@@ -2473,7 +2557,6 @@ ${AI_CONTEXT_default}`;
 var CONTEXT_TOKENS = 32768;
 var OUTPUT_TOKENS = 8192;
 var MAX_TOOL_ROUNDS = 6;
-var UNAVAILABLE = "L'assistant IA est momentan\xE9ment indisponible. R\xE9essayez dans quelques minutes.";
 var CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -2527,7 +2610,7 @@ function createHandler(deps) {
       localUrl: (over?.localUrl ?? s.localUrl ?? DEFAULTS.localUrl).trim(),
       onlineUrl: (over?.onlineUrl ?? s.onlineUrl ?? DEFAULTS.onlineUrl).trim(),
       model: (over?.model || s.model || DEFAULTS.model).trim(),
-      apiKey: over?.apiKey || await apiKey()
+      apiKey: over?.apiKey || await apiKey() || deps.envKey || void 0
     };
     return { cfg, enabled: !!s.enabled };
   }
@@ -2550,7 +2633,8 @@ function createHandler(deps) {
       switch (body.action) {
         case "status": {
           const { cfg, enabled } = await config();
-          return json(200, { enabled, model: cfg.model, localUrl: cfg.localUrl, onlineUrl: cfg.onlineUrl, hasKey: !!cfg.apiKey, admin });
+          const saved = !!await apiKey();
+          return json(200, { enabled, model: cfg.model, localUrl: cfg.localUrl, onlineUrl: cfg.onlineUrl, hasKey: !!cfg.apiKey, keySource: saved ? "reglages" : deps.envKey ? "secret" : void 0, admin });
         }
         case "test": {
           if (!admin) return json(403, { error: "R\xE9serv\xE9 aux administrateurs." });
@@ -2645,7 +2729,8 @@ function createHandler(deps) {
         } catch (e) {
           if (!abort.signal.aborted) {
             logError(cfg, "conversation", e);
-            send({ type: "error", code: e instanceof UnavailableError ? "unavailable" : "error", message: UNAVAILABLE });
+            const code = classify(e);
+            send({ type: "error", code, message: ERR_MESSAGES[code] });
           }
         } finally {
           clearInterval(ping);
@@ -2668,4 +2753,4 @@ function createHandler(deps) {
 
 // src/ai/server/deno.ts
 var sql = postgres(Deno.env.get("SUPABASE_DB_URL"), { prepare: false, max: 3, idle_timeout: 20 });
-Deno.serve(createHandler({ sql, supabaseUrl: Deno.env.get("SUPABASE_URL"), anonKey: Deno.env.get("SUPABASE_ANON_KEY") }));
+Deno.serve(createHandler({ sql, supabaseUrl: Deno.env.get("SUPABASE_URL"), anonKey: Deno.env.get("SUPABASE_ANON_KEY"), envKey: Deno.env.get("AI_API_KEY") || void 0 }));

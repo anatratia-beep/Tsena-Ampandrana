@@ -40,9 +40,9 @@ async function callFn(body: Record<string, unknown>, signal?: AbortSignal, retri
 }
 const asJson = async <T,>(r: Promise<Response>) => (await r).json() as Promise<T>;
 
-export interface AiStatus { enabled: boolean; model: string; localUrl: string; onlineUrl: string; hasKey: boolean; admin: boolean }
+export interface AiStatus { enabled: boolean; model: string; localUrl: string; onlineUrl: string; hasKey: boolean; keySource?: 'reglages' | 'secret'; admin: boolean }
 export const aiStatus = () => asJson<AiStatus>(callFn({ action: 'status' }));
-export interface AiTest { ok: boolean; via?: 'local' | 'online'; ms?: number; modelFound?: boolean; models?: string[]; local?: string; online?: string }
+export interface AiTest { ok: boolean; via?: 'local' | 'online'; ms?: number; modelFound?: boolean; models?: string[]; local?: string; online?: string; onlineStatus?: number }
 export const aiTest = (over: { localUrl: string; onlineUrl: string; model: string; apiKey?: string }) => asJson<AiTest>(callFn({ action: 'test', ...over }));
 export const aiSetKey = (apiKey: string) => asJson<{ ok: boolean; hasKey: boolean }>(callFn({ action: 'set_key', apiKey }));
 

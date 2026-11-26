@@ -7,7 +7,7 @@ import './tz';
 import { get } from '../../lib/db';
 import type { User } from '../../lib/auth';
 import { refresh, type Sql } from './data';
-import { DEFAULTS, chatTurn, forgetChoice, logError, testConnection, UnavailableError, type AiConfig, type Msg } from './llm';
+import { DEFAULTS, ERR_MESSAGES, chatTurn, classify, forgetChoice, logError, testConnection, type AiConfig, type Msg } from './llm';
 import { ctxFor, isAdmin, runTool, toolsFor, TOOL_LABELS } from './tools';
 import { systemPrompt } from './prompt';
 
@@ -15,6 +15,8 @@ export interface Deps {
   sql: Sql;
   supabaseUrl: string;
   anonKey: string;
+  /** Clé API donnée en secret Supabase (AI_API_KEY), utilisée si aucune clé n'est enregistrée dans les réglages. */
+  envKey?: string;
   /** Vérifie le jeton de l'appareil (par défaut : auth/v1/user de Supabase). Renvoie vrai s'il est valide. */
   verifyToken?: (token: string) => Promise<boolean>;
 }
@@ -25,7 +27,6 @@ export interface AiSettings { id: 'ai'; enabled?: boolean; localUrl?: string; on
 const CONTEXT_TOKENS = 32768;
 const OUTPUT_TOKENS = 8192;
 const MAX_TOOL_ROUNDS = 6;
-const UNAVAILABLE = "L'assistant IA est momentanément indisponible. Réessayez dans quelques minutes.";
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -85,7 +86,7 @@ export function createHandler(deps: Deps) {
       localUrl: (over?.localUrl ?? s.localUrl ?? DEFAULTS.localUrl).trim(),
       onlineUrl: (over?.onlineUrl ?? s.onlineUrl ?? DEFAULTS.onlineUrl).trim(),
       model: (over?.model || s.model || DEFAULTS.model).trim(),
-      apiKey: over?.apiKey || (await apiKey()),
+      apiKey: over?.apiKey || (await apiKey()) || deps.envKey || undefined,
     };
     return { cfg, enabled: !!s.enabled };
   }
@@ -110,7 +111,8 @@ export function createHandler(deps: Deps) {
       switch (body.action) {
         case 'status': {
           const { cfg, enabled } = await config();
-          return json(200, { enabled, model: cfg.model, localUrl: cfg.localUrl, onlineUrl: cfg.onlineUrl, hasKey: !!cfg.apiKey, admin });
+          const saved = !!(await apiKey());
+          return json(200, { enabled, model: cfg.model, localUrl: cfg.localUrl, onlineUrl: cfg.onlineUrl, hasKey: !!cfg.apiKey, keySource: saved ? 'reglages' : deps.envKey ? 'secret' : undefined, admin });
         }
         case 'test': {
           if (!admin) return json(403, { error: 'Réservé aux administrateurs.' });
@@ -187,7 +189,8 @@ export function createHandler(deps: Deps) {
         } catch (e: any) {
           if (!abort.signal.aborted) {
             logError(cfg, 'conversation', e);
-            send({ type: 'error', code: e instanceof UnavailableError ? 'unavailable' : 'error', message: UNAVAILABLE });
+            const code = classify(e);
+            send({ type: 'error', code, message: ERR_MESSAGES[code] });
           }
         } finally {
           clearInterval(ping);

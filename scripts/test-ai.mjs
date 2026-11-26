@@ -223,6 +223,52 @@ ok((await j(await call({ action: 'status', userId: 'u-off' }))).status === 403, 
   ok(err && /momentanément indisponible/.test(err.message), 'local ET en ligne coupés → message clair', c3.ev);
   local.state.down = false; online.state.down = false; AI.forgetChoice();
 }
+
+// Vrai serveur IA (proxy devant LM Studio) : messages clairs pour 401 / 404 / 502, occupé, plusieurs outils.
+{
+  const nokey = AI.createHandler({ sql, supabaseUrl: 'x', anonKey: 'x', verifyToken: async () => true });
+  const T = async (h, body) => (await h(new Request('http://f', { method: 'POST', headers: { authorization: 'Bearer t' }, body: JSON.stringify({ userId: 'u-admin', ...body }) }))).json();
+  local.state.down = true; AI.forgetChoice();
+  await sql`delete from ai.secrets`;
+  const t0 = await T(nokey, { action: 'test' });
+  ok(!t0.ok && t0.onlineStatus === 401 && /joignable.*aucune clé/.test(t0.online), 'Tester sans clé : 401 → « serveur joignable, aucune clé »', t0);
+  const withEnv = AI.createHandler({ sql, supabaseUrl: 'x', anonKey: 'x', verifyToken: async () => true, envKey: KEY });
+  const st = await T(withEnv, { action: 'status' });
+  ok(st.hasKey && st.keySource === 'secret' && !JSON.stringify(st).includes(KEY), 'clé en secret Supabase AI_API_KEY reconnue (jamais renvoyée)', st);
+  const t1 = await T(withEnv, { action: 'test' });
+  ok(t1.ok && t1.via === 'online' && t1.onlineStatus === 200, 'Tester avec la clé du secret : 200 = OK En ligne', t1);
+  online.state.status = 502; AI.forgetChoice();
+  const t2 = await T(withEnv, { action: 'test' });
+  ok(!t2.ok && t2.onlineStatus === 502 && /PC éteint/.test(t2.online), 'Tester : 502 → « serveur IA injoignable (PC éteint ?) »', t2);
+  const t3 = await T(withEnv, { action: 'test', onlineUrl: 'http://127.0.0.1:18802/api' });
+  ok(!t3.ok && t3.onlineStatus === 404, 'Tester : mauvais chemin → 404', t3);
+  online.state.status = 0;
+  await sql`insert into ai.secrets (id, value) values ('api_key', ${KEY})`;
+  const chatErr = async (setup) => { setup(); AI.forgetChoice(); const c = await chat('u-admin', 'Bonjour'); return c.ev?.find((e) => e.type === 'error'); };
+  const e401 = await chatErr(() => { online.state.status = 401; });
+  ok(e401?.code === 'auth' && /clé API.*401/.test(e401.message), 'bulle : 401 → message clé invalide', e401);
+  const e404 = await chatErr(() => { online.state.status = 404; });
+  ok(e404?.code === 'path' && /404/.test(e404.message), 'bulle : 404 → message adresse incorrecte', e404);
+  const e502 = await chatErr(() => { online.state.status = 502; });
+  ok(e502?.code === 'down' && /PC qui fait tourner LM Studio/.test(e502.message), 'bulle : 502 → message PC éteint', e502);
+  online.state.status = 0;
+  online.state.failChat = 1; AI.forgetChoice();
+  let t = Date.now(); const cb = await chat('u-admin', 'Bonjour');
+  ok(cb.via === 'online' && /Vente sur place/.test(cb.text) && Date.now() - t >= 2900, 'occupé (503) : nouvel essai après 3 s, puis réponse', Date.now() - t);
+  online.state.failChat = 2; AI.forgetChoice();
+  const eb = (await chat('u-admin', 'Bonjour')).ev.find((e) => e.type === 'error');
+  ok(eb?.code === 'busy' && eb.message === "L'assistant est occupé, réessayez dans un instant.", 'occupé deux fois → « L’assistant est occupé, réessayez dans un instant »', eb);
+  online.state.failChat = 0; local.state.down = false; AI.forgetChoice();
+  local.state.multi = true;
+  const cm = await chat('u-admin', 'Combien de ventes cette semaine ?');
+  const lastReq = local.state.requests.at(-1).messages;
+  const toolMsgs = lastReq.filter((m) => m.role === 'tool');
+  ok(cm.tools.length === 2 && toolMsgs.length === 2 && toolMsgs[0].tool_call_id === 'call_1' && toolMsgs[1].tool_call_id === 'call_2' && /2 outil/.test(cm.text), 'plusieurs tool_calls dans un même message : les deux exécutés', cm.tools);
+  local.state.multi = false; local.state.emptyCalls = true;
+  const ce = await chat('u-admin', 'Bonjour');
+  ok(/Vente sur place/.test(ce.text) && ce.tools.length === 0 && ce.ev.at(-1).type === 'done', 'tool_calls vide = réponse finale', ce.text);
+  local.state.emptyCalls = false;
+}
 // Désactivation
 {
   await sql`update public.records set data = data || '{"enabled": false}'::jsonb where tbl = 'settings' and id = 'ai'`;

@@ -15,6 +15,7 @@ export function AiSettingsTab() {
   const [form, setForm] = useState({ enabled: !!s.enabled, localUrl: s.localUrl || AI_DEFAULTS.localUrl, onlineUrl: s.onlineUrl || AI_DEFAULTS.onlineUrl, model: s.model || AI_DEFAULTS.model });
   const [key, setKey] = useState('');
   const [hasKey, setHasKey] = useState<boolean | null>(null);
+  const [keySource, setKeySource] = useState<string | undefined>();
   const [statusErr, setStatusErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -23,7 +24,7 @@ export function AiSettingsTab() {
 
   useEffect(() => {
     if (!cloud) return;
-    aiStatus().then((r) => { setHasKey(r.hasKey); setStatusErr(''); }).catch((e) => setStatusErr(e.message));
+    aiStatus().then((r) => { setHasKey(r.hasKey); setKeySource(r.keySource); setStatusErr(''); }).catch((e) => setStatusErr(e.message));
   }, [cloud?.url]);
 
   const dirty = form.enabled !== !!s.enabled || form.localUrl !== (s.localUrl || AI_DEFAULTS.localUrl) || form.onlineUrl !== (s.onlineUrl || AI_DEFAULTS.onlineUrl) || form.model !== (s.model || AI_DEFAULTS.model) || !!key.trim();
@@ -33,7 +34,7 @@ export function AiSettingsTab() {
     if (!urlOk(form.localUrl) || !urlOk(form.onlineUrl)) { toast('Adresse invalide : elle doit commencer par http:// ou https://', 'error'); return; }
     setBusy(true);
     try {
-      if (key.trim()) { const r = await aiSetKey(key.trim()); setHasKey(r.hasKey); setKey(''); }
+      if (key.trim()) { const r = await aiSetKey(key.trim()); setHasKey(r.hasKey); setKeySource('reglages'); setKey(''); }
       await save('settings', { id: 'ai', enabled: form.enabled, localUrl: form.localUrl.trim(), onlineUrl: form.onlineUrl.trim(), model: form.model.trim() || AI_DEFAULTS.model }, { force: true });
       await audit('Paramètres IA', `Assistant IA ${form.enabled ? 'activé' : 'désactivé'} ; modèle ${form.model}${key.trim() ? ' ; clé API modifiée' : ''}`);
       toast('Réglages de l’assistant IA enregistrés');
@@ -42,7 +43,7 @@ export function AiSettingsTab() {
   }
   async function removeKey() {
     setBusy(true);
-    try { const r = await aiSetKey(''); setHasKey(r.hasKey); await audit('Paramètres IA', 'Clé API supprimée'); toast('Clé API supprimée'); }
+    try { const r = await aiSetKey(''); const st = await aiStatus().catch(() => null); setHasKey(st ? st.hasKey : r.hasKey); setKeySource(st?.keySource); await audit('Paramètres IA', 'Clé API supprimée'); toast('Clé API supprimée'); }
     catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
   }
   async function runTest() {
@@ -75,9 +76,9 @@ export function AiSettingsTab() {
           <TextField label="URL en ligne" value={form.onlineUrl} onChange={(v) => setForm({ ...form, onlineUrl: v })} placeholder={AI_DEFAULTS.onlineUrl} disabled={!editable} error={urlOk(form.onlineUrl) ? null : 'Adresse invalide'} />
           <div className="stack-s">
             {editable
-              ? <PasswordField label="Clé API (adresse en ligne)" value={key} onChange={setKey} autoComplete="new-password" hint={hasKey ? '•••• enregistrée — laissez vide pour la garder, ou tapez une nouvelle clé.' : hasKey === false ? 'Aucune clé enregistrée.' : 'Gardée côté serveur, jamais affichée.'} />
+              ? <PasswordField label="Clé API (adresse en ligne)" value={key} onChange={setKey} autoComplete="new-password" hint={hasKey ? (keySource === 'secret' ? '•••• enregistrée (secret Supabase AI_API_KEY). Une clé tapée ici la remplace.' : '•••• enregistrée — laissez vide pour la garder, ou tapez une nouvelle clé.') : hasKey === false ? 'Aucune clé enregistrée (ni ici, ni en secret Supabase AI_API_KEY).' : 'Gardée côté serveur, jamais affichée.'} />
               : <TextField label="Clé API (adresse en ligne)" value={hasKey ? '•••• enregistrée' : 'aucune'} onChange={() => {}} disabled />}
-            {editable && hasKey && <div><Button variant="quiet" icon="trash" busy={busy} onClick={removeKey}>Supprimer la clé enregistrée</Button></div>}
+            {editable && hasKey && keySource === 'reglages' && <div><Button variant="quiet" icon="trash" busy={busy} onClick={removeKey}>Supprimer la clé enregistrée</Button></div>}
           </div>
           <TextField label="Nom du modèle" value={form.model} onChange={(v) => setForm({ ...form, model: v })} placeholder={AI_DEFAULTS.model} disabled={!editable} />
         </div>
@@ -96,7 +97,8 @@ export function AiSettingsTab() {
           </span></div>
         ) : (
           <div className="notice notice-danger" role="status"><Icon name="alert" /><span>
-            <strong>Aucune adresse ne répond.</strong><br />Local : {test.local || '—'}<br />En ligne : {test.online || '—'}
+            <strong>{test.onlineStatus === 401 || test.onlineStatus === 403 ? 'Clé API invalide ou absente (401).' : test.onlineStatus === 502 || test.onlineStatus === 504 ? 'Serveur IA injoignable (PC éteint ?) — erreur 502.' : test.onlineStatus === 404 ? 'Adresse incorrecte (404) : l’URL doit se terminer par /v1.' : 'Aucune adresse ne répond.'}</strong>
+            <br />Local : {test.local || '—'}<br />En ligne : {test.online || '—'}
           </span></div>
         ))}
         <p className="small muted">Les appels à l’IA passent tous par la fonction cloud « ai-chat » : l’adresse locale n’est donc joignable que si ce serveur cloud peut l’atteindre (en pratique, c’est l’adresse en ligne qui sert).</p>
