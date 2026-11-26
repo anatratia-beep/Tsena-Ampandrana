@@ -11,6 +11,7 @@ import { Icon } from '../ui/icons';
 import { CloudFields } from './Auth';
 import { Zones } from './Deliveries';
 import { PrintersTab } from './Printers';
+import { AiSettingsTab } from '../ai/AiSettingsTab';
 import { ClearDataCard, ToolsTab } from './Tools';
 import { KEEP, deleteCloudBackup, pruneBackups } from '../lib/maintenance';
 import { ConflictsCard, DevicesCard } from './SyncCards';
@@ -23,6 +24,7 @@ const TABS = [
   { key: 'zones', label: 'Zones de livraison', perm: 'couriers.view' },
   { key: 'cloud', label: 'Cloud et synchronisation', perm: 'backup.manage' },
   { key: 'sauvegarde', label: 'Sauvegardes', perm: 'backup.manage' },
+  { key: 'ia', label: 'Intelligence artificielle', perm: 'settings.company' },
   { key: 'outils', label: 'Outils', perm: 'users.manage' },
   { key: 'systeme', label: 'Système', perm: 'system.admin' },
 ];
@@ -46,6 +48,7 @@ export function SettingsPage() {
       {current.key === 'zones' && <Zones />}
       {current.key === 'cloud' && <CloudTab />}
       {current.key === 'sauvegarde' && <BackupTab />}
+      {current.key === 'ia' && <AiSettingsTab />}
       {current.key === 'outils' && <ToolsTab />}
       {current.key === 'systeme' && <SystemTab />}
     </>

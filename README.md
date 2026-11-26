@@ -5,6 +5,7 @@ Logiciel de gestion commerciale : achats (Chine), stock, ventes en ligne et en b
 - **Application en ligne : https://ralinaivo-spec.github.io/TSENA-1/**
 - Cahier des charges : [docs/CAHIER_DES_CHARGES.md](docs/CAHIER_DES_CHARGES.md)
 - Relier au cloud : [docs/GUIDE_CLOUD.md](docs/GUIDE_CLOUD.md)
+- Assistant IA : [docs/GUIDE_IA.md](docs/GUIDE_IA.md)
 
 ## Avancement
 
@@ -21,6 +22,7 @@ Logiciel de gestion commerciale : achats (Chine), stock, ventes en ligne et en b
 | 8 | Sauvegardes avancées, réinitialisation par e-mail, outils | ✅ terminé |
 | 9 | Rôle Responsable (assigne les livreurs), versements des vendeurs au responsable, récap jours × pages avec boost et bénéfice par page | ✅ terminé |
 | 10 | Corrections (stock remis exactement), recherche exacte, inventaire complet, journal avec niveaux et vérification, points de restauration, alerte compte boost | ✅ terminé |
+| 11 | Assistant IA : bulle de discussion, réponses sur le logiciel et sur les données réelles (lecture seule, selon les droits), serveur IA local ou en ligne — [guide](docs/GUIDE_IA.md) | ✅ |
 
 ## Première connexion
 

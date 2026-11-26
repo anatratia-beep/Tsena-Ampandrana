@@ -1,0 +1,39 @@
+# Met en ligne la fonction cloud de l'assistant IA (Supabase « ai-chat ») à chaque évolution du logiciel sur main,
+# ou à la demande (onglet Actions → « Assistant IA » → Run workflow).
+# Nécessite deux secrets du dépôt (Settings → Secrets and variables → Actions) :
+#   SUPABASE_ACCESS_TOKEN : jeton personnel Supabase (supabase.com → Account → Access Tokens)
+#   SUPABASE_PROJECT_REF  : référence du projet (ex. abcdefghijklmnop, dans l'adresse https://abcdefghijklmnop.supabase.co)
+# Sans ces secrets, rien n'est fait. La clé du serveur IA n'est PAS ici : elle se saisit dans Paramètres → Intelligence artificielle.
+name: Assistant IA
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['src/ai/**', 'src/lib/**', 'docs/ai/**', 'scripts/ai-context.mjs', 'scripts/build-ai.mjs', 'src/App.tsx', 'src/pages/Settings.tsx']
+permissions:
+  contents: read
+concurrency:
+  group: ai-function
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - name: Secrets présents ?
+        id: check
+        run: if [ -n "$SUPABASE_ACCESS_TOKEN" ] && [ -n "$SUPABASE_PROJECT_REF" ]; then echo "ok=1" >> "$GITHUB_OUTPUT"; else echo "Secrets SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF absents : mise en ligne ignorée."; fi
+      - if: steps.check.outputs.ok == '1'
+        uses: actions/checkout@v4
+      - if: steps.check.outputs.ok == '1'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - if: steps.check.outputs.ok == '1'
+        run: npm install --no-audit --no-fund
+      - if: steps.check.outputs.ok == '1'
+        run: npm run ai:context && npm run ai:build
+      - if: steps.check.outputs.ok == '1'
+        run: npx --yes supabase@latest functions deploy ai-chat --project-ref "$SUPABASE_PROJECT_REF" --use-api

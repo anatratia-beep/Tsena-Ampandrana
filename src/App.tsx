@@ -42,6 +42,7 @@ import { WebShopPage } from './pages/WebShop';
 import { MyDeliveriesPage } from './pages/MyDeliveries';
 import { ExpensesPage } from './pages/Expenses';
 import { MyDayReportPage } from './pages/DayReport';
+import { ChatBubble } from './ai/ChatBubble';
 import { NotifBar, NotifBell, NotificationsPage, useNotifCount } from './ui/notifications';
 function NavNotifCount() { const n = useNotifCount(); return n ? <span className="nav-count">{n}</span> : null; }
 
@@ -236,6 +237,7 @@ function Shell() {
           <button onClick={() => setOpen(true)}><Icon name="menu" size={22} />Menu</button>
         </nav>
       </div>
+      <ChatBubble />
     </div>
   );
 }

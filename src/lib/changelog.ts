@@ -2,6 +2,9 @@
 // La plus récente en premier. `date` : AAAA-MM-JJ.
 export interface Release { date: string; items: string[] }
 export const CHANGELOG: Release[] = [
+  { date: '2026-11-26', items: [
+    'Nouvel assistant IA : une bulle en bas à droite répond aux questions sur le logiciel et sur vos données (ventes, stock, commandes, livreurs, dépenses…), en lecture seule et selon vos droits. À activer par l’administrateur dans Paramètres → Intelligence artificielle.',
+  ] },
   { date: '2026-11-16', items: [
     'Synchronisation : plusieurs onglets du logiciel ouverts sur le même ordinateur ne coupent plus la connexion au cloud (ils renouvelaient la connexion en même temps et le cloud la bloquait : les modifications, ex. un changement de prix, restaient sur l’appareil).',
     'Connexion expirée : l’appareil ne réessaie plus toutes les quelques secondes, mais toutes les 2 minutes en attendant le mot de passe.',

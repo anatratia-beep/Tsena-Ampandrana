@@ -108,6 +108,9 @@ async function refreshOnce(force: boolean): Promise<CloudConfig | null> {
   return next;
 }
 
+/** Connexion cloud à jour (jeton renouvelé si besoin), pour appeler une fonction cloud (ex. assistant IA). */
+export async function cloudSession(force = false): Promise<CloudConfig | null> { return freshConfig(force); }
+
 /** Reprend la connexion au cloud avec le mot de passe du compte, sans rien effacer (ventes en attente gardées). */
 export async function reloginCloud(password: string) {
   const cfg = getCloud();
