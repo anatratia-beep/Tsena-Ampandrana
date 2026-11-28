@@ -8,7 +8,7 @@ import { all, bizNow, get, newId, save } from './db';
 import { audit, currentUser } from './auth';
 import { addMoves, variantLabel, type Product, type StockMove, type Variant } from './catalog';
 import { assertOpenAt } from './closed';
-import { isWalkIn, linePrice, type Order, type OrderLine, type PayMethod, type Payment } from './orders';
+import { canEditPayDate, isWalkIn, linePrice, type Order, type OrderLine, type PayMethod, type Payment } from './orders';
 import type { Purchase, Reception } from './purchases';
 import type { PurchaseStatus } from './catalog';
 import { pointBefore } from './restorePoints';
@@ -165,4 +165,21 @@ export async function swapLineVariant(o: Order, lineId: string, variantId: strin
   ]);
   await save('orders', { id: o.id, lines: o.lines.map((x) => (x.id === lineId ? { ...x, variantId } : x)), events: [...(o.events || []), { at, text, user: u?.fullName }] });
   await audit('Article changé', `${o.number} — ${text}`, 'orders', o.id, 'high');
+}
+
+/** Responsable : corrige le prix d'un article d'une vente déjà enregistrée (prix de gros coché par erreur, prix mal saisi).
+ *  Le prix devient « manuel » ; la correction est notée dans l'historique et le journal. */
+export async function fixLinePrice(o: Order, lineId: string, price: number, reason: string) {
+  if (!canEditPayDate()) throw new Error('Seul le Responsable peut corriger le prix.');
+  const l = o.lines.find((x) => x.id === lineId);
+  if (!l) throw new Error('Article introuvable.');
+  if (!(price >= 0) || !isFinite(price)) throw new Error('Prix invalide.');
+  if (price === l.unitPrice && !l.wholesale) return;
+  assertOpenAt(o.dispatchedAt || o.createdAt, 'Correction du prix');
+  const at = bizNow(); const u = currentUser();
+  const v = get<Variant>('variants', l.variantId); const p = v && get<Product>('products', v.productId);
+  const ar = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} Ar`;
+  const text = `Prix corrigé : ${`${p?.name ?? '?'} ${variantLabel(v)}`.trim()} ${ar(l.unitPrice)} → ${ar(price)}${l.wholesale ? ' (prix de gros retiré)' : ''}${reason.trim() ? ` — ${reason.trim()}` : ''}`;
+  await save('orders', { id: o.id, lines: o.lines.map((x) => (x.id === lineId ? { ...x, unitPrice: price, priceManual: true, wholesale: false, keptPrice: undefined, keptWholesale: undefined } : x)), events: [...(o.events || []), { at, text, user: u?.fullName }] });
+  await audit('Prix corrigé', `${o.number} — ${text}`, 'orders', o.id, 'high');
 }

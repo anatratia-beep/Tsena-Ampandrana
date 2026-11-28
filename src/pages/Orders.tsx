@@ -12,7 +12,7 @@ import {
   type Courier, type Customer, type Order, type OrderLine, type OrderStatus, type PayMethod, type Payment, type Zone, orderText, customerText, findCustomerBy,
 } from '../lib/orders';
 import { useCompany } from '../lib/settings';
-import { canSwapLine, correctDiscount, correctWalkInSale, swapLineVariant, swapPriceOk, netMoves, refundSuggested, voidOrder } from '../lib/corrections';
+import { canSwapLine, correctDiscount, fixLinePrice, correctWalkInSale, swapLineVariant, swapPriceOk, netMoves, refundSuggested, voidOrder } from '../lib/corrections';
 import { approveRectify, canApproveRectify, cancelledBy, isSuper, planRectify, rectifyCancellation, rectifyRight, rectifySaleDay, rejectRectify, requestRectify, type RectifyDates } from '../lib/rectify';
 import { closedBy } from '../lib/closed';
 import { manualMethods } from '../ui/payments';
@@ -622,6 +622,7 @@ function OrderDetail({ id }: { id: string }) {
   const paidList = (o?.payments || []).filter((p) => p.amount > 0);
   const canFixPay = can('users.manage') || can('records.correct') || can('handover.receive');
   const [swapLine, setSwapLine] = useState<OrderLine | null>(null);
+  const [priceLine, setPriceLine] = useState<OrderLine | null>(null); // Responsable : corriger le prix d'un article
   const [modal, setModal] = useState<'' | 'edit' | 'dispatch' | 'return' | 'pay' | 'cancel' | 'exchange' | 'shop' | 'pickup' | 'reassign' | 'settle' | 'postpone' | 'void' | 'correct' | 'rectify' | 'rejectRect' | 'approveRect' | 'moveDay'>('');
   const [payFee, setPayFee] = useState(false);
   if (!o) return <Empty icon="list" title="Commande introuvable"><Button variant="ghost" onClick={() => navigate('/commandes')}>Retour</Button></Empty>;
@@ -702,7 +703,7 @@ function OrderDetail({ id }: { id: string }) {
                 const q = closed ? (l.qtyKept ?? 0) : l.isChoice ? 0 : l.qty;
                 return (
                   <tr key={l.id}>
-                    <td><div className="row" style={{ gap: 10, flexWrap: 'nowrap' }}><Thumb src={photoOf(v)} size={56} zoom alt={p?.name} /><div><strong>{p?.name}</strong><div className="small muted">{p?.code} · {variantLabel(v)}{l.isChoice ? ' · en choix' : ''}</div><LotTag l={l} /></div></div>{canApproveRectify() && canSwapLine(o, l) && <div><Button variant="quiet" className="btn-sm" icon="edit" onClick={() => setSwapLine(l)}>Changer l’article</Button></div>}</td>
+                    <td><div className="row" style={{ gap: 10, flexWrap: 'nowrap' }}><Thumb src={photoOf(v)} size={56} zoom alt={p?.name} /><div><strong>{p?.name}</strong><div className="small muted">{p?.code} · {variantLabel(v)}{l.isChoice ? ' · en choix' : ''}</div><LotTag l={l} /></div></div>{canApproveRectify() && canSwapLine(o, l) && <div><Button variant="quiet" className="btn-sm" icon="edit" onClick={() => setSwapLine(l)}>Changer l’article</Button></div>}{canEditPayDate() && o.status !== 'cancelled' && <div><Button variant="quiet" className="btn-sm" icon="edit" onClick={() => setPriceLine(l)}>Corriger le prix{l.wholesale ? ' (prix de gros)' : ''}</Button></div>}</td>
                     <td className="t-num num">{l.qty}</td>
                     {closed && <td className={`t-num num ${(l.qtyKept ?? 0) < l.qty && !l.isChoice ? 'neg' : ''}`}>{l.qtyKept ?? 0}</td>}
                     <td className="t-num">{fmtAr(l.unitPrice)}</td>
@@ -807,6 +808,7 @@ function OrderDetail({ id }: { id: string }) {
       {modal === 'void' && <VoidModal order={o} onClose={() => setModal('')} />}
       {modal === 'correct' && <CorrectSaleModal order={o} onClose={() => setModal('')} />}
       {swapLine && <SwapLineModal order={o} line={swapLine} onClose={() => setSwapLine(null)} />}
+      {priceLine && <FixPriceModal order={o} line={priceLine} onClose={() => setPriceLine(null)} />}
       {modal === 'discount' && <DiscountFixModal order={o} onClose={() => setModal('')} />}
       {modal === 'rectify' && <RectifyModal order={o} onClose={() => setModal('')} />}
       {modal === 'rejectRect' && <RejectRectifyModal order={o} onClose={() => setModal('')} />}
@@ -1086,6 +1088,26 @@ function DiscountFixModal({ order: o, onClose }: { order: Order; onClose: () => 
           <div><span className="small muted">Déjà payé</span><strong>{fmtAr(paidTotal(o))}</strong></div>
           <div><span className="small muted">Reste à payer après</span><strong>{fmtAr(orderTotal(after) - paidTotal(o))}</strong></div>
         </div>
+      </div>
+    </Modal>
+  );
+}
+
+function FixPriceModal({ order: o, line: l, onClose }: { order: Order; line: OrderLine; onClose: () => void }) {
+  const retail = linePrice(l.variantId, false);
+  const [val, setVal] = useState(String(l.wholesale || l.unitPrice < retail ? retail : l.unitPrice)), [reason, setReason] = useState(''), [busy, setBusy] = useState(false);
+  const v = get<Variant>('variants', l.variantId); const p = v && get<Product>('products', v.productId);
+  const n = parseNum(val);
+  return (
+    <Modal title={`Corriger le prix — ${o.number}`} onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button busy={busy} disabled={n == null || n < 0} onClick={async () => {
+        setBusy(true);
+        try { await fixLinePrice(o, l.id, n!, reason); toast('Prix corrigé'); onClose(); } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
+      }}>Enregistrer</Button></>}>
+      <div className="stack">
+        <p className="small muted" style={{ margin: 0 }}><strong>{p?.name} {variantLabel(v)}</strong> : prix actuel <strong>{fmtAr(l.unitPrice)}</strong>{l.wholesale ? ' (prix de gros coché)' : ''} · prix normal {fmtAr(retail)}. Le total de la vente, le reste à encaisser et les rapports suivent le nouveau prix.</p>
+        <TextField label="Prix unitaire (Ar)" inputMode="numeric" value={val} onChange={setVal} hint={l.wholesale ? 'Le « Prix de gros » sera retiré.' : undefined} />
+        <TextField label="Motif" value={reason} onChange={setReason} placeholder="Prix de gros coché par erreur…" />
       </div>
     </Modal>
   );
