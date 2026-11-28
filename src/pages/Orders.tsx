@@ -617,6 +617,7 @@ function OrderDetail({ id }: { id: string }) {
   useTable<Zone>('zones');
   const o = orders.find((x) => x.id === id);
   const [editPay, setEditPay] = useState<{ p: Payment; refOnly?: boolean } | null>(null);
+  const [unpaidPay, setUnpaidPay] = useState<Payment | null>(null); // Responsable : « payé » cliqué mais argent pas reçu
   const canFixPay = can('users.manage') || can('records.correct') || can('handover.receive');
   const [swapLine, setSwapLine] = useState<OrderLine | null>(null);
   const [modal, setModal] = useState<'' | 'edit' | 'dispatch' | 'return' | 'pay' | 'cancel' | 'exchange' | 'shop' | 'pickup' | 'reassign' | 'settle' | 'postpone' | 'void' | 'correct' | 'rectify' | 'rejectRect' | 'approveRect' | 'moveDay'>('');
@@ -750,6 +751,7 @@ function OrderDetail({ id }: { id: string }) {
                   {p.method !== 'cash' && !p.ref && <p className="small" style={{ color: 'var(--warn, #9a6700)' }}>Référence de la transaction pas encore saisie{can('orders.create') ? <> · <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => setEditPay({ p, refOnly: true })}>Ajouter la référence</button></> : null}</p>}
                 </div>
                 {canFixPay && <IconButton icon="edit" label="Corriger ce paiement (montant, moyen, référence, reçu par)" onClick={() => setEditPay({ p })} />}
+                {canEditPayDate() && p.amount > 0 && <Button variant="ghost" className="btn-sm" aria-label={`Impayé : ${fmtAr(p.amount)} pas reçu`} onClick={() => setUnpaidPay(p)}>Impayé</Button>}
               </li>
             ); })}
           </ul>
@@ -792,6 +794,9 @@ function OrderDetail({ id }: { id: string }) {
       {modal === 'pickup' && <PickupModal order={o} onClose={() => setModal('')} />}
       {modal === 'reassign' && <ReassignModal order={o} onClose={() => setModal('')} />}
       {editPay && <EditPaymentModal order={o} payment={editPay.p} refOnly={editPay.refOnly} onClose={() => setEditPay(null)} />}
+      {unpaidPay && <Confirm title="Argent pas reçu : impayé" confirmLabel="Mettre en impayé" danger onClose={() => setUnpaidPay(null)}
+        message={<div className="stack-s"><p>« Payé » a été cliqué pour <strong className="num">{fmtAr(unpaidPay.amount)}</strong> ({PAY_METHODS[unpaidPay.method]}, le {fmtDateTime(unpaidPay.at)}) mais l’argent n’a pas été reçu ?</p><p>Le paiement passe à 0 Ar : la vente redevient <strong>impayée</strong> et apparaît dans la liste des impayés. La correction reste visible sous le paiement et dans le journal.</p></div>}
+        onConfirm={async () => { try { await editPayment(o, unpaidPay.id, { amount: 0, method: unpaidPay.method, ref: unpaidPay.ref, receivedBy: unpaidPay.receivedBy }, 'Argent pas reçu (impayé)'); toast('Mis en impayé'); setUnpaidPay(null); } catch (e: any) { toast(e.message, 'error'); } }} />}
       {modal === 'cancel' && <CancelModal order={o} onClose={() => setModal('')} />}
       {modal === 'postpone' && <PostponeModal order={o} onClose={() => setModal('')} />}
       {modal === 'void' && <VoidModal order={o} onClose={() => setModal('')} />}
