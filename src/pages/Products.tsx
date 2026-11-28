@@ -283,6 +283,8 @@ function ProductDetail({ id }: { id: string }) {
         </div>
       </div>
 
+      <MoveSummary moves={allMoves.filter((m) => vIds.has(m.variantId))} variants={variants} />
+
       <div className="card card-flush">
         <div className="card-pad"><h2>Mouvements de stock</h2></div>
         {moves.length === 0 ? <Empty icon="list" title="Aucun mouvement" /> : (
@@ -684,5 +686,45 @@ function DuplicatesModal({ onClose }: { onClose: () => void }) {
         ))}
       </div>
     </Modal>
+  );
+}
+
+/** Résumé des mouvements de stock depuis une date (ex. le jour du comptage) : stock au début, total par type, stock
+ *  aujourd'hui. Pour retrouver un écart entre le comptage à la main et le stock de l'application. */
+function MoveSummary({ moves, variants }: { moves: StockMove[]; variants: Variant[] }) {
+  const day = (iso: string) => { const d = new Date(iso), z = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`; };
+  const first = moves.reduce((m, x) => (!m || x.at < m ? x.at : m), '');
+  const [from, setFrom] = useState(first ? day(first) : '');
+  const [vid, setVid] = useState('');
+  const [open, setOpen] = useState<string | null>(null);
+  if (!moves.length) return null;
+  const list = moves.filter((m) => !vid || m.variantId === vid);
+  const before = list.filter((m) => day(m.at) < from).reduce((t, m) => t + m.qty, 0);
+  const after = list.filter((m) => day(m.at) >= from).sort((a, b) => a.at.localeCompare(b.at));
+  const types = Object.keys(MOVE_LABELS) as StockMove['type'][];
+  const rows = types.map((t) => { const ms = after.filter((m) => m.type === t); return { t, ms, plus: ms.filter((m) => m.qty > 0).reduce((s, m) => s + m.qty, 0), minus: ms.filter((m) => m.qty < 0).reduce((s, m) => s + m.qty, 0) }; }).filter((r) => r.ms.length);
+  const now = before + after.reduce((t, m) => t + m.qty, 0);
+  const sg = (n: number) => (n > 0 ? `+${fmtNum(n)}` : n < 0 ? `−${fmtNum(-n)}` : '0');
+  return (
+    <div className="card card-flush">
+      <div className="card-pad row-between" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <div><h2>Résumé du stock depuis une date</h2><p className="small muted" style={{ margin: 0 }}>Pour comparer avec votre comptage : stock au début, chaque type de mouvement, stock aujourd’hui. Touchez une ligne pour voir le détail.</p></div>
+        <div className="row" style={{ gap: 6 }}>
+          {variants.length > 1 && <select className="cell-input" style={{ width: 'auto' }} aria-label="Variante" value={vid} onChange={(e) => setVid(e.target.value)}><option value="">Toutes les variantes</option>{variants.map((v) => <option key={v.id} value={v.id}>{variantLabel(v)}</option>)}</select>}
+          <input type="date" className="cell-input" style={{ width: 'auto' }} aria-label="Depuis le" value={from} onChange={(e) => e.target.value && setFrom(e.target.value)} />
+        </div>
+      </div>
+      <div className="table-wrap"><table className="table">
+        <thead><tr><th>Ligne</th><th className="t-num">Entrées</th><th className="t-num">Sorties</th><th className="t-num">Total</th></tr></thead>
+        <tbody>
+          <tr><td>Stock avant le {from.split('-').reverse().join('/')}</td><td></td><td></td><td className="t-num num"><strong>{fmtNum(before)}</strong></td></tr>
+          {rows.map((r) => [
+            <tr key={r.t} className="row-link" onClick={() => setOpen(open === r.t ? null : r.t)}><td>{MOVE_LABELS[r.t]} <span className="small muted">({r.ms.length})</span></td><td className="t-num num pos">{r.plus ? `+${fmtNum(r.plus)}` : '—'}</td><td className="t-num num neg">{r.minus ? `−${fmtNum(-r.minus)}` : '—'}</td><td className="t-num num">{sg(r.plus + r.minus)}</td></tr>,
+            open === r.t && <tr key={`${r.t}-d`}><td colSpan={4} className="small muted">{r.ms.map((m) => <div key={m.id}>{fmtDateTime(m.at)} · {sg(m.qty)}{m.reason ? ` · ${m.reason}` : ''}</div>)}</td></tr>,
+          ])}
+          <tr className="t-total"><td>Stock aujourd’hui</td><td></td><td></td><td className="t-num num"><strong>{fmtNum(now)}</strong></td></tr>
+        </tbody>
+      </table></div>
+    </div>
   );
 }
