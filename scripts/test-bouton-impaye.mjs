@@ -28,6 +28,7 @@ const open = async () => { await p.goto('http://localhost:5173/#/commandes/o1');
 await logout(); await login('gerant'); await open();
 ok(await p.getByRole('button', { name: /^Impayé/ }).count() === 0, 'Gérant : pas de bouton « Impayé »');
 await logout(); await login('resp'); await open();
+if (process.env.SHOT0) await p.locator('main .card').first().screenshot({ path: process.env.SHOT0 });
 await p.getByRole('button', { name: /^Impayé/ }).click(); await p.waitForTimeout(300);
 if (process.env.SHOT) await p.getByRole('dialog').screenshot({ path: process.env.SHOT });
 await p.getByRole('dialog').getByRole('button', { name: 'Mettre en impayé' }).click(); await p.waitForTimeout(500);

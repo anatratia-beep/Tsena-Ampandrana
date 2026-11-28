@@ -618,6 +618,8 @@ function OrderDetail({ id }: { id: string }) {
   const o = orders.find((x) => x.id === id);
   const [editPay, setEditPay] = useState<{ p: Payment; refOnly?: boolean } | null>(null);
   const [unpaidPay, setUnpaidPay] = useState<Payment | null>(null); // Responsable : « payé » cliqué mais argent pas reçu
+  const [unpaidPick, setUnpaidPick] = useState(false);
+  const paidList = (o?.payments || []).filter((p) => p.amount > 0);
   const canFixPay = can('users.manage') || can('records.correct') || can('handover.receive');
   const [swapLine, setSwapLine] = useState<OrderLine | null>(null);
   const [modal, setModal] = useState<'' | 'edit' | 'dispatch' | 'return' | 'pay' | 'cancel' | 'exchange' | 'shop' | 'pickup' | 'reassign' | 'settle' | 'postpone' | 'void' | 'correct' | 'rectify' | 'rejectRect' | 'approveRect' | 'moveDay'>('');
@@ -676,6 +678,7 @@ function OrderDetail({ id }: { id: string }) {
           {closed && can('records.correct') && <Button variant="danger" icon="trash" onClick={() => setModal('void')}>Annuler / supprimer la vente</Button>}
           {closed && !can('records.correct') && <span className="small muted">Erreur sur cette vente ? Le gérant ou le super-admin peut la corriger ou l’annuler.</span>}
           {canMoveValidation(o) && <Button variant="ghost" icon="clock" onClick={() => setModal('moveDay')}>Modifier la date de validation</Button>}
+          {canEditPayDate() && paidList.length > 0 && <Button variant="ghost" onClick={() => (paidList.length === 1 ? setUnpaidPay(paidList[0]) : setUnpaidPick(true))}>Impayé (argent pas reçu)</Button>}
           {o.status === 'cancelled' && !o.rectifyRequest && (() => { const r = rectifyRight(o); return r.mode !== 'none'
             ? <Button variant="ghost" icon="refresh" onClick={() => setModal('rectify')}>Rectifier une annulation</Button>
             : r.why && o.kind !== 'exchange' ? <span className="small muted">{r.why}</span> : null; })()}
@@ -751,7 +754,6 @@ function OrderDetail({ id }: { id: string }) {
                   {p.method !== 'cash' && !p.ref && <p className="small" style={{ color: 'var(--warn, #9a6700)' }}>Référence de la transaction pas encore saisie{can('orders.create') ? <> · <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => setEditPay({ p, refOnly: true })}>Ajouter la référence</button></> : null}</p>}
                 </div>
                 {canFixPay && <IconButton icon="edit" label="Corriger ce paiement (montant, moyen, référence, reçu par)" onClick={() => setEditPay({ p })} />}
-                {canEditPayDate() && p.amount > 0 && <Button variant="ghost" className="btn-sm" aria-label={`Impayé : ${fmtAr(p.amount)} pas reçu`} onClick={() => setUnpaidPay(p)}>Impayé</Button>}
               </li>
             ); })}
           </ul>
@@ -794,6 +796,9 @@ function OrderDetail({ id }: { id: string }) {
       {modal === 'pickup' && <PickupModal order={o} onClose={() => setModal('')} />}
       {modal === 'reassign' && <ReassignModal order={o} onClose={() => setModal('')} />}
       {editPay && <EditPaymentModal order={o} payment={editPay.p} refOnly={editPay.refOnly} onClose={() => setEditPay(null)} />}
+      {unpaidPick && <Modal title="Impayé : quel paiement n’a pas été reçu ?" onClose={() => setUnpaidPick(false)}>
+        <ul className="list">{paidList.map((p) => <li key={p.id} className="list-item" style={{ padding: '8px 0' }}><div className="list-item-main"><strong className="num">{fmtAr(p.amount)}</strong> · {PAY_METHODS[p.method]}<p className="small muted">{fmtDateTime(p.at)}</p></div><Button variant="ghost" className="btn-sm" onClick={() => { setUnpaidPick(false); setUnpaidPay(p); }}>Pas reçu</Button></li>)}</ul>
+      </Modal>}
       {unpaidPay && <Confirm title="Argent pas reçu : impayé" confirmLabel="Mettre en impayé" danger onClose={() => setUnpaidPay(null)}
         message={<div className="stack-s"><p>« Payé » a été cliqué pour <strong className="num">{fmtAr(unpaidPay.amount)}</strong> ({PAY_METHODS[unpaidPay.method]}, le {fmtDateTime(unpaidPay.at)}) mais l’argent n’a pas été reçu ?</p><p>Le paiement passe à 0 Ar : la vente redevient <strong>impayée</strong> et apparaît dans la liste des impayés. La correction reste visible sous le paiement et dans le journal.</p></div>}
         onConfirm={async () => { try { await editPayment(o, unpaidPay.id, { amount: 0, method: unpaidPay.method, ref: unpaidPay.ref, receivedBy: unpaidPay.receivedBy }, 'Argent pas reçu (impayé)'); toast('Mis en impayé'); setUnpaidPay(null); } catch (e: any) { toast(e.message, 'error'); } }} />}
